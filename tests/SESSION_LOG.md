@@ -1816,3 +1816,102 @@ Suite after r169: 1477 passed, 0 failed. verify_suite
   renderer was not descending into the dict.
   The fix was the parent-strip + recurse
   refactor.
+
+## r170 — report format faces: every report surface speaks dot-paths
+
+r158's two-faces rule says every report subcommand answers
+`--json`; r170 completes the same rule for `--format`: every
+report face can render a single scalar without the host piping
+the whole JSON through `jq`. The r169 renderer (`_resolve_path`
+/ `_format_path` / `_format_paths`) is shared, unchanged —
+the round is pure surface wiring plus the parity pins.
+
+Faces covered:
+
+- `seam --format` — the seam still records its history row; the
+  reentry banner and the ledger dump are text-face only, the
+  way `seam --json` drops them. `trend.score.value` resolves
+  to the bare health integer.
+- `resume --format` — the premise prose and the reentry banner
+  are dropped; the side effect (one appended history row) is
+  unchanged, so `resume --format history_count` returns the
+  post-append count.
+- `ship --format` — the exit contract is byte-identical across
+  faces: `--strict` gating is decided before the renderer is
+  chosen, so `ship draft.md --strict --format exit` prints `2`
+  and exits 2 exactly when the JSON face would.
+- `skillbook --format` — paths resolve against a dict root
+  `{"entries": [...]}` so `entries[0].kind` works; the bare-list
+  JSON face is unchanged for hosts that already parse it.
+- `discover --format` — `domains[0].name`, `domains[0].visits`,
+  and `suggested_next` resolve straight off the payload.
+- `audit --format` — `net`, `gate`, `by_tag.delete`, `lean`
+  resolve off the r162 payload; the `--strict` exit contract
+  matches the JSON face (finding + strict = exit 1 both ways).
+
+Excluded on purpose, with reasons:
+
+- `info` — owns `--format` since r169 (the original surface).
+- `history` — its `--format` is the older per-row template
+  renderer (`%h %n`, the `git log --format` borrow); the
+  dot-path renderer would clash, and `--fields` already covers
+  the projection need. The r170 tests pin that the template
+  still renders `%n` as the next action.
+- `note` — an editor, not a report; r158 excluded it from the
+  JSON parity and r170 excludes it here for the same reason.
+  The parity test pins that argparse still refuses
+  `note --format`.
+
+The feature catalog gained one entry
+(`report-format-faces`, since r170), so a host can probe
+"does this build support --format on every report face?" via
+`info --format 'features[*].id'` and grep the result.
+
+### Tests
+test_r170_report_format_faces.py — 23 tests in six sub-suites:
+`SeamFormatTests` (4: score value is a bare integer with no
+banner, the side effect records the history row, multi-path,
+missing path empty); `ResumeFormatTests` (3: prose and banner
+dropped, side effect unchanged, risk.level enum);
+`ShipFormatTests` (4: exit renders, exit contract matches the
+JSON face, strict gate exits 2 through both faces, findings
+list renders); `SkillbookFormatTests` (2: entries dict root,
+empty book renders empty); `DiscoverFormatTests` (3: first
+domain, suggested_next, integer visits); `AuditFormatTests`
+(4: net+gate, nested by_tag, strict exit contract both faces,
+lean bool); `ParityTests` (3: every report face accepts
+--format, note refuses it, history keeps its template).
+
+Suite after r170: 1500 passed, 0 failed. verify_suite 9/9.
+
+### Gotchas
+- The `--format` short-circuit must sit inside the widened
+  payload branch (`if json_flag or format_path is not None:`)
+  — the first cut put it inside the plain `if json_flag:`
+  branch, so `resume --format x` printed the text face and
+  ignored the format. Same for seam/discover/audit/ship.
+  The lesson: a short-circuit that lives inside a conditional
+  face branch is unreachable when the face flag is absent;
+  widen the branch, then branch on the renderer.
+- seam and resume both print a text-face banner (reentry
+  header / premise prose) BEFORE the payload branch. Each
+  needed its banner condition widened to
+  `not (json_flag or quiet or format_path is not None)` —
+  otherwise the --format output was prefixed with prose the
+  host cannot parse. r158 hit the same shape with
+  `print_reentry`; r170's fix mirrors that round's guard.
+- discover's domain is the prefix before the first colon. The
+  first test fixtures used `dom: alpha` rows and expected the
+  domain to be `alpha`; the rendered value was `dom`. The
+  fixtures were rewritten as `alpha: step one` so the domain
+  under test is the name being asserted.
+- argparse prints American spelling ("unrecognized
+  arguments"); the note-refusal parity test initially
+  asserted the British spelling and failed on the string
+  mismatch, not on the parser behaviour.
+- history's `--format` template renderer takes precedence in
+  its own parser; the dot-path renderer never touches it.
+  A host that wants dot-paths over history rows can pipe
+  `history --json` into jq, or use `--fields` for the
+  projection; both contracts are pinned by the r157/r169
+  suites and re-pinned here.

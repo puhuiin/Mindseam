@@ -4576,7 +4576,7 @@ def remediation_suggestions(facts, score, book=None):
 
 
 def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
-            from_stdin=False):
+              from_stdin=False, format_path=None):
     """Run a seam: re-anchor, record a history row, surface observations.
 
     ``--json`` mirrors the full text report machine-readably; ``--quiet``
@@ -4603,7 +4603,10 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
                 extra_nexts.append(nxt)
     hist, _, repair_reasons = read_history()
     gap = int(time.time()) - hist[-1]["t"] if hist else 0
-    if not (json_flag or quiet):
+    if not (json_flag or quiet or format_path is not None):
+        # The reentry banner and the ledger dump are text-face
+        # only; a --format host reads a scalar, the way
+        # ``seam --json`` drops them too.
         if gap > RESUME_GAP:
             print_reentry(
                 book,
@@ -4646,7 +4649,7 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
     health_score, health_reasons = session_health_score(hist, book=book)
     write_meta(meta)
     write_skillbook(extract_skillbook(hist))
-    if json_flag:
+    if json_flag or format_path is not None:
         payload = _seam_json_payload(book, hist, found, gap)
         payload["state_repairs"] = list(state_reasons)
         payload["telemetry"] = {
@@ -4674,6 +4677,9 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
         elif from_stdin:
             payload.setdefault("warnings", []).append(
                 "from-stdin: 0 next actions recorded")
+        if format_path is not None:
+            print(_format_paths(payload, format_path))
+            return 0
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
     if quiet:
@@ -4757,7 +4763,7 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
     return 0
 
 
-def mode_resume(book, json_flag=False):
+def mode_resume(book, json_flag=False, format_path=None):
     """Re-anchor after a gap: premise, invariants, full ledger.
 
     ``--json`` borrows the ``gh --json`` family the way the other
@@ -4769,7 +4775,10 @@ def mode_resume(book, json_flag=False):
     either face, the way ``seam --json`` does.
     """
     hist, _, repair_reasons = read_history()
-    if not json_flag:
+    if not json_flag and format_path is None:
+        # The premise prose and the reentry banner are text-face
+        # only; a --format host reads a scalar, not prose, the
+        # way ``resume --json`` drops them too.
         print_reentry(book, "── mindseam ─ resume")
     hist, compact_reasons = append_history(book)
     state_reasons = repair_reasons + compact_reasons
@@ -4786,7 +4795,7 @@ def mode_resume(book, json_flag=False):
         trend_parts.append("score: %d/100 (%s)" % (score, score_grade))
         if score_reasons:
             trend_parts.append("score factors: %s" % ", ".join(score_reasons))
-    if json_flag:
+    if json_flag or format_path is not None:
         payload = {
             "ledger": {
                 "goal": one(book, "Goal") or None,
@@ -4812,6 +4821,9 @@ def mode_resume(book, json_flag=False):
                 },
             },
         }
+        if format_path is not None:
+            print(_format_paths(payload, format_path))
+            return 0
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
     if state_reasons:
@@ -5190,7 +5202,7 @@ def claim_without_coverage(lines):
     return flush()
 
 
-def mode_ship(book, text, strict=False, json_flag=False):
+def mode_ship(book, text, strict=False, json_flag=False, format_path=None):
     """Report inner-register leakage and completion-gate observations in outgoing text.
 
     A report, not a gate by default: it exits 0 whether or not it finds anything, because
@@ -5260,7 +5272,7 @@ def mode_ship(book, text, strict=False, json_flag=False):
     escalation = detect_risk_escalation(hist)
     recovery = detect_recovery(hist)
 
-    if json_flag:
+    if json_flag or format_path is not None:
         payload = {
             "clean": not (findings or gate or risk_reasons
                           or escalation or recovery),
@@ -5275,6 +5287,14 @@ def mode_ship(book, text, strict=False, json_flag=False):
             "strict": bool(strict),
             "exit": 2 if (strict and gate) else 0,
         }
+        if format_path is not None:
+            # The exit contract is byte-identical across
+            # faces: --strict gating is decided before the
+            # renderer is chosen, so a host gating on the
+            # process exit code gets the same answer
+            # through --format as through --json.
+            print(_format_paths(payload, format_path))
+            return payload["exit"]
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return payload["exit"]
     if not findings and not gate and not risk_reasons and not escalation and not recovery:
@@ -6374,6 +6394,9 @@ _FEATURE_CATALOG = (
     {"id": "info-format", "since": "r169",
      "summary": "info --format path1,path2 prints only the values at the given dot-paths (like docker inspect --format / jq -r)",
      "default": True},
+    {"id": "report-format-faces", "since": "r170",
+     "summary": "seam / resume / ship / skillbook / discover / audit carry the same --format dot-path renderer; history keeps its template form",
+     "default": True},
 )
 
 
@@ -7153,15 +7176,21 @@ def write_skillbook(entries):
     atomic_write_text(SKILLBOOK, json.dumps(entries, ensure_ascii=False, indent=2))
 
 
-def mode_skillbook(json_flag=False):
+def mode_skillbook(json_flag=False, format_path=None):
     """Print the recurring-pattern skillbook.
 
     The seam command refreshes ``.mindseam/skillbook.md`` as a side
     effect; this subcommand prints the same entries on demand, in
-    plain text or JSON.
+    plain text or JSON. ``--format`` resolves dot-paths against a
+    dict root ``{"entries": [...]}`` so ``entries[0].kind`` works;
+    the bare-list JSON face is unchanged, the way a host that
+    already parses the list keeps working.
     """
     entries = extract_skillbook(read_history()[0])
     write_skillbook(entries)
+    if format_path is not None:
+        print(_format_paths({"entries": entries}, format_path))
+        return 0
     if json_flag:
         print(json.dumps(entries, ensure_ascii=False, indent=2))
         return 0
@@ -7178,7 +7207,7 @@ def mode_skillbook(json_flag=False):
     return 0
 
 
-def mode_discover(json_flag=False):
+def mode_discover(json_flag=False, format_path=None):
     """Rank the domains the session visited and suggest the next pass.
 
     A read-only reflection over history.json: count the domain prefix
@@ -7199,10 +7228,13 @@ def mode_discover(json_flag=False):
         for name, count in sorted(visits.items(),
                                   key=lambda kv: (-kv[1], kv[0]))
     ]
-    if json_flag:
+    if json_flag or format_path is not None:
         payload = {"domains": ranked}
         if ranked:
             payload["suggested_next"] = ranked[0]["name"]
+        if format_path is not None:
+            print(_format_paths(payload, format_path))
+            return 0
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
     if not ranked:
@@ -7636,7 +7668,8 @@ def _audit_baseline_write(path, findings):
 
 def mode_audit(book, json_flag=False, strict=False, intensity=None,
                tags=None, since_seconds=None, until_seconds=None,
-               at_row=None, baseline=None, baseline_write=None):
+               at_row=None, baseline=None, baseline_write=None,
+               format_path=None):
     """Audit the ledger for waste, one tagged line per finding.
 
     Borrowed from ponytail's ``/ponytail-audit`` contract: scan the
@@ -7808,7 +7841,7 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
     # `net`.
     baselined_count = sum(1 for f in findings if f.get("baselined"))
     net = len(fresh_findings)
-    if json_flag:
+    if json_flag or format_path is not None:
         payload = {
             # ``lean`` is the r156 boolean, over fresh findings only
             # (which is the r156 behaviour when no baseline is in
@@ -7824,6 +7857,9 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
             "findings": fresh_findings,
             "baselined_findings": [f for f in findings if f.get("baselined")],
         }
+        if format_path is not None:
+            print(_format_paths(payload, format_path))
+            return 0 if not strict else (0 if not fresh_findings else 1)
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0 if not strict else (0 if not fresh_findings else 1)
     if not findings:
@@ -7913,9 +7949,13 @@ def main(argv=None):
                     help="attach a human-meaningful annotation to the recorded row (like git commit -m / kubectl annotate)")
     sm.add_argument("--from-stdin", dest="from_stdin", action="store_true",
                     help="read one next action per line from standard input (like kubectl apply -f - / xargs)")
+    sm.add_argument("--format", dest="format_path", default=None,
+                    help="render only the values at the given dot-paths (comma-separated), like the same flag on info; the seam still records its history row, the way seam --json does")
     rs = sub.add_parser("resume", help="premise, invariants and full ledger, after a gap")
     rs.add_argument("--json", action="store_true",
                     help="emit machine-readable output for the discoverability layer")
+    rs.add_argument("--format", dest="format_path", default=None,
+                    help="render only the values at the given dot-paths (comma-separated), like the same flag on info (a missing path returns an empty string, not an error)")
 
     n = sub.add_parser("note", help="record something in the ledger")
     n.add_argument("--goal")
@@ -7942,6 +7982,8 @@ def main(argv=None):
                    help="exit non-zero when a finding is reported (CI gate)")
     s.add_argument("--json", action="store_true",
                    help="emit machine-readable output for the discoverability layer")
+    s.add_argument("--format", dest="format_path", default=None,
+                   help="render only the values at the given dot-paths; the exit contract is byte-identical across faces, so a host gating on the process exit code gets the same answer either way")
 
     info_p = sub.add_parser("info", help="print an aggregate digest of the workspace state")
     info_p.add_argument("--json", action="store_true",
@@ -8039,9 +8081,13 @@ def main(argv=None):
     sk = sub.add_parser("skillbook", help="recurring patterns harvested from the seam history")
     sk.add_argument("--json", action="store_true",
                     help="emit machine-readable output for the discoverability layer")
+    sk.add_argument("--format", dest="format_path", default=None,
+                    help="render only the values at the given dot-paths; paths resolve against a dict root with one key, entries (like the same flag on info)")
     dv = sub.add_parser("discover", help="rank the visited next-action domains")
     dv.add_argument("--json", action="store_true",
                     help="emit machine-readable output for the discoverability layer")
+    dv.add_argument("--format", dest="format_path", default=None,
+                    help="render only the values at the given dot-paths (comma-separated), like the same flag on info (a missing path returns an empty string, not an error)")
     au = sub.add_parser("audit", help="report ledger waste, one tagged line per finding (report only)")
     au.add_argument("--json", action="store_true",
                     help="emit machine-readable output for the discoverability layer")
@@ -8061,6 +8107,8 @@ def main(argv=None):
                     help="path to a JSON baseline file (produced by --baseline-write); findings whose (tag, what) fingerprint matches a baseline entry are marked baselined in the output and excluded from the --strict gate (like eslint --baseline / terraform plan -detailed-exitcode)")
     au.add_argument("--baseline-write", dest="baseline_write", default=None,
                     help="write the current audit findings to a JSON file so the next run can use it as --baseline; the write happens before the report, so a single invocation can record and gate in one shot (like eslint --output-file)")
+    au.add_argument("--format", dest="format_path", default=None,
+                    help="render only the values at the given dot-paths (comma-separated), like the same flag on info; the --strict exit contract is byte-identical across faces (a missing path returns an empty string, not an error)")
 
     args = p.parse_args(argv)
 
@@ -8088,13 +8136,16 @@ def main(argv=None):
         return 2
     if args.cmd == "ship":
         return mode_ship(book, text, strict=getattr(args, "strict", False),
-                         json_flag=getattr(args, "json", False))
+                         json_flag=getattr(args, "json", False),
+                         format_path=getattr(args, "format_path", None))
     if args.cmd == "skillbook":
         return mode_skillbook(
-            json_flag=getattr(args, "json", False))
+            json_flag=getattr(args, "json", False),
+            format_path=getattr(args, "format_path", None))
     if args.cmd == "discover":
         return mode_discover(
-            json_flag=getattr(args, "json", False))
+            json_flag=getattr(args, "json", False),
+            format_path=getattr(args, "format_path", None))
     if args.cmd == "audit":
         return mode_audit(
             book,
@@ -8106,7 +8157,8 @@ def main(argv=None):
             until_seconds=getattr(args, "until", None),
             at_row=getattr(args, "at", None),
             baseline=getattr(args, "baseline", None),
-            baseline_write=getattr(args, "baseline_write", None))
+            baseline_write=getattr(args, "baseline_write", None),
+            format_path=getattr(args, "format_path", None))
     if args.cmd == "seam":
         return mode_seam(
             book,
@@ -8115,9 +8167,11 @@ def main(argv=None):
             quiet=getattr(args, "quiet", False),
             message=getattr(args, "message", None),
             from_stdin=getattr(args, "from_stdin", False),
+            format_path=getattr(args, "format_path", None),
         )
     if args.cmd == "resume":
-        return mode_resume(book, json_flag=getattr(args, "json", False))
+        return mode_resume(book, json_flag=getattr(args, "json", False),
+                           format_path=getattr(args, "format_path", None))
     if args.cmd == "info":
         return mode_info(
             book,
