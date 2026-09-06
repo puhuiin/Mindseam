@@ -37,6 +37,7 @@ import json
 import math
 import os
 import re
+import shlex
 import sys
 import tempfile
 import time
@@ -6350,6 +6351,9 @@ _FEATURE_CATALOG = (
     {"id": "audit-window-at", "since": "r161",
      "summary": "audit --since / --until / --at time window and single-seam audit; r173 widens --since/--until to seconds (3600), spans (30s/45m/12h/7d/2w), or ISO-8601 dates (2026-09-01), refusing unreadable/negative with exit 2",
      "default": True},
+    {"id": "note-from-stdin", "since": "r174",
+     "summary": "note --from-stdin reads the flag/value spec from standard input (like kubectl apply -f - / git config --file -), shlex-split and re-parsed by the note subparser so the edit semantics match a CLI call; empty/malformed payloads refuse with exit 2",
+     "default": True},
     {"id": "audit-gate-enum", "since": "r161",
      "summary": "audit --json carries a gate enum (clean / finding / gated)",
      "default": True},
@@ -6401,8 +6405,8 @@ _FEATURE_CATALOG = (
     {"id": "audit-explain", "since": "r171",
      "summary": "audit --explain TAG prints the static trigger / fix / evidence doc for one audit tag, like git help / kubectl explain",
      "default": True},
-    {"id": "info-explain", "since": "r172",
-     "summary": "info --explain FEATURE-ID prints the static summary / since / default doc for one capability id, like kubectl explain",
+    {"id": "info-field", "since": "r172",
+     "summary": "info --field PATH is a single-token dot-path alias for --format PATH, like git rev-parse <ref> or kubectl get <obj>",
      "default": True},
 )
 
@@ -7814,6 +7818,37 @@ def parse_window_value(raw, now_ts):
     return now_ts - int(stamp.timestamp()), None
 
 
+def read_note_stdin_spec(note_parser, raw):
+    """Turn a ``note --from-stdin`` payload into a parsed args namespace.
+
+    Borrowed from ``kubectl apply -f -`` and ``git config --file -``:
+    the stdin payload is the spec, not an adjunct to argv. The payload
+    is shlex-split (so quoted values survive) and re-parsed by the
+    *note subparser*, so ``--from-stdin`` reuses the exact edit
+    semantics of a command-line call — no second parser, no invented
+    flags, no drift between the two paths.
+
+    Returns ``(namespace, None)`` on success or ``(None, reason)`` on
+    failure, so the caller refuses with exit 2 rather than letting a
+    malformed payload silently edit nothing.
+    """
+    if raw is None or not raw.strip():
+        return None, "read no flags from stdin"
+    try:
+        tokens = shlex.split(raw)
+    except ValueError as exc:
+        return None, "could not split stdin into flags (%s)" % exc
+    if not tokens:
+        return None, "read no flags from stdin"
+    try:
+        return note_parser.parse_args(tokens), None
+    except SystemExit as exc:
+        # argparse prints its own diagnosis and exits 2 on a bad flag;
+        # convert that to a refused return so the controller keeps a
+        # single exit-code contract instead of terminating the process.
+        return None, "stdin spec failed to parse"
+
+
 def mode_audit(book, json_flag=False, strict=False, intensity=None,
                tags=None, since_seconds=None, until_seconds=None,
                at_row=None, baseline=None, baseline_write=None,
@@ -8167,6 +8202,8 @@ def main(argv=None):
     n.add_argument("--outcome", help="how the step actually landed (ok, failed, blocked, ...)")
     n.add_argument("--extra-steps", dest="extra_steps", type=int,
                    help="how many unplanned sub-steps this step cost")
+    n.add_argument("--from-stdin", dest="from_stdin", action="store_true",
+                   help="read the flag/value spec from standard input instead of argv (like kubectl apply -f - / git config --file -); the payload is shlex-split and re-parsed by the note parser, so the edit semantics are identical to a command-line call")
 
     s = sub.add_parser("ship", help="register check on anything about to leave")
     s.add_argument("file", help="path, or - for stdin")
@@ -8214,6 +8251,8 @@ def main(argv=None):
         help="emit an aliases block listing built-in and user-defined short names; user aliases come from `.mindseam/aliases.json` (like the list output of `gh alias` / `git config` filter on `alias.`)")
     info_p.add_argument("--format", dest="format_path", default=None,
         help="render only the values at the given dot-paths (comma-separated), the way `docker inspect --format` or `kubectl get -o jsonpath` does. A missing path returns an empty string (not an error); a list indexer uses `[N]` or `[*]`")
+    info_p.add_argument("--field", dest="field_path", default=None, metavar="PATH",
+        help="single-key dot-path shorthand for `--format`: one token prints the value at that one key (the way `git rev-parse <ref>` or `kubectl get <obj>` does). Mutually exclusive with `--format`; r172 rounds out the dot-path surface the way `--format` did in r169")
     info_p.add_argument("--explain", dest="explain", default=None,
         metavar="FEATURE-ID",
         help="print the static documentation for one capability id (summary, since, default) and exit, like kubectl explain; reads the built-in feature catalog, so it works in an empty workspace; unknown ids refuse with exit 2")
@@ -8309,6 +8348,34 @@ def main(argv=None):
 
     args = p.parse_args(argv)
 
+    if args.cmd == "info":
+        # r172: --field and --format are mutually exclusive.
+        # --field is a single-token shortcut for the common
+        # case ``info --format <key>``; --format handles the
+        # multi-path / list-indexer cases. Refusing both
+        # keeps the contract unambiguous, the way
+        # ``kubectl get -o json -o yaml`` refuses two
+        # output formats.
+        if (getattr(args, "field_path", None) is not None
+                and getattr(args, "format_path", None) is not None):
+            print("CANNOT: --field and --format are mutually exclusive.",
+                  file=sys.stderr)
+            print("  use --field for one key, or --format for paths / indexers",
+                  file=sys.stderr)
+            return 2
+        # --field shorthand: rewrite to --format with one path.
+        if getattr(args, "field_path", None) is not None:
+            args.format_path = args.field_path
+    else:
+        # --field is info-only. Refuse on any other face so a
+        # host that copy-pastes an info --field command onto
+        # another subcommand sees a clear error rather than
+        # a silent no-op.
+        if getattr(args, "field_path", None) is not None:
+            print("CANNOT: --field is only supported on `info`.",
+                  file=sys.stderr)
+            return 2
+
     if args.cmd == "ship":
         if args.file == "-":
             try:
@@ -8395,7 +8462,29 @@ def main(argv=None):
         )
     if args.cmd == "history":
         return mode_history(args)
-    return mode_note(book, args)
+    if args.cmd == "note":
+        # r174: --from-stdin sources the flag/value spec from stdin,
+        # not argv (like kubectl apply -f -). Re-parse with the note
+        # subparser so the edit path is identical to a CLI call; the
+        # dispatch swallows the read so mode_note stays argv-agnostic.
+        if getattr(args, "from_stdin", False):
+            try:
+                stream = getattr(sys.stdin, "buffer", None)
+                raw = (stream.read() if stream is not None
+                       else sys.stdin.read().encode("utf-8"))
+                if isinstance(raw, bytes):
+                    raw = raw.decode("utf-8")
+            except OSError as exc:
+                print("CANNOT: could not read stdin for --from-stdin ("
+                      + (exc.strerror or "unknown error") + ").",
+                      file=sys.stderr)
+                return 2
+            spec, reason = read_note_stdin_spec(n, raw)
+            if reason is not None:
+                print("CANNOT: --from-stdin %s." % reason, file=sys.stderr)
+                return 2
+            return mode_note(book, spec)
+        return mode_note(book, args)
 
 
 if __name__ == "__main__":

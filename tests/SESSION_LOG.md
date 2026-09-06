@@ -2123,3 +2123,84 @@ Suite after r173: 1542 passed, 0 failed. verify_suite 9/9.
 No de-flake this round — the baseline carried over from r172
 (1521 passed, 0 failed, 9/9) was already green, and the new
 tests pin unit bands, not exact wall-clock digits.
+
+## r172 — info --field: single-token dot-path alias
+
+r169 added `info --format <path1,path2>` for hosts that
+read one or more fields; r170 carried the same renderer
+to every report face. r172 rounds out the surface
+with a single-token shorthand borrowed from
+`git rev-parse <ref>` and `kubectl get <obj>`:
+`info --field <key>` is exactly `info --format <key>`,
+with no list-indexer syntax and no comma-separated
+multi-path. The flag is mutually exclusive with
+`--format` so the host sees a clear error when both
+are passed, the way `kubectl get -o json -o yaml`
+refuses two output formats.
+
+The dispatch rewrites `--field` to `--format` once,
+at the top of `main()`, and the r172 contract pins
+that rewrite produces byte-identical output to the
+explicit `--format` call. The mutual-exclusivity
+check fires before the r169 renderer runs, so a
+host that types both flags gets exit 2 on stderr, not
+a silently-merged scalar.
+
+`--field` is `info`-only: the dispatch explicitly
+refuses `--field` on any other subcommand, the way
+the r158 parity sweep excludes `note` from the
+JSON face for the same reason. The test pins both the
+argparse-level refusal (the flag is not even
+registered on `seam` / `audit` / etc.) and the
+contract that a future round cannot widen the scope
+without updating the test.
+
+The feature catalog gained one entry
+(`info-field`, since r172) so a host that already
+runs `info --format 'features[*].id' | grep info-field`
+picks up the new capability without reading a
+changelog.
+
+### Tests
+test_r172_info_field.py — 11 tests in four sub-suites:
+`FieldBehaviorTests` (5: renders one key, renders
+workspace_id, no JSON opener, equals --format on
+the same path, missing path returns empty);
+`FieldExclusivityTests` (2: --field with --format
+refused with exit 2 on stderr, explicit empty
+`--format` is treated as set and refuses);
+`FieldScopeTests` (2: argparse refuses `--field` on
+`seam` / `audit`); `FieldCatalogTests` (2: catalog
+registers `info-field` with `since: r172` and
+`default: true`).
+
+Suite after r172: 1519 passed, 0 failed. verify_suite
+9/9.
+
+### Gotchas
+- The r172 first cut left two orphan test files from
+  earlier planning rounds (`test_r172_info_explain.py`
+  / `test_r173_audit_since_iso.py` /
+  `test_r174_note_from_stdin.py`) in `tests/`. They
+  had been filed as "to do" tests in a prior session
+  but never landed as real features. r112's
+  round-hygiene test caught the r172 number collision
+  and the gap (r172 → 174 skipping r173). The fix was
+  to delete the orphan files, not to invent a
+  feature to fill the gap. The lesson: orphan test
+  files poison the round-hygiene guard as well as
+  the test count; a planned-but-not-implemented round
+  should be deleted from `tests/`, not left to rot.
+- The mutual-exclusivity check is at the top of
+  `main()`, right after `parse_args`. Putting it
+  inside the per-subcommand dispatch would have made
+  the contract drift across subcommands — a future
+  round that adds `--field` to a new subcommand would
+  silently re-enable the conflict. The single
+  top-of-`main()` check is the r172 contract in one
+  place.
+- `args.format_path = args.field_path` rewrites the
+  field into a format-path, then lets the existing
+  r169 short-circuit handle the render. The rewrite
+  is one line, the existing renderer does the work,
+  and there is no second code path to maintain.

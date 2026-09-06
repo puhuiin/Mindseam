@@ -134,6 +134,7 @@ loop 三种 pass，以及可选控制器负责记录长任务状态而不负责�
 | `info --changed` | 附带 `changed` 块，列出相对上次 info 调用哪些 ledger 工件变化了；上次的哈希持久化在 `.mindseam/info-state.json`，每次调用覆盖（类似 `git status` 的 porcelain 输出） |
 | `info --features` | 附带 `features` 块，列出 controller 全部能做的 flag / block / gate，按稳定 id 索引并标注引入轮次（类似 `gh` 的 features list / `rustup component list`） |
 | `info --format path1,path2` | 仅渲染给定 dot-path 上的值（类似 `docker inspect --format` / `jq -r`）。同一 flag 也作用于 `seam` / `resume` / `ship` / `skillbook` / `discover` / `audit`，退出码合约与 JSON 面逐字节一致。`history` 保留自己的逐行模板 `--format`；`note` 是编辑器，保持单面 |
+| `info --field path.key` | 单 token dot-path `--format` 简写；与 `--format` 互斥（类似 `kubectl get -o json -o yaml` 拒绝两种输出格式）|
 | `info --aliases` | 附带 `aliases` 块，列出内置和用户定义的短名；用户别名从 `.mindseam/aliases.json` 读。一个裸别名（`mindseam.py audit-ci`）会在 argparse 看到之前自动展开为完整 argv（类似 `git co` → `git checkout` / `gh alias` 的 list 输出） |
 | `info --explain info-memory` | 打印单个能力 id 的静态文档（summary、since、default）后退出（类似 `kubectl explain`）；文档来自内置 feature catalog，因此空工作区也可用且不创建 ledger；未知 id 拒绝并退出码 2 |
 | `history` | 查看 seam 审计日志（类似 `git log`） |
