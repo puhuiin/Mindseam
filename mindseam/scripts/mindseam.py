@@ -31,6 +31,7 @@ Standard library only. No network. Writes exactly one directory: .mindseam/
 import argparse
 import codecs
 import collections
+import datetime
 import hashlib
 import json
 import math
@@ -6347,7 +6348,7 @@ _FEATURE_CATALOG = (
      "summary": "Every audit finding carries an evidence block (row indices, normalised text, seam indices)",
      "default": True},
     {"id": "audit-window-at", "since": "r161",
-     "summary": "audit --since / --until / --at time window and single-seam audit",
+     "summary": "audit --since / --until / --at time window and single-seam audit; r173 widens --since/--until to seconds (3600), spans (30s/45m/12h/7d/2w), or ISO-8601 dates (2026-09-01), refusing unreadable/negative with exit 2",
      "default": True},
     {"id": "audit-gate-enum", "since": "r161",
      "summary": "audit --json carries a gate enum (clean / finding / gated)",
@@ -7758,6 +7759,61 @@ def _audit_baseline_write(path, findings):
     return problem
 
 
+# Window flag grammar. The bare-seconds form from r161 is read
+# first, so no existing caller changes meaning; the span and date
+# forms are additive.
+_WINDOW_UNITS = (("w", 604800), ("d", 86400), ("h", 3600),
+                 ("m", 60), ("s", 1))
+_DURATION_RE = re.compile(r"^(\d+)\s*([smhdw])$", re.IGNORECASE)
+
+
+def parse_window_value(raw, now_ts):
+    """Turn a ``--since`` / ``--until`` value into seconds before now.
+
+    Borrowed from ``git log --since=2024-01-01`` (an absolute
+    date) plus ``docker logs --since 30m`` and
+    ``journalctl --since "2 hours ago"`` (a relative span). Three
+    shapes are accepted:
+
+      * ``3600``                          — seconds before now
+      * ``30s`` ``45m`` ``12h`` ``7d`` ``2w`` — a span
+      * ``2026-09-01`` ``2026-09-01T10:30:00`` — an instant
+
+    Bare digits stay seconds, so a host that already computed
+    ``3600`` is unaffected. A bare date is read in the local
+    timezone, the way ``git log --since=2024-01-01`` reads it,
+    because that is what a human typing a date means; an explicit
+    offset or a trailing ``Z`` pins it instead.
+
+    Returns ``(seconds, None)`` on success or ``(None, reason)``
+    on failure, so the caller refuses with exit 2 rather than
+    letting a typo be silently read as a window that matches
+    nothing.
+    """
+    if raw is None:
+        return None, None
+    text = str(raw).strip()
+    if not text:
+        return None, "received an empty value"
+    try:
+        return int(text), None
+    except ValueError:
+        pass
+    match = _DURATION_RE.match(text)
+    if match:
+        amount = int(match.group(1))
+        wanted = match.group(2).lower()
+        for unit, seconds in _WINDOW_UNITS:
+            if unit == wanted:
+                return amount * seconds, None
+    iso = text[:-1] + "+00:00" if text.endswith("Z") else text
+    try:
+        stamp = datetime.datetime.fromisoformat(iso)
+    except ValueError:
+        return None, "cannot read %r as a time" % raw
+    return now_ts - int(stamp.timestamp()), None
+
+
 def mode_audit(book, json_flag=False, strict=False, intensity=None,
                tags=None, since_seconds=None, until_seconds=None,
                at_row=None, baseline=None, baseline_write=None,
@@ -7869,6 +7925,25 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
             return 2
     else:
         chosen = []
+    # r173: the window flags speak three shapes. They are parsed
+    # once here so the negative check below, the window block, and
+    # the JSON face all agree on one number — and so a typo is
+    # refused instead of quietly matching zero rows.
+    now_ts = int(time.time())
+    for flag_name, raw in (("--since", since_seconds),
+                           ("--until", until_seconds)):
+        seconds, reason = parse_window_value(raw, now_ts)
+        if reason is not None:
+            print("CANNOT: %s %s." % (flag_name, reason),
+                  file=sys.stderr)
+            print("  accepted: a number of seconds (3600), a span "
+                  "(30s / 45m / 12h / 7d / 2w), or an ISO-8601 date "
+                  "(2026-09-01)", file=sys.stderr)
+            return 2
+        if flag_name == "--since":
+            since_seconds = seconds
+        else:
+            until_seconds = seconds
     for flag_name, value in (("--since", since_seconds),
                              ("--until", until_seconds)):
         if value is not None and value < 0:
@@ -7880,7 +7955,6 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
     # see. Ledger-surface tags operate on ``book`` directly and
     # are unaffected.
     rows_in = len(hist_full)
-    now_ts = int(time.time())
     window = {
         "since_seconds": since_seconds,
         "until_seconds": until_seconds,
@@ -8218,10 +8292,10 @@ def main(argv=None):
                     help="finding verbosity ladder: lite caps the report at 3 findings, full prints all (default), off refuses to run. Flag beats the MINDSEAM_INTENSITY environment variable (like PONYTAIL_DEFAULT_MODE)")
     au.add_argument("--tag", dest="tag", default=None,
                     help="comma-separated list of audit tags to include (delete,stdlib,yagni,shrink,goal-stale,next-stall,core-drift); unknown tags are refused. The full audit still runs; only the listed tags appear in the report (like gh pr list --label)")
-    au.add_argument("--since", dest="since", type=int, default=None,
-                    help="only consider history rows whose timestamp is within the last N seconds; narrows the facet tags (goal-stale / next-stall / shrink) but leaves the ledger surface tags untouched. Negative values are refused with exit 2 (like journalctl --since)")
-    au.add_argument("--until", dest="until", type=int, default=None,
-                    help="the upper bound on --since, also in seconds before now. Composes with --since to bracket a window (like the same flag on journalctl / git log --until). Negative values are refused with exit 2")
+    au.add_argument("--since", dest="since", default=None,
+                    help="only consider history rows inside the window, given as seconds (3600), a span (30s / 45m / 12h / 7d / 2w), or an ISO-8601 date (2026-09-01); narrows the facet tags (goal-stale / next-stall / shrink) but leaves the ledger surface tags untouched. Unreadable values and negative results are refused with exit 2 (like journalctl --since / git log --since)")
+    au.add_argument("--until", dest="until", default=None,
+                    help="the upper bound on --since, in the same three shapes. Composes with --since to bracket a window (like the same flag on journalctl / git log --until). Negative values are refused with exit 2")
     au.add_argument("--at", dest="at", type=int, default=None,
                     help="audit as of the 1-based row N in history: slices the history to hist[:N] so the audit reflects everything that had happened by that seam (like git log -1 / gh pr view N). Out-of-range exits 2 to stderr")
     au.add_argument("--baseline", dest="baseline", default=None,

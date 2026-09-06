@@ -2058,3 +2058,68 @@ Suite after r172: 1521 passed, 0 failed. verify_suite
   turns "a capability shipped undocumented" into a
   failure — but it is the first thing to sample rather
   than loop exhaustively if the suite gets slow.
+
+## r175 — audit --since/--until: ISO-8601 dates and duration spans
+
+### Borrowed from
+`git log --since=2024-01-01` (an absolute date) plus
+`docker logs --since 30m` and `journalctl --since "2 hours ago"`
+(a relative span). The bare-seconds form from r161 is read
+first, so no existing caller changes meaning; the span and
+date forms are additive.
+
+### What it does
+`audit --since` / `--until` accept three shapes, parsed once
+in `mode_audit` by `parse_window_value(raw, now_ts)`:
+
+- `3600` — bare seconds before now (r161 contract, untouched)
+- `30s` `45m` `12h` `7d` `2w` — a span, multiplied out to seconds
+- `2026-09-01` `2026-09-01T10:30:00` — an instant, read in the
+  local timezone the way `git log --since=2024-01-01` reads it;
+  a trailing `Z` pins UTC instead
+
+The parser returns `(seconds, None)` on success or
+`(None, reason)` on failure, so a single caller refuses with
+exit 2 and prints the accepted grammar — a typo is never
+silently read as a window that matches nothing. The r161
+negative check still fires: a future date parses to negative
+seconds and is refused with the same `non-negative` message.
+The `history_window` JSON block, the negative check, and the
+text face all agree on the one parsed number.
+
+### Tests
+test_r175_audit_since_iso.py — 21 tests in five sub-suites.
+`BareSecondsPreservedTests` (2): r161 bare-seconds semantics
+survive the grammar change, end-to-end narrowing still holds.
+`SpanParsingTests` (3): the five span units resolve to the
+right seconds, surrounding whitespace is trimmed, a span
+narrows history like the bare form. `IsoDateParsingTests` (3):
+a past date yields a positive window pinned to that date's
+local epoch, an all-rows-in-window case, a time component, and
+a trailing `Z` is UTC not local (the two cutoffs differ by
+exactly the local-vs-UTC offset). `RefusalTests` (4): unreadable
+value refused with the `accepted:` hint, empty value refused,
+future date refused as negative, far-future date refused.
+`WindowBlockConsistencyTests` (3): both flags as spans compose,
+spans compose with --at, an empty workspace creates no
+`.mindseam`. `ParserUnitTests` (5): the unit function directly.
+
+Suite after r173: 1542 passed, 0 failed. verify_suite 9/9.
+
+### Gotchas
+- The window is parsed *before* the ledger read, so the three
+  shapes resolve in an empty workspace and never materialise
+  state — the same short-circuit discipline r171/r172 rely on.
+- A span is always a positive duration; only a future *date*
+  goes negative. Do not add a "future span" refusal:
+  `--since 999999999w` is a valid (if absurd) positive window and
+  must keep working.
+- The JSON key is `history_window` (not `window`); `since_cutoff`
+  equals the parsed instant's local epoch exactly, because
+  `since_cutoff = now - (now - stamp_ts)`. Pin the cutoff, not a
+  now-dependent delta, to stay drift-free.
+
+### De-flaked
+No de-flake this round — the baseline carried over from r172
+(1521 passed, 0 failed, 9/9) was already green, and the new
+tests pin unit bands, not exact wall-clock digits.
