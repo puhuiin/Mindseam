@@ -11,6 +11,7 @@ that lives in later rounds.
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -20,6 +21,19 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MINDSEAM = ROOT / "mindseam" / "scripts" / "mindseam.py"
+
+# Wall-clock drift budget. The relative-date tests below stamp a
+# seam timestamp and then *spawn the controller as a subprocess*,
+# which costs real time on the way in: by the time the CLI reads
+# the clock, the gap is the stamped value plus however long the
+# spawn took. Asserting the stamped digit exactly is therefore a
+# race that passes on a fast machine and fails on a slow, cold,
+# or loaded one (a 30s gap reads as 31s once the interpreter has
+# finished starting). The contracts pin the *unit band* — a
+# sub-minute gap stays in seconds, an hour stays one hour — so
+# these assertions allow a few seconds of drift rather than
+# demanding an exact digit.
+_DRIFT_SLACK = 30
 
 
 def _invoke(args, cwd):
@@ -225,7 +239,15 @@ class InfoSubcommandTests(unittest.TestCase):
         history.write_text(json.dumps(data), encoding="utf-8")
         r = _invoke(["info", "--human"], cwd=self.workspace)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("30 seconds ago", r.stdout)
+        # The pin is the unit band, not the digit: a sub-minute
+        # gap stays rendered in seconds and never rolls up to
+        # minutes. The digit itself drifts by the wall-clock cost
+        # of the subprocess spawn, so assert the band.
+        self.assertIn("seconds ago", r.stdout)
+        self.assertNotIn("minutes ago", r.stdout)
+        shown = int(re.search(r"(\d+) seconds ago", r.stdout).group(1))
+        self.assertGreaterEqual(shown, 30)
+        self.assertLess(shown, 60)
 
     def test_info_human_json_round_trip(self):
         # The ``--json`` path exposes both the raw ``gap_seconds``
@@ -242,10 +264,15 @@ class InfoSubcommandTests(unittest.TestCase):
         r = _invoke(["info", "--human", "--json"], cwd=self.workspace)
         self.assertEqual(r.returncode, 0, r.stderr)
         payload = json.loads(r.stdout)
-        self.assertEqual(payload["human"]["gap_seconds"], 3600)
+        # Same drift budget as the seconds test: the pin is that
+        # an hour-long gap is still reported as one hour and still
+        # carries the raw value, not that the digit is exact.
+        self.assertGreaterEqual(payload["human"]["gap_seconds"], 3600)
+        self.assertLess(payload["human"]["gap_seconds"], 3600 + _DRIFT_SLACK)
         self.assertEqual(payload["human"]["gap_human"], "1 hour")
         # ``last_seam.gap_seconds`` still carries the raw value.
-        self.assertEqual(payload["last_seam"]["gap_seconds"], 3600)
+        self.assertGreaterEqual(payload["last_seam"]["gap_seconds"], 3600)
+        self.assertLess(payload["last_seam"]["gap_seconds"], 3600 + _DRIFT_SLACK)
 
     def test_info_check_passes_when_ledger_is_healthy(self):
         # Borrowed from ``git fsck`` / ``npm doctor``: a

@@ -1973,3 +1973,88 @@ Suite after r171: 1508 passed, 0 failed. verify_suite
   picks up the new capability without reading a
   changelog, the way a host that runs `gh features
   list | grep` picks up new GitHub features.
+
+
+## r172 — info --explain: the static capability doc
+
+### Borrowed from
+`kubectl explain` — resolve a field path to its
+documentation — plus the `audit --explain` precedent
+from r171, which established that static docs belong
+ahead of every ledger read.
+
+### What it does
+`info --features` lists capability ids but no prose:
+the ids are stable keys, not documentation.
+`info --explain <feature-id>` resolves one id to three
+fields drawn from `_FEATURE_CATALOG`:
+
+- `summary` — what the capability does
+- `since` — the round that introduced it
+- `default` — whether it is on by default
+
+The text face aligns the three keys under an
+`info explain <id>` header; the JSON face emits the
+same fields plus `id`, so the r158 double-faced rule
+holds and `--format` stays usable on top of it.
+
+The branch sits *before* the first ledger read and
+before any artefact write, so `--explain` works in a
+fresh workspace and leaves no `.mindseam` behind. An
+unknown id refuses with exit 2 and lists the known
+set, the way r171 does for tags.
+
+### De-flaked (pre-existing, not from r171)
+Two tests in test_info_subcommand_baseline.py were
+racing the wall clock: each stamped a seam timestamp
+and then spawned the controller as a subprocess, so
+the observed gap was the stamped value plus the spawn
+cost. `test_info_human_renders_seconds_when_below_minute`
+demanded the literal string `30 seconds ago` and read
+31; `test_info_human_json_round_trip` demanded exactly
+3600 and read 3601. Both now pin the *unit band* — a
+sub-minute gap stays in seconds, an hour stays one
+hour — against a `_DRIFT_SLACK` budget of 30s. That
+band was always the real contract; the exact digit was
+never something a subprocess test could promise.
+
+### Tests
+test_r172_info_explain.py — 13 tests in two
+sub-suites. `ExplainCatalogTests` (4): the
+`info-explain` entry exists with since r172, ids are
+unique, every entry carries the four doc fields, and
+**every** catalog id is explainable end to end.
+`ExplainBehaviorTests` (9): works in an empty
+workspace, creates no ledger, short-circuits the
+digest (no `Version:` / `Audit:` header), unknown id
+refused on *both* faces, JSON face, both faces agree,
+surrounding whitespace trimmed, `default` rendered as
+the word `yes` rather than the Python literal.
+
+Suite after r172: 1521 passed, 0 failed. verify_suite
+9/9.
+
+### Gotchas
+- **The baseline was not green when this round opened.**
+  It ran 1508 tests with 2 failures, both the clock
+  race above. They pass on a fast machine and fail on
+  a slow one, so they were latent rather than a
+  regression — and they would have been misread as
+  damage done by r172 if the baseline had not been
+  captured first. Always capture it first.
+- `read_ledger()` runs in `main()` before the info
+  dispatch, but it only reads. The "leaves no trace"
+  pin holds only because the short-circuit sits ahead
+  of every *write*; it is one refactor away from
+  breaking, which is why a test asserts it.
+- r69 passed with no doc change at all: `--explain`
+  already appears in all three docs from r171, and the
+  guard is a substring check on the flag name, not a
+  per-subcommand check. The three docs were updated
+  anyway so the *info* usage is discoverable.
+- The round-trip test spawns one subprocess per
+  catalog entry (33 today) and costs roughly 20s. That
+  is the single most valuable test in the file — it
+  turns "a capability shipped undocumented" into a
+  failure — but it is the first thing to sample rather
+  than loop exhaustively if the suite gets slow.

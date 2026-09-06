@@ -6400,6 +6400,9 @@ _FEATURE_CATALOG = (
     {"id": "audit-explain", "since": "r171",
      "summary": "audit --explain TAG prints the static trigger / fix / evidence doc for one audit tag, like git help / kubectl explain",
      "default": True},
+    {"id": "info-explain", "since": "r172",
+     "summary": "info --explain FEATURE-ID prints the static summary / since / default doc for one capability id, like kubectl explain",
+     "default": True},
 )
 
 
@@ -6562,7 +6565,8 @@ def mode_info(book, json_flag=False, warnings_only=False,
               workspace_id=False, audit_baseline=None,
               manifest=False, mtime=False, health=False,
               text_only=False, content_hash=False, changed=False,
-              features=False, aliases=False, format_path=None):
+              features=False, aliases=False, format_path=None,
+              explain=None):
     """Print or emit a digest of the workspace state.
 
     Borrowed from the ``gh repo view`` / ``kubectl cluster-info`` /
@@ -6576,7 +6580,45 @@ def mode_info(book, json_flag=False, warnings_only=False,
     ``docker ps --filter`` family — print only the warning lines, the
     way a CI hook would when it just wants to know whether the
     workspace is healthy enough to advance.
+
+    ``--explain <FEATURE-ID>`` (r172) borrows ``kubectl explain``
+    and mirrors the ``audit --explain`` precedent from r171: it
+    prints the static documentation for one capability id drawn
+    from ``_FEATURE_CATALOG`` and exits, before any ledger read,
+    so it works in an empty workspace the way ``git help`` works
+    outside a repository. An unknown id refuses with exit 2 and
+    lists the known set.
     """
+    if explain is not None:
+        # Static self-documentation, so it short-circuits ahead of
+        # the first ledger read: an empty workspace can still ask
+        # what a capability id means.
+        wanted = explain.strip()
+        entry = None
+        for item in _FEATURE_CATALOG:
+            if item["id"] == wanted:
+                entry = item
+                break
+        if entry is None:
+            print("CANNOT: --explain %s is not a recognised feature id."
+                  % wanted, file=sys.stderr)
+            print("  known ids: %s"
+                  % ", ".join(item["id"] for item in _FEATURE_CATALOG),
+                  file=sys.stderr)
+            return 2
+        if json_flag:
+            print(json.dumps({
+                "id": entry["id"],
+                "summary": entry["summary"],
+                "since": entry["since"],
+                "default": entry["default"],
+            }, ensure_ascii=False, indent=2))
+            return 0
+        print("── mindseam ─ info explain %s" % entry["id"])
+        print("  summary: %s" % entry["summary"])
+        print("  since:   %s" % entry["since"])
+        print("  default: %s" % ("yes" if entry["default"] else "no"))
+        return 0
     hist = read_history()[0]
     meta = read_meta() or {}
     goal = one(book, "Goal")
@@ -8098,6 +8140,9 @@ def main(argv=None):
         help="emit an aliases block listing built-in and user-defined short names; user aliases come from `.mindseam/aliases.json` (like the list output of `gh alias` / `git config` filter on `alias.`)")
     info_p.add_argument("--format", dest="format_path", default=None,
         help="render only the values at the given dot-paths (comma-separated), the way `docker inspect --format` or `kubectl get -o jsonpath` does. A missing path returns an empty string (not an error); a list indexer uses `[N]` or `[*]`")
+    info_p.add_argument("--explain", dest="explain", default=None,
+        metavar="FEATURE-ID",
+        help="print the static documentation for one capability id (summary, since, default) and exit, like kubectl explain; reads the built-in feature catalog, so it works in an empty workspace; unknown ids refuse with exit 2")
 
     hist_p = sub.add_parser("history", help="tail the seam audit log")
     hist_p.add_argument("-n", "--limit", dest="limit", type=int, default=None,
@@ -8272,6 +8317,7 @@ def main(argv=None):
             features=getattr(args, "features", False),
             aliases=getattr(args, "aliases", False),
             format_path=getattr(args, "format_path", None),
+            explain=getattr(args, "explain", None),
         )
     if args.cmd == "history":
         return mode_history(args)
