@@ -6397,6 +6397,9 @@ _FEATURE_CATALOG = (
     {"id": "report-format-faces", "since": "r170",
      "summary": "seam / resume / ship / skillbook / discover / audit carry the same --format dot-path renderer; history keeps its template form",
      "default": True},
+    {"id": "audit-explain", "since": "r171",
+     "summary": "audit --explain TAG prints the static trigger / fix / evidence doc for one audit tag, like git help / kubectl explain",
+     "default": True},
 )
 
 
@@ -7273,6 +7276,53 @@ AUDIT_TAGS = (
     "goal-stale", "next-stall", "core-drift",
 )
 
+# r171: static per-tag self-documentation, borrowed from
+# ``git help <cmd>`` / ``tldr`` / ``kubectl explain``: a host
+# (or a human) that meets an audit finding can ask
+# ``audit --explain <tag>`` for the trigger, the fix, and the
+# evidence shape, without grepping the source. The dict is
+# hand-curated like ``_FEATURE_CATALOG``: it is static data,
+# costs nothing at runtime, and the keys must track
+# ``AUDIT_TAGS`` exactly (pinned by test) so a new tag cannot
+# ship undocumented.
+AUDIT_TAG_EXPLAIN = {
+    "delete": {
+        "trigger": "an Open entry duplicates another Open entry or is already answered by a Verified line",
+        "fix": "one row per question; close the duplicate or retire the settled question",
+        "evidence": "row index, normalised row text, first_seen (or answered_by) row + index",
+    },
+    "stdlib": {
+        "trigger": "a Verified entry is recorded twice; one canonical checkpoint would do",
+        "fix": "keep one canonical checkpoint, drop the hand-rolled copy",
+        "evidence": "row index, normalised row text, canonical row + index",
+    },
+    "yagni": {
+        "trigger": "the Core section carries entries beyond the two live slots the ledger surface reads",
+        "fix": "verify or demote the parked items; the surface reads two at a time",
+        "evidence": "core_total, live_slots, parked count + parked indices",
+    },
+    "shrink": {
+        "trigger": "history rows carry a blank next action",
+        "fix": "rotate them out with history --keep",
+        "evidence": "blank_count, blank 1-based indices, history_total",
+    },
+    "goal-stale": {
+        "trigger": "the ledger Goal is set but none of the last 10 seams re-anchored it (no goal annotation)",
+        "fix": "re-run note --goal to confirm the commitment, or note --next to record a new one",
+        "evidence": "goal text, window size, stale 1-based seam indices with window brackets",
+    },
+    "next-stall": {
+        "trigger": "the same next action appears in 3 or more of the last 5 seams without resolution",
+        "fix": "close the topic with note --close N, or change it with note --next",
+        "evidence": "the next value, seam indices, count, window brackets",
+    },
+    "core-drift": {
+        "trigger": "Next and Core disagree: the live next is not in Core, or Next is empty while Core still commits",
+        "fix": "move it to Core with note --core, re-anchor Next with note --next, or retire the commitment",
+        "evidence": "live_next, core_items, direction (next-not-in-core / core-without-next)",
+    },
+}
+
 INTENSITY_LEVELS = ("off", "lite", "full")
 INTENSITY_ENV = "MINDSEAM_INTENSITY"
 
@@ -7669,7 +7719,7 @@ def _audit_baseline_write(path, findings):
 def mode_audit(book, json_flag=False, strict=False, intensity=None,
                tags=None, since_seconds=None, until_seconds=None,
                at_row=None, baseline=None, baseline_write=None,
-               format_path=None):
+               format_path=None, explain=None):
     """Audit the ledger for waste, one tagged line per finding.
 
     Borrowed from ponytail's ``/ponytail-audit`` contract: scan the
@@ -7734,6 +7784,32 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
     stderr. The text face header names the seam; the JSON face
     carries the slice in an ``at`` block.
     """
+    if explain is not None:
+        # r171: static self-documentation, borrowed from
+        # ``git help <cmd>`` / ``kubectl explain``. Runs before
+        # any ledger read, so it works in an empty workspace the
+        # way ``git help`` works outside a repository. An
+        # unknown tag refuses with exit 2 and lists the known
+        # set; ``--json`` carries the same dict the text face
+        # prints.
+        tag = explain.strip()
+        if tag not in AUDIT_TAG_EXPLAIN:
+            print("CANNOT: --explain %s is not a recognised audit tag."
+                  % tag, file=sys.stderr)
+            print("  known tags: %s" % ", ".join(AUDIT_TAGS),
+                  file=sys.stderr)
+            return 2
+        doc = AUDIT_TAG_EXPLAIN[tag]
+        if json_flag:
+            payload = {"tag": tag}
+            payload.update(doc)
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            return 0
+        print("── mindseam ─ audit explain %s" % tag)
+        print("  trigger:  %s" % doc["trigger"])
+        print("  fix:      %s" % doc["fix"])
+        print("  evidence: %s" % doc["evidence"])
+        return 0
     level = resolve_intensity(intensity)
     if level == "off":
         print("CANNOT: audit intensity is off.")
@@ -8109,6 +8185,8 @@ def main(argv=None):
                     help="write the current audit findings to a JSON file so the next run can use it as --baseline; the write happens before the report, so a single invocation can record and gate in one shot (like eslint --output-file)")
     au.add_argument("--format", dest="format_path", default=None,
                     help="render only the values at the given dot-paths (comma-separated), like the same flag on info; the --strict exit contract is byte-identical across faces (a missing path returns an empty string, not an error)")
+    au.add_argument("--explain", dest="explain", default=None, metavar="TAG",
+                    help="print the static documentation for one audit tag (trigger / fix / evidence) and exit, like git help or kubectl explain; works in an empty workspace, unknown tags refuse with exit 2")
 
     args = p.parse_args(argv)
 
@@ -8158,7 +8236,8 @@ def main(argv=None):
             at_row=getattr(args, "at", None),
             baseline=getattr(args, "baseline", None),
             baseline_write=getattr(args, "baseline_write", None),
-            format_path=getattr(args, "format_path", None))
+            format_path=getattr(args, "format_path", None),
+            explain=getattr(args, "explain", None))
     if args.cmd == "seam":
         return mode_seam(
             book,

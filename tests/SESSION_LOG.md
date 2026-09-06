@@ -1915,3 +1915,61 @@ Suite after r170: 1500 passed, 0 failed. verify_suite 9/9.
   `history --json` into jq, or use `--fields` for the
   projection; both contracts are pinned by the r157/r169
   suites and re-pinned here.
+
+## r171 — audit --explain: static self-documentation per tag
+
+A host (or a human) that meets an audit finding can ask
+`audit --explain <tag>` for the trigger, the fix, and the
+evidence shape, without grepping the source. Borrowed
+from `git help <cmd>` / `tldr` / `kubectl explain`:
+static self-documentation that works in an empty
+workspace, the way `git help` works outside a repository.
+
+The doc dict is hand-curated like the r167 feature
+catalog. Its keys must track `AUDIT_TAGS` exactly — a new
+tag cannot ship undocumented, the way a new flag cannot
+ship undocumented since the r69 drift guard. The doc has
+three fields per tag:
+
+- `trigger` — what the detector looks for
+- `fix` — what to do about it
+- `evidence` — the keys that ride on the finding's
+  `evidence` block in the JSON face
+
+The branch sits *before* the intensity gate and the
+ledger read, so `--explain` works in a fresh
+workspace the way `git help log` works before
+`git init`. An unknown tag refuses with exit 2 and
+lists the known set, the way `--tag` already does for
+projection.
+
+The feature catalog gained one entry (`audit-explain`,
+since r171) so a host can probe the new capability via
+`info --format 'features[*].id'`.
+
+### Tests
+test_r171_audit_explain.py — 8 tests in two sub-suites:
+`ExplainCatalogTests` (2: keys match `AUDIT_TAGS`
+exactly, every entry has the three required fields);
+`ExplainBehaviorTests` (6: works in an empty workspace,
+every tag renders, unknown tag refuses with the known
+set in stderr, JSON face matches the static catalog,
+does not run the audit, never writes a ledger
+artefact).
+
+Suite after r171: 1508 passed, 0 failed. verify_suite
+9/9.
+
+### Gotchas
+- The first cut accidentally *replaced* the existing
+  `audit --tag` line in SKILL.md instead of inserting
+  the new `--explain` line; the second cut restored it.
+  The SKILL.md block lists commands in chronological
+  order so a new line should always append, never
+  substitute.
+- The r167 catalog's `info --format` is what makes
+  `--explain` discoverable: a host that already runs
+  `info --format 'features[*].id' | grep audit-explain`
+  picks up the new capability without reading a
+  changelog, the way a host that runs `gh features
+  list | grep` picks up new GitHub features.

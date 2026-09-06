@@ -152,6 +152,7 @@ the task workspace as the current directory.
 | `audit --at 5` | Audit as of the 1-based row 5 in history: slices `hist[:5]` so the audit reflects everything that had happened by seam 5 (like `git log -1` / `gh pr view N`). The JSON `gate` field is `clean` / `finding` / `gated` |
 | `audit --baseline baseline.json` | Gate only on findings *new* relative to the baseline; baselined findings move to `baselined_findings` and are marked `[baselined]` in text. `net` and `--strict` see only the fresh set (like `eslint --baseline`) |
 | `audit --baseline-write baseline.json` | Record the current (unprojected) findings to a JSON file the next run can use as `--baseline` (like `eslint --output-file`). The write happens before the read, so `--baseline-write X --baseline X` records and gates in one shot |
+| `audit --explain next-stall` | Print the static doc for one audit tag (trigger / fix / evidence) and exit (like `git help` / `kubectl explain`); works in an empty workspace, unknown tags refuse with exit 2 |
 
 ```text
 <python-command> <skill-root>/scripts/mindseam.py note --goal "what done means" --next "first action"
