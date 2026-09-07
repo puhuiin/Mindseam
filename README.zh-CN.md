@@ -136,6 +136,7 @@ loop 三种 pass，以及可选控制器负责记录长任务状态而不负责�
 | `info --format path1,path2` | 仅渲染给定 dot-path 上的值（类似 `docker inspect --format` / `jq -r`）。同一 flag 也作用于 `seam` / `resume` / `ship` / `skillbook` / `discover` / `audit`，退出码合约与 JSON 面逐字节一致。`history` 保留自己的逐行模板 `--format`；`note` 是编辑器，保持单面 |
 | `info --field path.key` | 单 token dot-path `--format` 简写；与 `--format` 互斥（类似 `kubectl get -o json -o yaml` 拒绝两种输出格式）|
 | `info --index` | 打印 `info.<feature-id>` 平面行式索引（类似 `pytest` 的 fixture 列表 / `git help config`）；空工作区也可用，已排序，可 grep |
+| `info --index --index-since r172` | 类似 `tldr` 的 listing flag / `git log --since`：按轮次过滤索引（轮次标签包含在内，无效轮次标签拒绝并退出码 2）|
 | `info --aliases` | 附带 `aliases` 块，列出内置和用户定义的短名；用户别名从 `.mindseam/aliases.json` 读。一个裸别名（`mindseam.py audit-ci`）会在 argparse 看到之前自动展开为完整 argv（类似 `git co` → `git checkout` / `gh alias` 的 list 输出） |
 | `info --explain info-memory` | 打印单个能力 id 的静态文档（summary、since、default）后退出（类似 `kubectl explain`）；文档来自内置 feature catalog，因此空工作区也可用且不创建 ledger；未知 id 拒绝并退出码 2 |
 | `history` | 查看 seam 审计日志（类似 `git log`） |

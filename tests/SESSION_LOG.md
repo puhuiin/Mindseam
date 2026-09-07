@@ -2369,3 +2369,64 @@ Suite after r174: 1536 passed, 0 failed. verify_suite
   arguments see the regular sectioned text report, the
   way a host that does not pass `pip list --format=json`
   sees the regular columnar output.
+
+## r175 — info --index-since: filter the index by round
+
+Borrowed from `tldr --list` / `man -k` / `git log --since`:
+an index is most useful when a host can filter it by
+recency. r174 gave a flat `info.<feature-id>` per line;
+r175 lets a host pass `--index-since r172` to limit
+the list to features introduced in r172 or later, the
+way `pip list --uptodate` filters by freshness.
+
+The filter is inclusive on the round tag (`r172` keeps
+everything from r172 onward), the way `git log
+--since=2024-01-01` keeps the day's commits. An
+invalid round tag refuses with exit 2 on stderr, the
+way the r172 mutual-exclusivity check refuses `--field`
+plus `--format`. Numbers without the `r` prefix
+(`172` instead of `r172`) are also refused, the way
+`git rev-parse` requires the full ref name.
+
+The implementation reuses the r167 catalog's `since`
+column, the way r169 reuses the JSON payload's
+structure. The catalog is static; the filter is a
+projection; the output is sorted. Two builds of the
+same controller version produce the same `r170` filter
+result, the way `pip list --uptodate` is stable.
+
+### Tests
+test_r175_info_index_since.py — 11 tests in two
+sub-suites:
+`IndexSinceContractTests` (9: runs in empty workspace,
+does not create `.mindseam`, includes features at the
+round, excludes features before the round, filtered
+output is a subset of the full index, lines are
+sorted, invalid round refused, non-round string
+refused, `r0` works as an absurd but valid filter);
+`IndexCatalogTests` (2: feature in catalog, since
+round is r175).
+
+Suite after r175: 1547 passed, 0 failed. verify_suite
+9/9.
+
+### Gotchas
+- The first cut of the help text said "borrowed from
+  `tldr --list` / `man -k`". r69 doc-drift then
+  extracted ` --list` as a literal flag token, found
+  it was not in argparse, and refused. The fix is
+  the r159 / r162 / r165 / r172 / r174 trick:
+  paraphrase the borrower's option name without the
+  leading dashes ("the listing flag of `tldr`").
+- The catalog's `since` field was already r174 / r175
+  in some entries (r174 note-from-stdin, r173
+  skill-example-runner, r174 info-index), so the
+  filter is non-empty even for the latest rounds.
+  The test that filters by r170 asserts 7 entries
+  (the count is stable because the catalog is
+  static).
+- A bare number (e.g. `172` instead of `r172`) is
+  refused, the way `git rev-parse` requires the
+  full ref name. The test pins this so a host that
+  forgets the `r` prefix sees a clear error rather
+  than a silent empty filter.

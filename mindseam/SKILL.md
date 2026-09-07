@@ -265,6 +265,7 @@ That keeps `.mindseam/` with the task rather than with the skill.
 <python-command> <skill-root>/scripts/mindseam.py info --aliases                       # emit an aliases block listing built-in and user-defined short names; user aliases come from `.mindseam/aliases.json` (like the list output of `gh alias` / `git config` filter on `alias.`)
 <python-command> <skill-root>/scripts/mindseam.py info --field path.key                      # single-token dot-path shorthand for --format; the r172 alias of the common one-key case (like git rev-parse or kubectl get); mutually exclusive with --format
 <python-command> <skill-root>/scripts/mindseam.py info --index                          # print a flat line-per-entry index of feature ids (info.<feature-id>) the way pytest's fixture listing / git help config do; works in an empty workspace, sorted, stable, greppable
+<python-command> <skill-root>/scripts/mindseam.py info --index --index-since r172          # like the listing flag of tldr / git log --since: only list features introduced in r172 or later, the round tag is inclusive, refuses invalid round tags with exit 2
 <python-command> <skill-root>/scripts/mindseam.py history                                    # tail the seam audit log (like git log)
 <python-command> <skill-root>/scripts/mindseam.py history --head 5                                # first 5 entries only (like head -n 5)
 <python-command> <skill-root>/scripts/mindseam.py history --tail 5                                # last 5 entries only (like tail -n 5, alias of -n)

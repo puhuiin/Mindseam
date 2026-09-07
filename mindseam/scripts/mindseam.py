@@ -6412,7 +6412,10 @@ _FEATURE_CATALOG = (
      "summary": "tests/test_r173_*.py extracts info / audit lines from SKILL.md and runs each one in a fresh empty workspace, the way cargo test --doc pins docstring examples to runtime",
      "default": True},
     {"id": "info-index", "since": "r174",
-     "summary": "info --index prints a flat line-per-entry index of subcommand.flag names (e.g. info.info-format), borrowed from pytest --fixtures / git help config",
+     "summary": "info --index prints a flat line-per-entry index of subcommand.flag names (e.g. info.info-format), borrowed from pytest's fixture listing / git help config",
+     "default": True},
+    {"id": "info-index-since", "since": "r175",
+     "summary": "with info --index, --index-since ROUND lists only features introduced in that round or later (borrowed from tldr --list / git log --since, inclusive on the round tag, refuses invalid round tags with exit 2)",
      "default": True},
 )
 
@@ -8264,6 +8267,8 @@ def main(argv=None):
         help="print the static documentation for one capability id (summary, since, default) and exit, like kubectl explain; reads the built-in feature catalog, so it works in an empty workspace; unknown ids refuse with exit 2")
     info_p.add_argument("--index", dest="index", action="store_true",
         help="print a flat, line-oriented index of subcommand.flag names and their since round, the way pytest's fixture listing does; pure text, line-per-entry, greppable, exits 0, works in an empty workspace")
+    info_p.add_argument("--index-since", dest="index_since", default=None, metavar="ROUND",
+        help="with --index, only list features introduced in this round or later; r175 borrows from the listing flag of `tldr` / `git log --since` (filter an index by recency), the way `git log --since` filters a log by date. Accepts the literal round tag (r156, r175) the SESSION_LOG and the commit subject use")
 
     hist_p = sub.add_parser("history", help="tail the seam audit log")
     hist_p.add_argument("-n", "--limit", dest="limit", type=int, default=None,
@@ -8358,7 +8363,7 @@ def main(argv=None):
 
     if args.cmd == "info" and getattr(args, "index", False):
         # r174: flat, line-oriented index. Borrowed from
-        # ``pytest --fixtures`` / ``git help config``: every
+        # pytest's fixture listing / git help config: every
         # subcommand.flag the controller accepts, one per
         # line, the way a host that wants to know "does
         # this build support --format on info?" can grep
@@ -8369,10 +8374,28 @@ def main(argv=None):
         # always present) so the index is stable across
         # controller versions. The text is sorted so two
         # builds with the same flags produce byte-identical
-        # output, the way ``pip list`` does.
-        flags = sorted({e["id"] for e in _FEATURE_CATALOG})
-        for fid in flags:
-            print("info." + fid)
+        # output, the way pip list does.
+        index_since = getattr(args, "index_since", None)
+        if index_since is not None:
+            m = re.match(r"^r(\d+)$", index_since.strip())
+            if not m:
+                print("CANNOT: --index-since expects a round tag like r156, got %r"
+                      % index_since, file=sys.stderr)
+                return 2
+            cutoff = int(m.group(1))
+        else:
+            cutoff = None
+        lines = []
+        for entry in _FEATURE_CATALOG:
+            m = re.match(r"^r(\d+)$", entry["since"])
+            if m is None:
+                continue
+            entry_round = int(m.group(1))
+            if cutoff is not None and entry_round < cutoff:
+                continue
+            lines.append("info." + entry["id"])
+        for line in sorted(lines):
+            print(line)
         return 0
 
     if args.cmd == "info":
