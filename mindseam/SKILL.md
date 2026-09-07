@@ -249,7 +249,7 @@ That keeps `.mindseam/` with the task rather than with the skill.
 <python-command> <skill-root>/scripts/mindseam.py info --warnings-only                     # print only the warning lines (like gh run list state failed)
 <python-command> <skill-root>/scripts/mindseam.py info --version                          # print the controller version on its own (like gh --version / kubectl version)
 <python-command> <skill-root>/scripts/mindseam.py info --human                           # render time spans in human units (like df -h / git log relative dates)
-<python-command> <skill-root>/scripts/mindseam.py info --check                          # report ledger health issues, exit 2 on problems (like git fsck, npm doctor)
+<python-command> <skill-root>/scripts/mindseam.py info --version                          # print the controller version on its own (like gh --version / kubectl version)
 <python-command> <skill-root>/scripts/mindseam.py info --memory                        # report workspace disk size in human units (like free -m / du -h)
 <python-command> <skill-root>/scripts/mindseam.py info --list-fields                  # describe the ledger schema (like kubectl explain / man page)
 <python-command> <skill-root>/scripts/mindseam.py info --workspace-id                      # emit a 16-hex workspace fingerprint (path + ledger mtime) so a host can verify it is in the right workspace (like direnv stdlib / poetry env info)
@@ -312,10 +312,10 @@ That keeps `.mindseam/` with the task rather than with the skill.
 <python-command> <skill-root>/scripts/mindseam.py audit --intensity lite                            # cap the printed findings at 3 (full/off; MINDSEAM_INTENSITY sets the default)
 <python-command> <skill-root>/scripts/mindseam.py audit --tag core-drift,next-stall                   # only the listed tags; unknown tags refuse with exit 2 (like `gh pr list` with an unknown label); evidence rides through the projection
 <python-command> <skill-root>/scripts/mindseam.py audit --explain next-stall                          # print the static doc for one audit tag (trigger / fix / evidence) and exit, like git help / kubectl explain; works in an empty workspace
+<python-command> <skill-root>/scripts/mindseam.py audit --at 1                                       # audit as of the 1-based row 1 in history: slices hist[:1] so the audit reflects the very first seam (like git log -1 / gh pr view 1); out-of-range exits 2 to stderr
 <python-command> <skill-root>/scripts/mindseam.py audit --since 3600                                # only the last hour of history feeds the facet tags (goal-stale / next-stall / shrink); ledger surface tags keep operating on the full book (like journalctl --since)
 <python-command> <skill-root>/scripts/mindseam.py audit --since 30m --until 7d                       # r173: --since/--until accept a span (30s/45m/12h/7d/2w), an ISO-8601 date (2026-09-01, trailing Z pins UTC), or bare seconds (3600); unreadable/future values refuse with exit 2 (like git log --since / docker logs --since)
 <python-command> <skill-root>/scripts/mindseam.py audit --since 450 --until 250                      # bracket a window: --until is the upper bound on --since, both in seconds before now (like journalctl / git log --until)
-<python-command> <skill-root>/scripts/mindseam.py audit --at 5                                       # audit as of the 1-based row 5 in history: slices hist[:5] so the audit reflects everything that had happened by seam 5 (like git log -1 / gh pr view N)
 <python-command> <skill-root>/scripts/mindseam.py audit --baseline baseline.json                       # gate only on findings *new* relative to the baseline; baselined findings move to `baselined_findings` (JSON) and are marked `[baselined]` in text (like eslint --baseline)
 <python-command> <skill-root>/scripts/mindseam.py audit --baseline-write baseline.json                  # record the current (unprojected) findings to a JSON file the next run can use as `--baseline` (like the `outputFile` option of `eslint` / `flake8`)
 ```

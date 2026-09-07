@@ -6408,6 +6408,9 @@ _FEATURE_CATALOG = (
     {"id": "info-field", "since": "r172",
      "summary": "info --field PATH is a single-token dot-path alias for --format PATH, like git rev-parse <ref> or kubectl get <obj>",
      "default": True},
+    {"id": "skill-example-runner", "since": "r173",
+     "summary": "tests/test_r173_*.py extracts info / audit lines from SKILL.md and runs each one in a fresh empty workspace, the way cargo test --doc pins docstring examples to runtime",
+     "default": True},
 )
 
 

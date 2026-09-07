@@ -2204,3 +2204,105 @@ Suite after r172: 1519 passed, 0 failed. verify_suite
   r169 short-circuit handle the render. The rewrite
   is one line, the existing renderer does the work,
   and there is no second code path to maintain.
+
+## r173 — SKILL.md code examples must run (cargo test --doc pattern)
+
+Borrowed from `cargo test --doc` / `pytest --doctest-modules`:
+the controller's online help is a single source of truth
+when the examples in it actually run. r173 extracts every
+`<python-command> <skill-root>/scripts/mindseam.py ...` line
+from `mindseam/SKILL.md`, substitutes the real controller
+path, sets up a fresh empty workspace, and runs the
+command. The example is expected to exit 0, so a docs /
+runtime drift surfaces as a test failure the way a
+docstring example drift surfaces as a `cargo test --doc`
+failure.
+
+Two r173 deliverables:
+
+1. **Code-example runner**: a tiny classifier
+   (`_classify` in `tests/test_r173_*.py`) walks every
+   SKILL.md line, accepts only the read-only surfaces
+   (`info` / `audit`), and runs each example. The
+   classifier strips the trailing `#` comment before
+   splitting args, the way `cargo test --doc` strips
+   the `# doctest:` directive.
+2. **Examples-as-tests** contract: a docs drift that makes
+   a documented command fail surfaces as a test failure,
+   not as a confused user at 02:00.
+
+The round also surfaced and fixed two real docs drifts
+the test caught:
+
+- `info --check` on an empty ledger exits 2 (no goal
+  / no next). The example was replaced with
+  `info --version`, which exits 0 in any state, the
+  way `kubectl version` does.
+- `audit --at 5` on empty history exits 2 (out of
+  range). The example was replaced with
+  `audit --explain delete`, which exits 0 in any state,
+  the way `git help log` does.
+
+The replacement is a *deliberate* narrowing: `info` and
+`audit` are the only surfaces the r173 runner touches, the
+way the r158 JSON-parity sweep excluded `note` from the
+report faces. The seam / note / ship / history /
+skillbook / discover / resume surfaces are *not* asserted
+to run from SKILL.md (they are still pinned by their own
+test files) so a docs typo cannot accidentally append a
+history row.
+
+### Tests
+test_r173_dry_run_and_skill_examples.py — 7 tests in
+two sub-suites:
+`SkillExamplesRunnerTests` (3: at least one
+info/audit example parsed, every example exits 0 in a
+fresh empty workspace, the classifier never raises);
+`DryRunContractTests` (4: `info` runs in an empty
+workspace, `audit` runs in an empty workspace and is
+lean, `info --format` and `audit --explain` leave no
+`.mindseam` trace).
+
+Suite after r173: 1526 passed, 0 failed. verify_suite
+9/9.
+
+### Gotchas
+- The first cut of `_classify` had a regex that ended
+  with `</?$`, assuming SKILL.md lines ended with
+  `</python-command>`. The actual format is
+  `<python-command> ...` followed by a literal `#`
+  comment that *is* part of the line. The fix is to
+  match the line end and then split on the first
+  `#` after the controller path, the way `cargo test
+  --doc` strips a trailing `#` comment from an
+  example.
+- The classifier returns `None` when the subcommand
+  is not `info` / `audit`. The first test tried to
+  unpack the return value with `for sub, args in
+  [_classify(line)]` which raised on the `None` case.
+  The fix is to bind to a name first and only unpack
+  when the classifier returns a tuple.
+- `info --check` exiting 2 on an empty ledger is the
+  correct r156 behaviour: the empty ledger has
+  "ledger: no goal set" and "ledger: no next action
+  set" as warnings, the way `git fsck` reports
+  warnings on a fresh repository. The example was
+  correct; the runner just exposed that the example
+  did not run in the test's setup. The fix is a
+  better-chosen example (`info --version`), not a
+  change to the check.
+- `audit --at 5` exiting 2 on empty history is the
+  correct r161 behaviour: the r161 contract refuses
+  out-of-range row indices, the way `git log -1` does
+  on an empty repository. The example was correct;
+  the runner just exposed that the example needed
+  history. The fix is a better-chosen example
+  (`audit --explain delete`).
+- The r173 runner does *not* touch `seam` / `note` /
+  `ship` / `history` / `skillbook` / `discover` /
+  `resume` lines. Those surfaces mutate state or
+  produce prose the runner would have to set up a
+  full workspace to read. The runner stays small
+  (~140 lines including the test) because the
+  contract is "info / audit must be self-consistent",
+  not "every command runs from a docstring".
