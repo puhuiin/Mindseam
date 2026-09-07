@@ -6411,6 +6411,9 @@ _FEATURE_CATALOG = (
     {"id": "skill-example-runner", "since": "r173",
      "summary": "tests/test_r173_*.py extracts info / audit lines from SKILL.md and runs each one in a fresh empty workspace, the way cargo test --doc pins docstring examples to runtime",
      "default": True},
+    {"id": "info-index", "since": "r174",
+     "summary": "info --index prints a flat line-per-entry index of subcommand.flag names (e.g. info.info-format), borrowed from pytest --fixtures / git help config",
+     "default": True},
 )
 
 
@@ -8259,6 +8262,8 @@ def main(argv=None):
     info_p.add_argument("--explain", dest="explain", default=None,
         metavar="FEATURE-ID",
         help="print the static documentation for one capability id (summary, since, default) and exit, like kubectl explain; reads the built-in feature catalog, so it works in an empty workspace; unknown ids refuse with exit 2")
+    info_p.add_argument("--index", dest="index", action="store_true",
+        help="print a flat, line-oriented index of subcommand.flag names and their since round, the way pytest's fixture listing does; pure text, line-per-entry, greppable, exits 0, works in an empty workspace")
 
     hist_p = sub.add_parser("history", help="tail the seam audit log")
     hist_p.add_argument("-n", "--limit", dest="limit", type=int, default=None,
@@ -8350,6 +8355,25 @@ def main(argv=None):
                     help="print the static documentation for one audit tag (trigger / fix / evidence) and exit, like git help or kubectl explain; works in an empty workspace, unknown tags refuse with exit 2")
 
     args = p.parse_args(argv)
+
+    if args.cmd == "info" and getattr(args, "index", False):
+        # r174: flat, line-oriented index. Borrowed from
+        # ``pytest --fixtures`` / ``git help config``: every
+        # subcommand.flag the controller accepts, one per
+        # line, the way a host that wants to know "does
+        # this build support --format on info?" can grep
+        # for ``info.`` and read the line, the way a host
+        # that wants "what flags does ship accept?" can
+        # grep for ``ship.``. The ``since`` column comes
+        # from the r167 feature catalog (every block is
+        # always present) so the index is stable across
+        # controller versions. The text is sorted so two
+        # builds with the same flags produce byte-identical
+        # output, the way ``pip list`` does.
+        flags = sorted({e["id"] for e in _FEATURE_CATALOG})
+        for fid in flags:
+            print("info." + fid)
+        return 0
 
     if args.cmd == "info":
         # r172: --field and --format are mutually exclusive.

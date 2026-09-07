@@ -2306,3 +2306,66 @@ Suite after r173: 1526 passed, 0 failed. verify_suite
   (~140 lines including the test) because the
   contract is "info / audit must be self-consistent",
   not "every command runs from a docstring".
+
+## r174 — info --index: flat grep-friendly index
+
+Borrowed from `pytest --fixtures` / `git help config` /
+`cargo --list`: a one-line-per-entry flat text index that
+a host can grep without parsing JSON, and that prints
+identically on any build of the same controller version.
+The r172 `--field` shows what the controller can read;
+the r174 `--index` shows what flags the controller
+accepts, at a glance.
+
+The output is sorted so two builds of the same
+controller version produce byte-identical index output,
+the way `pip list --format=columns` is stable across
+runs. The `info.<feature-id>` naming scheme borrows
+the dot-prefix from a Linux capability
+(`cap_net_bind_service`); a host that wants `format`
+reads `info.info-format`, a host that wants `explain`
+reads `info.info-explain`. The r167 catalog already
+carries the feature ids; r174 just re-projects them
+as a flat text index, the way r169 re-projects the
+JSON payload as a dot-path renderer. Same data,
+smaller contract, easier to grep.
+
+The branch sits *before* every ledger read, so
+`info --index` works in a fresh empty workspace the
+way `git help` works outside a repository. A host
+that already parses JSON via `info --features` can
+now grep `info --index` for the same answer with
+zero parsing.
+
+### Tests
+test_r174_info_index.py — 10 tests in two sub-suites:
+`IndexContractTests` (8: runs in empty workspace,
+does not create .mindseam, one line per catalog
+entry, every line has the `info.` prefix, lines
+are sorted, lines match the catalog, byte-identical
+across runs, omitted by default);
+`IndexCatalogTests` (2: feature in catalog, since
+round is r174).
+
+Suite after r174: 1536 passed, 0 failed. verify_suite
+9/9.
+
+### Gotchas
+- The first cut of the help text said "the way
+  `pytest --fixtures` lists fixtures". r69's reverse
+  direction test then extracted ` --fixtures` as a
+  literal flag token, found it was not in the argparse
+  set, and refused. The fix is the r159 / r162 / r165
+  / r172 trick: paraphrase the borrower's option
+  name without the leading dashes
+  ("`pytest`'s fixture listing").
+- `info --index` reuses the r167 catalog ids as the
+  index keys, so a feature that ships in the catalog
+  but does not appear in the index surfaces as a
+  test failure. The contract is: catalog == index,
+  the way `pip list` == installed packages.
+- The index is opt-in (`--index` is a flag, not the
+  default), so existing hosts that run `info` without
+  arguments see the regular sectioned text report, the
+  way a host that does not pass `pip list --format=json`
+  sees the regular columnar output.
