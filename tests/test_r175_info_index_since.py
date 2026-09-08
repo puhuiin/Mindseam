@@ -115,12 +115,16 @@ class IndexSinceContractTests(unittest.TestCase):
                        cwd=self.workspace).stdout.splitlines()
         recent = _invoke(["info", "--index", "--index-since", "r170"],
                           cwd=self.workspace).stdout.splitlines()
-        # r170 keeps the 7 features introduced in r170 or
-        # later (r170 report-format-faces, r172 info-field,
-        # r173 skill-example-runner, r174 note-from-stdin
-        # + info-index, r175 info-index-since,
-        # r171 audit-explain).
-        self.assertEqual(len(recent), 7)
+        # r170 keeps the features introduced in r170 or
+        # later (r170 report-format-faces, r171 audit-explain,
+        # r172 info-field, r173 skill-example-runner, r174
+        # note-from-stdin + info-index, r175 info-index-since,
+        # r176 info-index-until). The count is stable because
+        # the catalog is static; it moves only when a new
+        # round lands, and the move is a deliberate pin
+        # update, the way the r167 catalog count moved when
+        # r169 landed.
+        self.assertEqual(len(recent), 8)
         for line in recent:
             self.assertIn(line, full)
 

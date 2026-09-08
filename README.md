@@ -143,6 +143,7 @@ the task workspace as the current directory.
 | `info --field path.key` | Single-token dot-path shorthand for `--format`; mutually exclusive with `--format` (the way `kubectl get -o json -o yaml` refuses two output formats) |
 | `info --index` | Print a flat line-per-entry index of `info.<feature-id>` (the way `pytest`'s fixture listing / `git help config` do); works in an empty workspace, sorted, greppable |
 | `info --index --index-since r172` | Like the listing flag of `tldr` / `git log --since`: filter the index by round (inclusive on the round tag, refuses invalid round tags with exit 2) |
+| `info --index --index-since r172 --index-until r174` | Bracket a round window: both bounds inclusive, an inverted window refuses with exit 2 (like the same flags on `git log` / `journalctl`) |
 | `info --aliases` | Emit an `aliases` block listing built-in and user-defined short names; user aliases come from `.mindseam/aliases.json`. A bare alias name (`mindseam.py audit-ci`) auto-expands to its full argv before argparse sees it (like `git co` → `git checkout` / the list output of `gh alias`) |
 | `info --explain info-memory` | Print the static doc for one capability id (summary, since, default) and exit (like `kubectl explain`); the doc comes from the built-in feature catalog, so it works in an empty workspace and creates no ledger; unknown ids refuse with exit 2 |
 | `discover` | List modules / domains selected for the next pass |

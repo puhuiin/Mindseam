@@ -2430,3 +2430,61 @@ Suite after r175: 1547 passed, 0 failed. verify_suite
   full ref name. The test pins this so a host that
   forgets the `r` prefix sees a clear error rather
   than a silent empty filter.
+
+## r176 — info --index-until: bracket the round window
+
+r175 gave the index a lower bound (`--index-since r172`
+keeps everything from r172 onward). r176 completes the
+bracket with `--index-until r174` — features introduced
+in r174 or earlier — the way `git log --since=... --until=...`
+brackets a date window and `journalctl --since --until`
+brackets a time window.
+
+The two flags compose: `--index-since r172 --index-until
+r174` returns exactly the features introduced in the
+closed interval [r172, r174]. Both bounds are inclusive,
+the way the same flags are inclusive on `git log`. An
+inverted window (since after until) refuses with exit 2
+on stderr and names both flags, the way a contradictory
+`--since --until` pair on `git log` is a caller error.
+
+The shared `_parse_round` helper now serves both flags,
+the way r169's `_resolve_path` serves both `--format`
+and r172's `--field`. One parser, two callers, one error
+message shape.
+
+### Tests
+test_r176_info_index_until.py — 11 tests in two
+sub-suites:
+`IndexUntilContractTests` (9: runs in empty workspace,
+does not create `.mindseam`, excludes features after
+the round, includes the oldest rounds, brackets a
+round range with both flags, inverted window refused
+with both flag names in stderr, invalid until round
+refused, window is a subset of the full index, window
+lines are sorted);
+`IndexUntilCatalogTests` (2: feature in catalog, since
+round is r176).
+
+The r175 test that pinned "r170 filter = 7 entries"
+moved to 8 (the r176 `info-index-until` entry is
+itself >= r170), the way the r167 catalog count moved
+when r169 landed. The pin update is deliberate: the
+catalog is static, so the count moves only when a new
+round lands.
+
+Suite after r176: 1558 passed, 0 failed. verify_suite
+9/9.
+
+### Gotchas
+- The inverted-window check runs *after* both round
+  tags parse, so a caller who passes both a bad tag
+  and an inverted window sees the parse error first
+  (the more actionable one), the way `git log` reports
+  a bad date before reporting an empty range.
+- The r175 count pin moved when r176 landed. A count
+  pin on a growing catalog is always one round behind;
+  the alternative (asserting `<=` instead of `==`)
+  would let a catalog regression ship silently, so
+  the `==` pin with a deliberate update is the right
+  trade.

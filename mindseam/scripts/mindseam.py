@@ -6417,6 +6417,9 @@ _FEATURE_CATALOG = (
     {"id": "info-index-since", "since": "r175",
      "summary": "with info --index, --index-since ROUND lists only features introduced in that round or later (borrowed from tldr --list / git log --since, inclusive on the round tag, refuses invalid round tags with exit 2)",
      "default": True},
+    {"id": "info-index-until", "since": "r176",
+     "summary": "with info --index, --index-until ROUND is the upper bound on --index-since; the two flags bracket a round window the way git log --since/--until do, and an inverted window refuses with exit 2",
+     "default": True},
 )
 
 
@@ -8269,6 +8272,8 @@ def main(argv=None):
         help="print a flat, line-oriented index of subcommand.flag names and their since round, the way pytest's fixture listing does; pure text, line-per-entry, greppable, exits 0, works in an empty workspace")
     info_p.add_argument("--index-since", dest="index_since", default=None, metavar="ROUND",
         help="with --index, only list features introduced in this round or later; r175 borrows from the listing flag of `tldr` / `git log --since` (filter an index by recency), the way `git log --since` filters a log by date. Accepts the literal round tag (r156, r175) the SESSION_LOG and the commit subject use")
+    info_p.add_argument("--index-until", dest="index_until", default=None, metavar="ROUND",
+        help="with --index, the upper bound on --index-since: only list features introduced in this round or earlier. Together the two flags bracket a round window, the way the same flags do on `git log` / `journalctl`")
 
     hist_p = sub.add_parser("history", help="tail the seam audit log")
     hist_p.add_argument("-n", "--limit", dest="limit", type=int, default=None,
@@ -8376,15 +8381,29 @@ def main(argv=None):
         # builds with the same flags produce byte-identical
         # output, the way pip list does.
         index_since = getattr(args, "index_since", None)
-        if index_since is not None:
-            m = re.match(r"^r(\d+)$", index_since.strip())
+        index_until = getattr(args, "index_until", None)
+
+        def _parse_round(value, flag_name):
+            m = re.match(r"^r(\d+)$", value.strip())
             if not m:
-                print("CANNOT: --index-since expects a round tag like r156, got %r"
-                      % index_since, file=sys.stderr)
-                return 2
-            cutoff = int(m.group(1))
-        else:
-            cutoff = None
+                print("CANNOT: %s expects a round tag like r156, got %r"
+                      % (flag_name, value), file=sys.stderr)
+                return None
+            return int(m.group(1))
+
+        cutoff = _parse_round(index_since, "--index-since") \
+            if index_since is not None else None
+        if index_since is not None and cutoff is None:
+            return 2
+        ceiling = _parse_round(index_until, "--index-until") \
+            if index_until is not None else None
+        if index_until is not None and ceiling is None:
+            return 2
+        if (cutoff is not None and ceiling is not None
+                and cutoff > ceiling):
+            print("CANNOT: --index-since %s is after --index-until %s"
+                  % (index_since, index_until), file=sys.stderr)
+            return 2
         lines = []
         for entry in _FEATURE_CATALOG:
             m = re.match(r"^r(\d+)$", entry["since"])
@@ -8392,6 +8411,8 @@ def main(argv=None):
                 continue
             entry_round = int(m.group(1))
             if cutoff is not None and entry_round < cutoff:
+                continue
+            if ceiling is not None and entry_round > ceiling:
                 continue
             lines.append("info." + entry["id"])
         for line in sorted(lines):
