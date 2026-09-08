@@ -2580,3 +2580,71 @@ Suite after r177: 1573 passed, 0 failed. verify_suite
   output, the way `terraform plan` shows drift and
   warnings together. The exit code is 2 with refusals,
   byte-identical to a real note.
+
+## r178 — resume --dry-run: the plan trio is complete
+
+`seam --dry-run` has existed since the first rounds and
+`note --dry-run` landed in r177. `resume` is the third and
+last mutating surface: a real resume appends one history
+row and may compact the history file. r178 borrows from
+`terraform plan` one more time: the reentry report is
+computed exactly as a real resume would compute it —
+same health score, same risk, same trend — but nothing
+is appended and nothing is compacted.
+
+The JSON face carries a `dry_run` boolean (False on a real
+resume, True on a preview) so a host reading the payload
+can tell them apart, the way `terraform plan` marks its
+output as a plan. The text face prints a
+`(dry run) history row not appended.` footer so a human
+scrolling the transcript sees the preview marker too.
+`--format` composes with `--dry-run`: the dot-path
+renderer reads the preview payload, so
+`resume --dry-run --format 'history_count,dry_run'`
+returns the pre-append count and `true` on one line each.
+
+The dry-run path runs against the history as it exists on
+disk: no append, no compaction, state repairs limited to
+the read-time repairs. A well-formed history is
+byte-identical after a preview, the way
+`terraform plan` leaves the state file untouched.
+
+The side-effect contract of a real resume is unchanged:
+without the flag, one history row is appended, the
+compaction runs, and `dry_run` is False, byte-identical
+to the r158 behaviour.
+
+### Tests
+test_r178_resume_dry_run.py — 9 tests in two sub-suites:
+`ResumeDryRunTests` (7: no append, JSON marker True on
+preview and False on real, text face footer,
+`--format` composition, health score well-formed in
+the preview, real resume still appends, history file
+byte-identical after preview);
+`ResumeDryRunCatalogTests` (2: catalog registers
+`resume-dry-run` with since r178).
+
+The r175 count pin moved again (9 -> 10) because the
+r178 `resume-dry-run` entry is itself >= r170; the pin
+update is deliberate, the way it has been every round
+since r169.
+
+Suite after r178: 1582 passed, 0 failed. verify_suite
+9/9.
+
+### Gotchas
+- `append_history` both appends and compacts, so the
+  dry-run branch cannot call it with a flag; it skips
+  the call entirely and uses the pre-read rows. The
+  preview therefore cannot show the post-append
+  `history_count` — it shows the pre-append count,
+  which is the honest answer to "what does the ledger
+  look like right now", the way `terraform plan`
+  shows current state plus drift, not post-apply
+  state.
+- The `dry_run` marker is unconditional in the JSON
+  payload (False on a real resume). A host that
+  already parses resume --json sees one new key; the
+  r158 payload contract gains a field without losing
+  one, the way every r161+ JSON addition has been
+  additive only.

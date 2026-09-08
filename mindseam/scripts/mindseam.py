@@ -4765,7 +4765,7 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
     return 0
 
 
-def mode_resume(book, json_flag=False, format_path=None):
+def mode_resume(book, json_flag=False, format_path=None, dry_run=False):
     """Re-anchor after a gap: premise, invariants, full ledger.
 
     ``--json`` borrows the ``gh --json`` family the way the other
@@ -4775,6 +4775,15 @@ def mode_resume(book, json_flag=False, format_path=None):
     premise prose, which a host cannot consume anyway. The side
     effect is unchanged: a resume still appends one history row under
     either face, the way ``seam --json`` does.
+
+    ``--dry-run`` borrows from ``terraform plan`` (and mirrors the
+    r177 ``note --dry-run``): the report is computed exactly as a
+    real resume would compute it — same health score, same risk,
+    same trend — but the history row is not appended and the
+    state repairs are reported, not applied. The report carries a
+    ``dry_run`` marker so a host reading the JSON face can tell a
+    preview from a real resume, the way ``terraform plan`` marks
+    its output as a plan.
     """
     hist, _, repair_reasons = read_history()
     if not json_flag and format_path is None:
@@ -4782,8 +4791,16 @@ def mode_resume(book, json_flag=False, format_path=None):
         # only; a --format host reads a scalar, not prose, the
         # way ``resume --json`` drops them too.
         print_reentry(book, "── mindseam ─ resume")
-    hist, compact_reasons = append_history(book)
-    state_reasons = repair_reasons + compact_reasons
+    if dry_run:
+        # No append, no compaction: the preview runs against the
+        # history as it exists on disk. State repairs are the
+        # read-time repairs only; a real resume would also
+        # compact, so the preview says so.
+        hist, compact_reasons = hist, []
+        state_reasons = repair_reasons
+    else:
+        hist, compact_reasons = append_history(book)
+        state_reasons = repair_reasons + compact_reasons
     meta = read_meta() or {}
     risk = meta.get("risk")
     score, score_reasons = session_health_score(hist, book=book)
@@ -4808,6 +4825,7 @@ def mode_resume(book, json_flag=False, format_path=None):
             },
             "history_count": len(hist),
             "state_repairs": list(state_reasons),
+            "dry_run": bool(dry_run),
             "risk": {
                 "level": (risk.get("level", "low")
                           if isinstance(risk, dict) else "low"),
@@ -4833,6 +4851,11 @@ def mode_resume(book, json_flag=False, format_path=None):
         print("State repair:")
         for reason in state_reasons:
             print("· " + reason)
+    if dry_run:
+        print()
+        print("(dry run) history row not appended. "
+              "Re-run without --dry-run to record the resume.")
+        return 0
     if risk:
         print()
         print("Persisted risk: %s" % risk.get("level", "low").upper())
@@ -6459,6 +6482,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "note-dry-run", "since": "r177",
      "summary": "note --dry-run computes the edits, prints a section-level plan of what would change, and writes nothing, like terraform plan / git add --dry-run; the refusal contract is byte-identical",
+     "default": True},
+    {"id": "resume-dry-run", "since": "r178",
+     "summary": "resume --dry-run computes the reentry report without appending the history row or compacting history; the JSON face carries a dry_run marker (terraform plan mode, completing the seam / note / resume trio)",
      "default": True},
 )
 
@@ -8235,6 +8261,8 @@ def main(argv=None):
                     help="emit machine-readable output for the discoverability layer")
     rs.add_argument("--format", dest="format_path", default=None,
                     help="render only the values at the given dot-paths (comma-separated), like the same flag on info (a missing path returns an empty string, not an error)")
+    rs.add_argument("--dry-run", dest="dry_run", action="store_true",
+                    help="compute the reentry report without appending the history row or compacting history (like terraform plan / the same flag on seam and note); the JSON face carries a dry_run marker so a host can tell a preview from a real resume")
 
     n = sub.add_parser("note", help="record something in the ledger")
     n.add_argument("--goal")
@@ -8549,7 +8577,8 @@ def main(argv=None):
         )
     if args.cmd == "resume":
         return mode_resume(book, json_flag=getattr(args, "json", False),
-                           format_path=getattr(args, "format_path", None))
+                           format_path=getattr(args, "format_path", None),
+                           dry_run=getattr(args, "dry_run", False))
     if args.cmd == "info":
         return mode_info(
             book,

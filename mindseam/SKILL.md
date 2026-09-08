@@ -242,6 +242,7 @@ That keeps `.mindseam/` with the task rather than with the skill.
 <python-command> <skill-root>/scripts/mindseam.py seam --json                                 # the same report, machine-readable JSON
 <python-command> <skill-root>/scripts/mindseam.py seam --dry-run                                # preview a seam without writing history.json (like terraform plan)
 <python-command> <skill-root>/scripts/mindseam.py note --dry-run                                # preview a note: print a section-level plan of what would change, write nothing (like terraform plan / git add --dry-run)
+<python-command> <skill-root>/scripts/mindseam.py resume --dry-run                              # preview the reentry report without appending the history row or compacting history; the JSON face carries a dry_run marker (like terraform plan)
 <python-command> <skill-root>/scripts/mindseam.py seam --quiet                                  # print only the observation facts, one per line (like pytest -q)
 <python-command> <skill-root>/scripts/mindseam.py seam --message "TICKET-101"           # attach a human annotation to the recorded row (like git commit -m / kubectl annotate)
 <python-command> <skill-root>/scripts/mindseam.py seam --from-stdin                   # read one next action per line from standard input (like kubectl apply -f - / xargs)
