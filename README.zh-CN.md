@@ -156,6 +156,7 @@ loop 三种 pass，以及可选控制器负责记录长任务状态而不负责�
 | `audit --baseline baseline.json` | 仅对**新** finding（相对基线而言）触发 gate；已入库的 finding 移到 `baselined_findings`（JSON）并在文本面打 `[baselined]` 标记。`net` 与 `--strict` 只看 fresh 集（类似 `eslint --baseline`） |
 | `audit --baseline-write baseline.json` | 把当前（未投影的）findings 写入 JSON 文件，下次运行可作为 `--baseline` 使用（类似 `eslint --output-file`）。写先于读，所以 `--baseline-write X --baseline X` 一次调用即可完成"记录并门禁" |
 | `audit --explain next-stall` | 打印单个 audit 标签的静态文档（trigger / fix / evidence）后退出（类似 `git help` / `kubectl explain`）；空工作区也可用，未知标签拒绝并退出码 2 |
+| `note --dry-run` | 计算 edit、打印 section 级变更计划，不写任何东西（类似 `terraform plan` / `git add --dry-run`）；拒绝合约逐字节一致，host 可在应用前验证 note 调用 |
 
 ```text
 <python-command> <skill-root>/scripts/mindseam.py note --goal "完成条件" --next "第一个动作"

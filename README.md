@@ -159,6 +159,7 @@ the task workspace as the current directory.
 | `audit --baseline baseline.json` | Gate only on findings *new* relative to the baseline; baselined findings move to `baselined_findings` and are marked `[baselined]` in text. `net` and `--strict` see only the fresh set (like `eslint --baseline`) |
 | `audit --baseline-write baseline.json` | Record the current (unprojected) findings to a JSON file the next run can use as `--baseline` (like `eslint --output-file`). The write happens before the read, so `--baseline-write X --baseline X` records and gates in one shot |
 | `audit --explain next-stall` | Print the static doc for one audit tag (trigger / fix / evidence) and exit (like `git help` / `kubectl explain`); works in an empty workspace, unknown tags refuse with exit 2 |
+| `note --dry-run` | Compute the edits, print a section-level plan of what would change, and write nothing (like `terraform plan` / `git add --dry-run`); the refusal contract is byte-identical, so a host can validate a note call before applying it |
 
 ```text
 <python-command> <skill-root>/scripts/mindseam.py note --goal "what done means" --next "first action"

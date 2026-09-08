@@ -2488,3 +2488,95 @@ Suite after r176: 1558 passed, 0 failed. verify_suite
   would let a catalog regression ship silently, so
   the `==` pin with a deliberate update is the right
   trade.
+
+## r177 — note --dry-run: the terraform plan mode for the editor
+
+`seam --dry-run` has existed since the first rounds: a seam
+can be previewed without appending to history.json. `note`
+never had the same flag, so a host that wanted to validate
+a note call — a CI script checking whether a proposed edit
+would be accepted — had to run the note for real and clean
+up after a refusal. r177 borrows from `terraform plan` /
+`git add --dry-run`: the edits are computed exactly as a
+real note would compute them (same validation, same
+refusal contract), but the ledger and the meta file are
+not written.
+
+The plan is section-level: a `~ Section` line per ledger
+section whose content would change, plus `~ meta` when a
+marker / confidence / verifier / error / outcome /
+extra-steps edit would land. A section that did not
+change is not listed, the way `terraform plan` lists
+only drifted resources. The footer is
+`No changes written. Re-run without --dry-run to apply.`,
+the way `terraform plan` ends with the apply hint.
+
+The refusal contract is byte-identical: the same
+NOT RECORDED lines print with or without the flag, and
+refusals exit 2 either way. The one behavioural
+difference is the side effect: a real note with a
+refused edit still writes the accepted ones ("everything
+else in this call was recorded"); a dry-run writes
+nothing even when some edits were accepted — the plan
+is the product, the way `terraform plan` shows the
+would-be state without applying it.
+
+A no-change note under dry-run reports
+`No changes would be applied.` instead of echoing the
+unchanged ledger, the way `terraform plan` reports
+"No changes." The no-change case is a bare
+`note --dry-run` with no edit flags; `--next same` is
+an idempotent edit (the r156 semantics treat any
+`--next` value as a write), so it is NOT the no-change
+case and still prints `~ Next` in the plan.
+
+### Tests
+test_r177_note_dry_run.py — 15 tests in four sub-suites:
+`DryRunPlanTests` (7: section plan printed, nothing
+written, only changed sections listed, check adds
+Verified to the plan, open adds Open, close removes
+Open, no-change reports "No changes would be
+applied.");
+`DryRunRefusalTests` (4: refusal exits 2 with the
+flag, refusal writes nothing even when some edits
+were accepted, fresh-creation refusal does not create
+the ledger, backward compat — without the flag a
+refused note still writes accepted edits);
+`DryRunMetaTests` (2: marker edit defers the meta
+write and reports `~ meta`, confidence edit reports
+`~ meta`);
+`DryRunCatalogTests` (2: catalog registers
+`note-dry-run` with since r177).
+
+The r175 count pin moved again (8 -> 9) because the
+r177 `note-dry-run` entry is itself >= r170; the pin
+update is deliberate, the way the r167 catalog count
+has moved every round since.
+
+Suite after r177: 1573 passed, 0 failed. verify_suite
+9/9.
+
+### Gotchas
+- The COVERAGE regex requires evidence keywords
+  ("including", "n ≤ 6" with the Unicode less-than-or-
+  equal, "inputs", ...). The first test fixtures used
+  `n <= 6` with ASCII `<=`, which does NOT match
+  `n\s*[<≤=]\s*\d` — wait, it does match `<`. The
+  actual mismatch was "brute force, n <= 6" lacking
+  any coverage keyword; the fix was
+  "brute force, including empty and maximum", the
+  same phrasing the r156 help text suggests.
+- The `--next same` idempotent-edit semantics tripped
+  the no-change test: the r156 note treats any
+  `--next` value as a write (`changed = True`
+  unconditionally), so "same value" is not the
+  no-change case. The bare `note --dry-run` (no edit
+  flags) is. Changing the controller to skip same-value
+  writes would alter the r156 contract for a cosmetic
+  gain, so the test moved instead.
+- The dry-run branch sits between `if changed:` and
+  the refusal printer, so refused-but-accepted edits
+  print the plan AND the NOT RECORDED lines in one
+  output, the way `terraform plan` shows drift and
+  warnings together. The exit code is 2 with refusals,
+  byte-identical to a real note.

@@ -4850,7 +4850,19 @@ def mode_note(book, args):
     Initial creation is atomic because Goal and Next are both required. After that,
     a declined independent edit must not cost an accepted one, or mixed calls never
     converge.
+
+    ``--dry-run`` borrows from ``terraform plan`` / ``git add --dry-run``:
+    the edits are computed exactly as a real note would compute them —
+    same validation, same refusal contract — but the ledger and the meta
+    file are not written. The output is a section-level plan (which of the
+    five ledger sections would change), followed by the same refusal lines
+    a real note would print, so a host can validate a note call before
+    applying it. The exit contract is byte-identical: refusals exit 2 with
+    or without the flag, the way ``terraform plan`` reports drift without
+    applying it.
     """
+    dry_run = getattr(args, "dry_run", False)
+    original = {k: list(v) for k, v in book.items()} if dry_run else None
     changed = False
     refused = []
     invalid = set()
@@ -5077,10 +5089,28 @@ def mode_note(book, args):
             )
         else:
             meta["extra_steps"] = args.extra_steps
-    if meta:
+    if meta and not dry_run:
         write_meta(meta)
 
     if changed:
+        if dry_run:
+            # Borrowed from ``terraform plan``: the plan is the
+            # product. Section-level diffs let a host read what
+            # would change without parsing the whole ledger; a
+            # section that did not change is not listed, the way
+            # ``terraform plan`` lists only drifted resources.
+            print("── mindseam ─ note (dry run)")
+            for name in SECTIONS:
+                if original.get(name) != book[name]:
+                    print("  ~ %s" % name)
+            if meta:
+                print("  ~ meta")
+            print("  No changes written. Re-run without --dry-run to apply.")
+            for message, fix in refused:
+                declined(message, fix)
+            if refused:
+                return 2
+            return 0
         problem = write_ledger(book)
         if problem:
             print("CANNOT: cannot write the ledger — " + problem)
@@ -5093,6 +5123,13 @@ def mode_note(book, args):
         if changed:
             print("  (everything else in this call was recorded.)")
         return 2
+    if dry_run:
+        # No section changed; the plan says so instead of
+        # echoing the unchanged ledger, the way
+        # ``terraform plan`` reports "No changes."
+        print("── mindseam ─ note (dry run)")
+        print("  No changes would be applied.")
+        return 0
     print_ledger(book)
     return 0
 
@@ -6419,6 +6456,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "info-index-until", "since": "r176",
      "summary": "with info --index, --index-until ROUND is the upper bound on --index-since; the two flags bracket a round window the way git log --since/--until do, and an inverted window refuses with exit 2",
+     "default": True},
+    {"id": "note-dry-run", "since": "r177",
+     "summary": "note --dry-run computes the edits, prints a section-level plan of what would change, and writes nothing, like terraform plan / git add --dry-run; the refusal contract is byte-identical",
      "default": True},
 )
 
@@ -8216,6 +8256,8 @@ def main(argv=None):
                    help="how many unplanned sub-steps this step cost")
     n.add_argument("--from-stdin", dest="from_stdin", action="store_true",
                    help="read the flag/value spec from standard input instead of argv (like kubectl apply -f - / git config --file -); the payload is shlex-split and re-parsed by the note parser, so the edit semantics are identical to a command-line call")
+    n.add_argument("--dry-run", dest="dry_run", action="store_true",
+                   help="compute the edits, print a section-level plan of what would change, and write nothing (like terraform plan / git add --dry-run); the refusal contract is byte-identical, so a host can validate a note call before applying it")
 
     s = sub.add_parser("ship", help="register check on anything about to leave")
     s.add_argument("file", help="path, or - for stdin")
