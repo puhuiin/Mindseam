@@ -7728,7 +7728,7 @@ def resolve_intensity(explicit=None):
     with two env-read commands does not earn one. An unset or blank
     variable reads as the default; validation of the resolved value is
     the caller's job, because the refusal message names the flag that
-    reached it.
+    reached it. The valid ladder is ``INTENSITY_LEVELS``.
     """
     if explicit is not None and explicit.strip():
         return explicit.strip().lower()
