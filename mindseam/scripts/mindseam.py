@@ -4624,6 +4624,67 @@ def grade(score):
     return "F"
 
 
+# r181: velocity trend, borrowed from open-gsd/gsd-core's
+# STATE.md health block ("Last 5 plans: [...] Trend: Improving
+# / Stable / Degrading"): recompute the health score at each
+# of the last few seam boundaries and classify the movement.
+# The score is a pure function of (hist, book), so re-slicing
+# the same history at earlier boundaries is a faithful replay
+# of what the score *would have been* at each seam.
+VELOCITY_WINDOW = 5
+VELOCITY_DELTA = 5
+
+
+def velocity_trend(hist, book=None, window=VELOCITY_WINDOW,
+                   delta=VELOCITY_DELTA):
+    """Classify the health-score movement over the last seams.
+
+    Returns ``(trend, scores)`` where ``trend`` is one of
+    ``"insufficient"`` (fewer than ``window`` rows — not enough
+    boundaries to measure), ``"improving"`` (last half-window
+    mean exceeds first half-window mean by ``delta`` or more),
+    ``"degrading"`` (lower by ``delta`` or more), or
+    ``"stable"``. ``scores`` is the list of window-length
+    prefix scores, oldest first, so a host can render the
+    same bracket gsd-core prints. The half-window mean split
+    is borrowed from gsd-core's "last 5 plans" bracket: the
+    first half is the older run, the second half is the
+    recent run, and the delta between the two means is the
+    velocity.
+    """
+    if isinstance(hist, dict):
+        hist = [hist]
+    if not hist or len(hist) < window:
+        return "insufficient", []
+    recent = hist[-window:]
+    base = len(hist) - len(recent)
+    scores = []
+    for end in range(1, len(recent) + 1):
+        # The prefix ending at recent[end - 1]: the score as it
+        # would have been measured at that seam boundary. Prefixes
+        # shorter than STALL_RUN are the neutral-100 edge: the
+        # score cannot measure anything there and returns its
+        # unmeasurable default, so including those points would
+        # manufacture a fake decline every time the window starts
+        # near the beginning of a session. The first fully
+        # measured boundary anchors the window instead.
+        if base + end < STALL_RUN:
+            continue
+        result = session_health_score(hist[:base + end], book=book)
+        scores.append(result.score)
+    if len(scores) < 2:
+        # Not enough measured boundaries to form two halves.
+        return "insufficient", scores
+    half = max(1, len(scores) // 2)
+    older = sum(scores[:half]) / float(half)
+    newer = sum(scores[half:]) / float(len(scores) - half)
+    if newer - older >= delta:
+        return "improving", scores
+    if older - newer >= delta:
+        return "degrading", scores
+    return "stable", scores
+
+
 REMEDIATION_MAP = (
     ("confidence trend shows degradation",
      "Confidence is degrading — revisit the initial premises now.", 0),
@@ -6592,6 +6653,9 @@ _FEATURE_CATALOG = (
     {"id": "audit-grade", "since": "r180",
      "summary": "audit closes with a letter grade A-F over the fresh finding count with published cut points (0/1/2/3/5/8), so a host can gate on Grade: A without parsing counts",
      "default": True},
+    {"id": "health-velocity-trend", "since": "r181",
+     "summary": "info --health carries a velocity block: the health score recomputed at each of the last 5 seam boundaries, classified improving / stable / degrading (borrowed from gsd-core's STATE.md Trend word)",
+     "default": True},
 )
 
 
@@ -7022,6 +7086,19 @@ def mode_info(book, json_flag=False, warnings_only=False,
         payload["health"] = {
             "status": status,
             "reasons": reasons,
+        }
+        # r181: velocity trend rides on the health block, the
+        # way gsd-core's STATE.md prints the per-plan bracket
+        # and the Trend: word under its counters. The trend is
+        # a projection of the same health score the block
+        # already carries, so a host reading both gets
+        # matching numbers.
+        trend, scores = velocity_trend(hist, book=book)
+        payload["health"]["velocity"] = {
+            "trend": trend,
+            "window": VELOCITY_WINDOW,
+            "delta": VELOCITY_DELTA,
+            "scores": scores,
         }
     if human:
         # Borrowed from ``df -h`` / ``du -h`` / ``ls -lh`` /

@@ -2767,6 +2767,47 @@ now leads the line). The r175 index count pin moved 11 ->
 
 Suite after r180: 1616 passed, 0 failed. verify_suite 9/9.
 
+### r181 — health velocity trend (gsd-core STATE.md Trend borrow)
+The health block now carries a `velocity` block: the same
+`session_health_score` recomputed at each of the last
+`VELOCITY_WINDOW` (= 5) seam boundaries, classified
+`improving` / `stable` / `degrading` by the half-window mean
+split (recent half mean vs. older half mean), and
+`insufficient` when the history is shorter than the window
+or all measured boundaries collapse to a single half. The
+classifier borrows gsd-core's "Last N plans: [...] Trend:
+Improving / Stable / Degrading" — a projection of the
+existing health score, not a new signal, so a host reading
+both `health.score` and `health.velocity` sees matching
+numbers.
+
+Short prefixes (under `STALL_RUN`) are skipped when
+anchoring the window: the neutral-100 unmeasurable default
+would otherwise manufacture a fake decline every time the
+window starts near the beginning of a session — the first
+fully measured boundary anchors instead. A 5-row window
+therefore yields `VELOCITY_WINDOW - STALL_RUN + 1` measured
+points, not 5.
+
+JSON-face only. The text-face health report is unchanged.
+
+### Tests
+test_r181_velocity_trend.py — 11 tests in four sub-suites:
+VelocityClassifierTests (5: insufficient below window,
+stable when flat, improving when late scores higher,
+degrading when late scores lower, small drift stays
+stable); VelocitySurfaceTests (4: velocity block present
+with all four fields, insufficient on short history, scores
+are ints, text face still prints health without velocity);
+VelocityCatalogTests (2: feature in catalog, since r181).
+
+One existing pin moved: the r175 `info --index --index-since`
+count pin advanced 13 -> 14 (the `health-velocity-trend`
+catalog entry landed in r181), exactly the deliberate catalog
+move the r175 prose already anticipates.
+
+Suite after r181: 1627 passed, 0 failed. verify_suite 9/9.
+
 ### Gotchas
 - The first cut of AUDIT_GRADE_CUTS used
   (0,1,2,3,5,8) -> (A,B,C,D,E,F), which made E cover only
