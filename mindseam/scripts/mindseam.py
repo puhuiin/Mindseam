@@ -414,12 +414,53 @@ def atomic_write_text(path, text):
         fd = None
     temp_path = None
     try:
+        # r184: skip the rewrite entirely when the new text equals the
+        # on-disk content. The old code always wrote, so ``seam``
+        # touched ``metacognition.json`` / ``skillbook.md`` on every
+        # run even when nothing changed, and any content-identical
+        # write churned mtime-based change detection (r165 ``info
+        # --mtime``, r166 ``info --changed``) for no information gain.
+        # The read is cheap and idempotent-only: short-circuit when the
+        # target does not exist yet, the way ``git`` skips an empty
+        # commit. The comparison is byte-for-byte, so a same-text
+        # write with a different encoding is still a write.
+        if not os.path.exists(path):
+            to_write = text
+        else:
+            try:
+                with open(path, "rb") as existing_fh:
+                    existing_bytes = existing_fh.read()
+            except OSError:
+                existing_bytes = None
+            # Line endings: the writer uses text mode, whose universal
+            # newline behaviour maps "\n" to "\r\n" on Windows, so the
+            # on-disk bytes of a multi-line artefact are not identical
+            # to ``text.encode("utf-8")`` on that platform. Normalise
+            # the existing bytes' CRLF to LF before comparing, the way
+            # a diff tool ignores an EOL style change, so a
+            # content-identical write is recognised as such on every
+            # platform.
+            if (existing_bytes is not None
+                    and existing_bytes.replace(b"\r\n", b"\n")
+                    == text.encode("utf-8")):
+                to_write = None
+            else:
+                to_write = text
+        if to_write is None:
+            # Content-identical: nothing to do. Release the advisory
+            # lock before returning — the early return sits *inside*
+            # the lock scope, so an unsent lock file (write.lock)
+            # would refuse every later write with "locked by another
+            # writer (pid=?)".
+            if fd is not None:
+                _release_write_lock(lock_dir, fd)
+            return None
         with tempfile.NamedTemporaryFile(
             "w", encoding="utf-8", dir=target_dir,
             prefix=os.path.basename(path) + ".", delete=False
         ) as fh:
             temp_path = fh.name
-            fh.write(text)
+            fh.write(to_write)
         os.replace(temp_path, path)
     except OSError as exc:
         if temp_path:

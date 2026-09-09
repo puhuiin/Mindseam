@@ -2885,6 +2885,46 @@ write-nothing contract).
 
 Suite after r183: 1639 passed, 0 failed. verify_suite 9/9.
 
+### r184 — atomic_write_text is idempotent
+
+``atomic_write_text`` always rewrote the target — temp file, os.replace —
+even when the new text was byte-identical to the on-disk content. Any
+content-identical write churned mtime-based change detection (r165
+``info --mtime``, r166 ``info --changed``) for no information gain, and
+any same-text rewrite of ``metacognition.json`` / ``skillbook.md``
+invalidated a host's "did the ledger change?" answer every time a seam
+ran.
+
+r184 short-circuits the write when the new text is byte-identical to the
+existing bytes: no temp file, no os.replace, no mtime bump.
+
+Two invariants had to hold for the short-circuit to be safe:
+
+- Lock hygiene: the advisory write lock is acquired *before* the dedup
+  check, so the no-op branch must release it before returning, or a
+  lingering ``write.lock`` (EEXIST) would refuse every later write as
+  "locked by another writer (pid=?)".
+
+- Byte fidelity: a changed write still lands byte-for-byte, and a write
+  to a *missing* target still creates it.
+
+The Windows pitfall that surfaced during testing: the writer uses text
+mode, whose universal-newline behaviour maps LF to CRLF on disk, so the
+existing bytes of a multi-line artefact are NOT equal to
+``text.encode("utf-8")``. The comparison normalises the existing bytes'
+CRLF to LF first, so a content-identical write is recognised on every
+platform — the way a diff tool ignores an EOL style change.
+
+### Tests
+test_r184_atomic_write_idempotent.py — 6 tests: identical write is a
+no-op (mtime untouched, content intact), no-op does not leak write.lock
+(a changed write still lands after it), changed write still lands,
+first write to a missing target is never a no-op, unicode content
+identical still no-op (with the CRLF normalisation), meta-identical
+write through the seam surface does not churn the file.
+
+Suite after r184: 1645 passed, 0 failed. verify_suite 9/9.
+
 ### Gotchas
 - The first cut of AUDIT_GRADE_CUTS used
   (0,1,2,3,5,8) -> (A,B,C,D,E,F), which made E cover only
