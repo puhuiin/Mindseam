@@ -160,6 +160,7 @@ the task workspace as the current directory.
 | `audit --baseline-write baseline.json` | Record the current (unprojected) findings to a JSON file the next run can use as `--baseline` (like `eslint --output-file`). The write happens before the read, so `--baseline-write X --baseline X` records and gates in one shot |
 | `audit --explain next-stall` | Print the static doc for one audit tag (trigger / fix / evidence) and exit (like `git help` / `kubectl explain`); works in an empty workspace, unknown tags refuse with exit 2 |
 | `note --dry-run` | Compute the edits, print a section-level plan of what would change, and write nothing (like `terraform plan` / `git add --dry-run`); the refusal contract is byte-identical, so a host can validate a note call before applying it |
+| `info --json` lock_state | r179: carries owner_alive / age_seconds / stale; a lock with a dead owner older than 300s is state=stale and the next writer recovers it (like git index.lock recovery / kill -0 liveness) |
 | `resume --dry-run` | Compute the reentry report without appending the history row or compacting history; the JSON face carries a `dry_run` marker (like `terraform plan`; completes the seam / note / resume plan trio) |
 
 ```text

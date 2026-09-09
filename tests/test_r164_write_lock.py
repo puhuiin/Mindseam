@@ -256,18 +256,26 @@ class InfoLockStateTests(unittest.TestCase):
         # possible across a process boundary. We pin the
         # state-machine transition via the held_by_other test
         # above; held_by_us is exercised through the
-        # ``atomic_write_text``-holds-the-lock-during-write
-        # test in ``AtomicWriteLockTests``. This placeholder
-        # asserts the state can read a malformed body.
+        # ``atomic_write_lock``-holds-the-lock-during-write
+        # test in ``AtomicWriteLockTests``.
+        #
+        # r179 update: a malformed-body lock is *not* free —
+        # it is an unattributable lock. The r179 state machine
+        # reports it via owner_alive=False, and the stale flag
+        # depends on age. This test pins the r164 contract
+        # that a malformed body yields holder pid None (the
+        # pid itself is unreadable) while the lock file
+        # exists; the state label now depends on the r179
+        # age rule, so this test asserts the pid contract
+        # only.
         self._ledger()
-        # Malformed body → holder pid is None → state is free.
         lock = os.path.join(self.workspace, ".mindseam", "write.lock")
         with open(lock, "w", encoding="utf-8") as fh:
             fh.write("garbage")
         r = _invoke(["info", "--json"], cwd=self.workspace)
         payload = json.loads(r.stdout)
-        self.assertEqual(payload["lock_state"]["state"], "free")
         self.assertIsNone(payload["lock_state"]["holder_pid"])
+        self.assertFalse(payload["lock_state"]["owner_alive"])
 
 
 class WriteRefusesTests(unittest.TestCase):

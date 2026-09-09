@@ -2648,3 +2648,66 @@ Suite after r178: 1582 passed, 0 failed. verify_suite
   r158 payload contract gains a field without losing
   one, the way every r161+ JSON addition has been
   additive only.
+
+## r179 — stale write-lock detection and recovery
+
+r164 introduced `.mindseam/write.lock` (O_CREAT | O_EXCL, the
+git index.lock pattern). A process killed between acquire and
+release left a permanent lock that blocked every future
+note / seam. r179 adds conservative stale-lock recovery,
+borrowed from Git's index.lock recovery advice and
+`kill -0 PID` liveness probing.
+
+A lock is stale only when BOTH conditions hold:
+
+1. the PID is missing, malformed, or no longer alive
+   (`os.kill(pid, 0)`: ProcessLookupError = dead,
+   PermissionError = alive-but-foreign); and
+2. the lock file is at least 300 seconds old
+   (WRITE_LOCK_STALE_SECONDS).
+
+The two-signal rule prevents a newly-created lock whose PID
+line has not flushed yet from being mistaken for a crashed
+writer, and never deletes a live process's lock merely
+because its operation is slow. The next writer deletes a
+proven-stale lock once, then retries the same atomic
+O_EXCL acquire — a single recovery attempt per call, the
+way `git commit` suggests `rm .git/index.lock` but only
+after the human has verified no git process is running.
+
+`info --json lock_state` gains `owner_alive`, `age_seconds`,
+`stale`, and `stale_after_seconds`; the state enum gains a
+fourth state, `stale` (dead owner + old age). `info --health`
+maps `stale` to degraded with a `stale_write_lock` reason.
+r164's held_by_us / held_by_other semantics are unchanged
+for live locks; a malformed body now surfaces as
+`holder_pid: null, owner_alive: false` instead of the old
+"free" reading — an unattributable lock is not a free lock.
+
+### Tests
+test_r179_stale_write_lock.py — 17 tests in five sub-suites:
+PidLivenessTests (3: current pid alive, invalid pids not
+alive, impossible pid not alive); LockInfoTests (5: missing
+lock free, old dead lock stale, fresh dead lock not stale,
+old live lock not stale, old malformed lock stale);
+StaleRecoveryTests (5: clear stale, fresh not cleared,
+live not cleared, next writer recovers stale lock and
+writes, next writer still refuses fresh dead lock);
+InfoLockStateTests (2: stale metadata in lock_state,
+health degraded with stale_write_lock reason);
+CatalogTests (2: catalog entry, since r179).
+
+Suite after r179: 1599 passed, 0 failed. verify_suite 9/9.
+
+### Gotchas
+- The r164 test that read a malformed lock body as "free"
+  moved: r179 treats an unattributable lock as
+  owner_alive=False, and the state label now depends on
+  age. The test now pins the pid contract only.
+- The r175 index count pin moved 10 -> 11 (the r179
+  catalog entry is itself >= r170); deliberate, as every
+  round since r169.
+- `_pid_is_alive` treats PermissionError as alive: on
+  Windows, os.kill against a system process can raise
+  PermissionError even when the target is alive; treating
+  it as dead would delete a live writer's lock.

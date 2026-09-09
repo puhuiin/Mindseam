@@ -157,6 +157,7 @@ loop 三种 pass，以及可选控制器负责记录长任务状态而不负责�
 | `audit --baseline-write baseline.json` | 把当前（未投影的）findings 写入 JSON 文件，下次运行可作为 `--baseline` 使用（类似 `eslint --output-file`）。写先于读，所以 `--baseline-write X --baseline X` 一次调用即可完成"记录并门禁" |
 | `audit --explain next-stall` | 打印单个 audit 标签的静态文档（trigger / fix / evidence）后退出（类似 `git help` / `kubectl explain`）；空工作区也可用，未知标签拒绝并退出码 2 |
 | `note --dry-run` | 计算 edit、打印 section 级变更计划，不写任何东西（类似 `terraform plan` / `git add --dry-run`）；拒绝合约逐字节一致，host 可在应用前验证 note 调用 |
+| `info --json` lock_state | r179：附带 owner_alive / age_seconds / stale；死 owner 且超过 300 秒的锁标记为 state=stale，下一个写者自动恢复（类似 git index.lock 恢复 / kill -0 存活探测） |
 | `resume --dry-run` | 计算 reentry 报告但不追加 history 行、不压缩 history；JSON 面带 `dry_run` 标记（类似 `terraform plan`；补全 seam / note / resume 三件套） |
 
 ```text

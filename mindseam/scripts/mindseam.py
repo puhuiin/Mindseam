@@ -180,6 +180,88 @@ def read_ledger():
 
 
 WRITE_LOCK_BASENAME = "write.lock"
+WRITE_LOCK_STALE_SECONDS = 300
+
+
+def _pid_is_alive(pid):
+    """Return True when ``pid`` still names a live process.
+
+    Borrowed from ``kill -0 PID`` / ``psutil.pid_exists``:
+    ``os.kill(pid, 0)`` performs no signal delivery, it only asks
+    the kernel whether the process exists and whether we may signal
+    it. ``PermissionError`` therefore means "alive but owned by
+    someone else"; ``ProcessLookupError`` means dead. Windows,
+    Linux, and macOS all implement the zero-signal probe through
+    Python's ``os.kill``.
+    """
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def _write_lock_info(ledger_dir, now=None):
+    """Return structured lock metadata for ``ledger_dir``.
+
+    r179 upgrades the r164 PID-only lock into a stale-aware lock.
+    A lock is stale only when *both* conditions hold:
+
+    1. its PID is missing / malformed / no longer alive; and
+    2. the lock file is older than ``WRITE_LOCK_STALE_SECONDS``.
+
+    The age guard prevents a newly-created lock whose PID line has
+    not been flushed yet from being mistaken for a crashed writer.
+    The two-signal rule mirrors Git's conservative ``index.lock``
+    recovery advice: never delete a lock merely because its owner
+    cannot be read, and never delete a live process's lock merely
+    because the operation is slow.
+    """
+    path = _write_lock_path(ledger_dir)
+    if not os.path.exists(path):
+        return {
+            "path": path,
+            "exists": False,
+            "holder_pid": None,
+            "owner_alive": False,
+            "age_seconds": 0,
+            "stale": False,
+        }
+    holder = _write_lock_held_by(ledger_dir)
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        mtime = time.time()
+    current = time.time() if now is None else float(now)
+    age = max(0, int(current - mtime))
+    alive = _pid_is_alive(holder)
+    stale = (not alive and age >= WRITE_LOCK_STALE_SECONDS)
+    return {
+        "path": path,
+        "exists": True,
+        "holder_pid": holder,
+        "owner_alive": alive,
+        "age_seconds": age,
+        "stale": stale,
+    }
+
+
+def _clear_stale_write_lock(ledger_dir, now=None):
+    """Delete a proven-stale lock. Returns True when removed."""
+    info = _write_lock_info(ledger_dir, now=now)
+    if not info["stale"]:
+        return False
+    try:
+        os.unlink(info["path"])
+    except OSError:
+        return False
+    return True
 
 
 def _write_lock_path(ledger_dir):
@@ -219,7 +301,22 @@ def _acquire_write_lock(ledger_dir):
     try:
         fd = os.open(target, flags, 0o644)
     except FileExistsError:
-        return None, "held"
+        # r179: recover a proven-stale lock once, then retry the
+        # same atomic O_EXCL acquire. A lock is recoverable only
+        # when its owner is dead / unreadable AND its mtime is at
+        # least five minutes old; a fresh malformed lock stays held
+        # so we never delete a writer whose PID line is merely not
+        # flushed yet.
+        if _clear_stale_write_lock(ledger_dir):
+            try:
+                fd = os.open(target, flags, 0o644)
+            except FileExistsError:
+                return None, "held"
+            except OSError as exc:
+                return None, "%s (%s)" % (
+                    target, exc.strerror or "cannot lock")
+        else:
+            return None, "held"
     except OSError as exc:
         return None, "%s (%s)" % (target, exc.strerror or "cannot lock")
     try:
@@ -6486,6 +6583,9 @@ _FEATURE_CATALOG = (
     {"id": "resume-dry-run", "since": "r178",
      "summary": "resume --dry-run computes the reentry report without appending the history row or compacting history; the JSON face carries a dry_run marker (terraform plan mode, completing the seam / note / resume trio)",
      "default": True},
+    {"id": "stale-write-lock-recovery", "since": "r179",
+     "summary": "write.lock recovery requires both a dead or malformed PID and an age of at least 300 seconds; info lock_state exposes owner_alive, age_seconds, stale, and the next writer recovers only proven-stale locks",
+     "default": True},
 )
 
 
@@ -6819,9 +6919,12 @@ def mode_info(book, json_flag=False, warnings_only=False,
     # previous controller process crashed mid-write and
     # left the lock behind; a human should clear it).
     lock_path = _write_lock_path(LEDGER_DIR)
-    lock_holder = _write_lock_held_by(LEDGER_DIR)
-    if lock_holder is None:
+    lock_info = _write_lock_info(LEDGER_DIR)
+    lock_holder = lock_info["holder_pid"]
+    if not lock_info["exists"]:
         lock_state = "free"
+    elif lock_info["stale"]:
+        lock_state = "stale"
     elif lock_holder == os.getpid():
         lock_state = "held_by_us"
     else:
@@ -6829,7 +6932,11 @@ def mode_info(book, json_flag=False, warnings_only=False,
     payload["lock_state"] = {
         "state": lock_state,
         "holder_pid": lock_holder,
+        "owner_alive": lock_info["owner_alive"],
+        "age_seconds": lock_info["age_seconds"],
+        "stale": lock_info["stale"],
         "lock_path": os.path.abspath(lock_path),
+        "stale_after_seconds": WRITE_LOCK_STALE_SECONDS,
     }
     # r165: workspace_files lists each ledger artefact with
     # mtime, size, presence — borrowed from ``find -printf
@@ -6857,6 +6964,14 @@ def mode_info(book, json_flag=False, warnings_only=False,
                 "severity": "hard",
                 "detail": ("another writer holds %s (pid=%s)"
                             % (lock_path, lock_holder)),
+            })
+        elif lock_state == "stale":
+            reasons.append({
+                "kind": "stale_write_lock",
+                "severity": "degraded",
+                "detail": ("stale write lock %s is %d seconds old; "
+                            "the next writer will recover it"
+                            % (lock_path, lock_info["age_seconds"])),
             })
         elif lock_state == "held_by_us":
             reasons.append({
