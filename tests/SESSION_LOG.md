@@ -2850,6 +2850,41 @@ with the reference ``min`` over (-count, tag)).
 
 Suite after r182: 1632 passed, 0 failed. verify_suite 9/9.
 
+### r183 — seam --dry-run writes nothing
+
+The dry-run contract is "write nothing", the way ``terraform plan``
+writes nothing and the r177 ``note --dry-run`` defers its meta write.
+The seam history append was already gated on ``not dry_run``; the
+meta and skillbook side effects were not — ``seam --dry-run --json``
+rewrote ``metacognition.json`` (even when the content was
+byte-identical) and touched ``skillbook.md`` on every preview.
+
+The leak sat at the tail of ``mode_seam``: ``write_meta(meta)`` and
+``write_skillbook(extract_skillbook(hist))`` ran after the
+``if not dry_run:`` block, outside its gate. The device that found it
+was a tree-snapshot probe: run a real seam, hash every file under
+``.mindseam/``, run a byte-identical dry-run, and diff the hashes —
+``metacognition.json`` churned even though nothing changed. A
+content-identical rewrite on every preview is precisely what a
+"plan" command must not do: it invalidates mtime-based change
+detection (r165 ``info --mtime``, r166 ``info --changed``) and
+defeats the point of a dry run.
+
+r183 gates the two writes the same way as the append: the in-memory
+``meta`` / ``extract_skillbook(hist)`` still feed the report (health
+score, telemetry, skillbook entries), they just do not land on disk.
+
+### Tests
+test_r183_seam_dry_run_write_nothing.py — 7 tests: SeamDryRun
+WriteNothingTests (6: clean ledger creates no artefacts, meta not
+rewritten even when content would change, skillbook mtime untouched,
+full artefact tree byte-identical after preview, real seam still
+writes both, dry-run report still carries the health score);
+ResumeDryRunUnaffectedTests (1: resume --dry-run keeps its own
+write-nothing contract).
+
+Suite after r183: 1639 passed, 0 failed. verify_suite 9/9.
+
 ### Gotchas
 - The first cut of AUDIT_GRADE_CUTS used
   (0,1,2,3,5,8) -> (A,B,C,D,E,F), which made E cover only

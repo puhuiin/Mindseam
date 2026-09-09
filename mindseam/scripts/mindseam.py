@@ -4807,8 +4807,18 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
     if len(risks) > STALL_RUN:
         del risks[:-STALL_RUN]
     health_score, health_reasons = session_health_score(hist, book=book)
-    write_meta(meta)
-    write_skillbook(extract_skillbook(hist))
+    # r183: the dry-run contract is "write nothing", the same way
+    # ``terraform plan`` writes nothing and the r177 note dry-run
+    # defers its meta write. The history append above is already
+    # gated on ``not dry_run``; the meta and skillbook side effects
+    # were not, so ``seam --dry-run --json`` rewrote
+    # ``metacognition.json`` (even when the content was byte-identical)
+    # and touched ``skillbook.md`` on every preview. Gate them the
+    # same way: the in-memory ``meta`` / ``extract_skillbook(hist)``
+    # results still feed the report, they just do not land on disk.
+    if not dry_run:
+        write_meta(meta)
+        write_skillbook(extract_skillbook(hist))
     if json_flag or format_path is not None:
         payload = _seam_json_payload(book, hist, found, gap)
         payload["state_repairs"] = list(state_reasons)
