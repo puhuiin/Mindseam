@@ -6586,6 +6586,12 @@ _FEATURE_CATALOG = (
     {"id": "stale-write-lock-recovery", "since": "r179",
      "summary": "write.lock recovery requires both a dead or malformed PID and an age of at least 300 seconds; info lock_state exposes owner_alive, age_seconds, stale, and the next writer recovers only proven-stale locks",
      "default": True},
+    {"id": "audit-finding-ids", "since": "r180",
+     "summary": "every audit finding carries a stable per-run id ([D1], [S1], [Y1], [K1], [G1], [N1], [C1]) assigned to the full finding set before projection and baseline marking, borrowed from tokenhabit's [H5-04] catalog scheme",
+     "default": True},
+    {"id": "audit-grade", "since": "r180",
+     "summary": "audit closes with a letter grade A-F over the fresh finding count with published cut points (0/1/2/3/5/8), so a host can gate on Grade: A without parsing counts",
+     "default": True},
 )
 
 
@@ -7840,7 +7846,56 @@ def audit_findings(book, hist):
 
     order = {tag: rank for rank, tag in enumerate(AUDIT_TAGS)}
     findings.sort(key=lambda f: (order[f["tag"]], f["what"]))
+    # r180: stable per-tag finding ids, borrowed from
+    # ``tokenhabit``'s ``[H5-04]`` catalog scheme: each finding
+    # type carries a short stable id so a host can filter /
+    # baseline / reference a finding class without quoting its
+    # prose. The id is ``<LETTER><N>`` where the letter is the
+    # tag's stable initial (D=delete, S=stdlib, Y=yagni,
+    # S→K=shrink collision, G=goal-stale, N=next-stall,
+    # C=core-drift) and N is the 1-based occurrence within the
+    # tag for this audit run. The ids are allocation artifacts
+    # (they renumber as the ledger heals), exactly like the
+    # ledger's own ?NN / ✓NN prefixes; the (tag, what)
+    # fingerprint from r162 remains the stable cross-run key.
+    tag_letter = {
+        "delete": "D", "stdlib": "S", "yagni": "Y", "shrink": "K",
+        "goal-stale": "G", "next-stall": "N", "core-drift": "C",
+    }
+    counters = {}
+    for finding in findings:
+        tag = finding["tag"]
+        counters[tag] = counters.get(tag, 0) + 1
+        finding["id"] = "%s%d" % (tag_letter[tag], counters[tag])
     return findings
+
+
+# r180: letter-grade scoring, borrowed from ``tokenhabit``'s
+# ``Token Waste Score: D — ~25% of tokens likely wasted``: a
+# fixed scale with published cut points, so a host can gate on
+# the letter without parsing counts. The grade is computed
+# from the *fresh* (non-baselined) finding count, the way
+# tokenhabit scores waste rather than raw volume.
+AUDIT_GRADE_CUTS = (
+    (0, "A"), (1, "B"), (2, "C"), (5, "D"), (8, "E"),
+)
+
+
+def audit_grade(fresh_count):
+    """Map a fresh-finding count to a letter grade A-F.
+
+    A = lean (no findings), B..F = increasingly wasteful. The
+    cut points are inclusive ceilings (0 / 1 / 2 / 5 / 8) so
+    small ledgers are not over-penalised for one stray
+    duplicate: 0 -> A, 1 -> B, 2 -> C, 3-5 -> D, 6-8 -> E,
+    9 or more -> F.
+    """
+    grade = "F"
+    for threshold, letter in AUDIT_GRADE_CUTS:
+        if fresh_count <= threshold:
+            grade = letter
+            break
+    return grade
 
 
 def _evidence_summary(finding):
@@ -8261,6 +8316,8 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
     # `net`.
     baselined_count = sum(1 for f in findings if f.get("baselined"))
     net = len(fresh_findings)
+    # r180: letter grade over the fresh set.
+    grade = audit_grade(net)
     if json_flag or format_path is not None:
         payload = {
             # ``lean`` is the r156 boolean, over fresh findings only
@@ -8268,6 +8325,7 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
             # play). ``gate`` is the r161 enum over the same set.
             "lean": not fresh_findings,
             "gate": gate,
+            "grade": grade,
             "net": net,
             "baselined": baselined_count,
             "intensity": level,
@@ -8296,6 +8354,8 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
     else:
         header = "── mindseam ─ audit"
     print(header)
+    print("Grade: %s (%d fresh item%s)" % (grade, net,
+                                            "" if net == 1 else "s"))
     shown = findings[:3] if level == "lite" else findings
     for f in shown:
         # Borrowed from `git blame --line-porcelain` /
@@ -8306,7 +8366,11 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
         # at the end of the line, the way ``git log --stat``
         # inlines the diff stat; the JSON face already carries
         # the full ``evidence`` block.
-        line = "%s %s. %s." % (f["tag"], f["what"], f["replacement"])
+        # r180: the stable per-run id prefixes the line, the
+        # way ``tokenhabit`` prints ``[H5-04]`` before its
+        # findings.
+        line = "[%s] %s %s. %s." % (f.get("id", "?"), f["tag"],
+                                     f["what"], f["replacement"])
         evidence_summary = _evidence_summary(f)
         if evidence_summary:
             line += "  (evidence: %s)" % evidence_summary

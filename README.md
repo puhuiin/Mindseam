@@ -150,6 +150,7 @@ the task workspace as the current directory.
 | `discover --json` | Same, machine-readable JSON |
 | `audit` | Report tagged ledger waste, biggest cut first (report only, borrowed from ponytail) |
 | `audit --json` | Same, machine-readable JSON; every finding carries an `evidence` block (row indices, normalised text, counts) so the verdict is traceable |
+| `audit --json` grade | r180: findings carry stable per-run ids (`[D1]`, `[S1]`, `[Y1]`, `[K1]`, `[G1]`, `[N1]`, `[C1]`, tokenhabit-style) and the payload closes with a letter grade A-F over the fresh count (cuts 0/1/2/5/8); ids are assigned before `--tag` projection so a projection never renumbers |
 | `audit --strict` | Exit non-zero when a finding is reported (CI gate) |
 | `audit --intensity lite` | Cap the printed findings at 3 (`full` default, `off` refuses; `MINDSEAM_INTENSITY` sets the default) |
 | `audit --tag core-drift,next-stall` | Only the listed tags; unknown tags refuse with exit 2 (like `gh pr list --label`). Tag set: `delete`, `stdlib`, `yagni`, `shrink`, `goal-stale`, `next-stall`, `core-drift`. Evidence rides through the projection |

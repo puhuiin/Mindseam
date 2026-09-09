@@ -147,6 +147,7 @@ loop 三种 pass，以及可选控制器负责记录长任务状态而不负责�
 | `discover --json` | 同上，机器可读 JSON |
 | `audit` | 按标签逐行报告账本冗余，最大可削减项优先（只读报告，借鉴自 ponytail） |
 | `audit --json` | 同上，机器可读 JSON；每条 finding 携带一个 `evidence` 块（行号、归一化文本、计数），结论可追溯 |
+| `audit --json` 评级 | r180：每条 finding 带稳定 run 内 id（`[D1]`/`[S1]`/`[Y1]`/`[K1]`/`[G1]`/`[N1]`/`[C1]`，借鉴 tokenhabit），payload 附 fresh 计数的字母评级 A-F（切点 0/1/2/5/8）；id 在 `--tag` 投影之前分配，投影不重编号 |
 | `audit --strict` | 有发现时以非零码退出（CI 门禁） |
 | `audit --intensity lite` | 打印的发现最多三条（默认 `full`，`off` 拒绝执行；`MINDSEAM_INTENSITY` 可设默认档位） |
 | `audit --tag core-drift,next-stall` | 仅列出指定标签；未知标签拒绝执行并退出码为 2（类似 `gh pr list --label`）。标签集合：`delete`、`stdlib`、`yagni`、`shrink`、`goal-stale`、`next-stall`、`core-drift`。evidence 字段随投影保留 |

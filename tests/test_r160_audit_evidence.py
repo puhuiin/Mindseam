@@ -215,7 +215,7 @@ class EvidenceSummaryTests(EvidenceBase):
         self._ledger(open_=("?01 same question — settled by: test a",
                             "?02 same question — settled by: test a"))
         r = _invoke(["audit"], cwd=self.workspace)
-        line = next(l for l in r.stdout.splitlines() if l.startswith("delete"))
+        line = next(l for l in r.stdout.splitlines() if l.split(" ", 1)[-1].startswith("delete"))
         self.assertIn("Open #1", line)
         self.assertIn("row #2", line)
         self.assertIn("evidence:", line)
@@ -224,14 +224,14 @@ class EvidenceSummaryTests(EvidenceBase):
         self._ledger(verified=("✓01 first — verified by: brute force",
                                "✓02 first — verified by: brute force"))
         r = _invoke(["audit"], cwd=self.workspace)
-        line = next(l for l in r.stdout.splitlines() if l.startswith("stdlib"))
+        line = next(l for l in r.stdout.splitlines() if l.split(" ", 1)[-1].startswith("stdlib"))
         self.assertIn("Verified #1", line)
         self.assertIn("evidence:", line)
 
     def test_yagni_summary_in_text_face(self):
         self._ledger(core=("c1 — one", "c2 — two", "c3 — three"))
         r = _invoke(["audit"], cwd=self.workspace)
-        line = next(l for l in r.stdout.splitlines() if l.startswith("yagni"))
+        line = next(l for l in r.stdout.splitlines() if l.split(" ", 1)[-1].startswith("yagni"))
         self.assertIn("parked", line)
         self.assertIn("evidence:", line)
 
@@ -242,7 +242,7 @@ class EvidenceSummaryTests(EvidenceBase):
             {"t": 2, "next": "a", "verified": 0, "open": 0},
         ])
         r = _invoke(["audit"], cwd=self.workspace)
-        line = next(l for l in r.stdout.splitlines() if l.startswith("shrink"))
+        line = next(l for l in r.stdout.splitlines() if l.split(" ", 1)[-1].startswith("shrink"))
         self.assertIn("blank rows", line)
         self.assertIn("evidence:", line)
 
@@ -253,7 +253,7 @@ class EvidenceSummaryTests(EvidenceBase):
             for i in range(1, 13)
         ])
         r = _invoke(["audit"], cwd=self.workspace)
-        line = next(l for l in r.stdout.splitlines() if l.startswith("goal-stale"))
+        line = next(l for l in r.stdout.splitlines() if l.split(" ", 1)[-1].startswith("goal-stale"))
         self.assertIn("seams", line)
         self.assertIn("evidence:", line)
 
@@ -267,7 +267,7 @@ class EvidenceSummaryTests(EvidenceBase):
             {"t": 5, "next": "dom: work", "verified": 0, "open": 0},
         ])
         r = _invoke(["audit"], cwd=self.workspace)
-        line = next(l for l in r.stdout.splitlines() if l.startswith("next-stall"))
+        line = next(l for l in r.stdout.splitlines() if l.split(" ", 1)[-1].startswith("next-stall"))
         self.assertIn("seams", line)
         self.assertIn("evidence:", line)
 
@@ -275,7 +275,7 @@ class EvidenceSummaryTests(EvidenceBase):
         self._ledger(core=("c1 — one", "c2 — review"),
                      next_="c3 — drift")
         r = _invoke(["audit"], cwd=self.workspace)
-        line = next(l for l in r.stdout.splitlines() if l.startswith("core-drift"))
+        line = next(l for l in r.stdout.splitlines() if l.split(" ", 1)[-1].startswith("core-drift"))
         self.assertIn("next=", line)
         self.assertIn("evidence:", line)
 

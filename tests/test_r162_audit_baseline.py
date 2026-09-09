@@ -286,7 +286,7 @@ class BaselineGateTests(BaselineBase):
         self.assertIn("Net: 2 items removable (1 baselined).", r.stdout)
         # The yagni line is present and is *not* baselined.
         yagni_line = next(l for l in r.stdout.splitlines()
-                          if l.startswith("yagni"))
+                          if l.split(" ", 1)[-1].startswith("yagni"))
         self.assertNotIn("[baselined]", yagni_line)
 
     def test_strict_no_baseline_gates_as_before(self):

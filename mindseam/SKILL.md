@@ -248,7 +248,7 @@ That keeps `.mindseam/` with the task rather than with the skill.
 <python-command> <skill-root>/scripts/mindseam.py seam --from-stdin                   # read one next action per line from standard input (like kubectl apply -f - / xargs)
 <python-command> <skill-root>/scripts/mindseam.py info                                       # aggregate digest of the workspace state
 <python-command> <skill-root>/scripts/mindseam.py info --json                                # same digest, machine-readable JSON; carries lock_state so a host can see if another writer holds .mindseam/write.lock (like flock -n)
-<python-command> <skill-root>/scripts/mindseam.py info --json | grep -o "stale.*true"         # r179: a stale write.lock (dead owner + 300s age) shows state=stale; the next writer recovers it automatically (like git index.lock recovery)
+<python-command> <skill-root>/scripts/mindseam.py info --json --format lock_state.state          # r179: lock_state gains owner_alive / age_seconds / stale; a dead-owner lock older than 300 seconds reads stale and the next writer recovers it automatically (like git index.lock recovery)
 <python-command> <skill-root>/scripts/mindseam.py info --warnings-only                     # print only the warning lines (like gh run list state failed)
 <python-command> <skill-root>/scripts/mindseam.py info --version                          # print the controller version on its own (like gh --version / kubectl version)
 <python-command> <skill-root>/scripts/mindseam.py info --human                           # render time spans in human units (like df -h / git log relative dates)
@@ -314,6 +314,7 @@ That keeps `.mindseam/` with the task rather than with the skill.
 <python-command> <skill-root>/scripts/mindseam.py discover --json                                   # same, machine-readable JSON
 <python-command> <skill-root>/scripts/mindseam.py audit                                             # tagged ledger waste, biggest cut first (report only)
 <python-command> <skill-root>/scripts/mindseam.py audit --json                                      # same, machine-readable JSON; every finding carries an `evidence` block; top-level `gate` is clean / finding / gated
+<python-command> <skill-root>/scripts/mindseam.py audit --json --format grade                       # r180: every finding carries a stable per-run id ([D1] / [S1] / [Y1] / [K1] / [G1] / [N1] / [C1]) and the payload closes with a letter grade A-F over the fresh count (cut points 0/1/2/5/8)
 <python-command> <skill-root>/scripts/mindseam.py audit --strict                                    # exit non-zero when a finding is reported (CI gate)
 <python-command> <skill-root>/scripts/mindseam.py audit --intensity lite                            # cap the printed findings at 3 (full/off; MINDSEAM_INTENSITY sets the default)
 <python-command> <skill-root>/scripts/mindseam.py audit --tag core-drift,next-stall                   # only the listed tags; unknown tags refuse with exit 2 (like `gh pr list` with an unknown label); evidence rides through the projection

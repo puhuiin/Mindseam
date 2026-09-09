@@ -2711,3 +2711,77 @@ Suite after r179: 1599 passed, 0 failed. verify_suite 9/9.
   Windows, os.kill against a system process can raise
   PermissionError even when the target is alive; treating
   it as dead would delete a live writer's lock.
+
+## r180 — stable finding ids and the letter grade (tokenhabit borrow)
+
+A web survey of sibling projects (mem0, letta, cline's
+Memory Bank, spec-kit, gsd-core, obra/superpowers, ccusage,
+tokenhabit) surfaced one mechanism that ports cleanly to a
+stdlib-only CLI: tokenhabit's catalog-of-findings scheme —
+every finding carries a short stable id (``[H5-04]`` there)
+and the report closes with a letter grade over a published
+cut-point scale, so a host can gate on the letter without
+parsing counts.
+
+Two additions to the audit:
+
+1. **Stable per-run finding ids.** ``audit_findings``
+   assigns ``<LETTER><N>`` to every finding after the
+   severity sort: D=delete, S=stdlib, Y=yagni, K=shrink
+   (S is taken by stdlib), G=goal-stale, N=next-stall,
+   C=core-drift. The text face prefixes each finding line
+   with ``[D1]``; the JSON face adds an ``id`` key. Ids are
+   assigned to the *full* finding set before ``--tag``
+   projection and baseline marking, so a projection filters
+   but never renumbers. Ids are allocation artifacts — they
+   renumber as the ledger heals, exactly like the ledger's
+   own ``?NN`` / ``✓NN`` prefixes; the r162 (tag, what)
+   fingerprint remains the stable cross-run key.
+
+2. **Letter grade A-F.** ``audit_grade(fresh_count)`` maps
+   the fresh (non-baselined) count onto published inclusive
+   ceilings 0 / 1 / 2 / 5 / 8: 0 -> A, 1 -> B, 2 -> C,
+   3-5 -> D, 6-8 -> E, 9+ -> F. The grade reflects the
+   projected fresh set — the same set ``net`` and
+   ``--strict`` gate on — so baselined debt never lowers
+   the grade. The text face prints
+   ``Grade: B (1 fresh item)`` under the header; the JSON
+   face adds ``grade``.
+
+### Tests
+test_r180_finding_ids_and_grade.py — 17 tests in three
+sub-suites: FindingIdTests (8: D prefix, sequential
+numbering, K for shrink, S for stdlib, determinism across
+calls, JSON ids, text prefix, projection keeps full-set
+numbering); GradeTests (6: rubric boundaries, clean = A,
+text grade line, baselined debt does not lower the grade,
+grade reflects projection, grade agrees with net);
+IdGradeCatalogTests (3: both catalog entries, since r180).
+
+Two existing pins moved: r156's finding-line shape regex
+gained the ``[<ID>] `` prefix, and r160 / r162's
+``startswith("tag")`` filters became
+``l.split(" ", 1)[-1].startswith("tag")`` (the id prefix
+now leads the line). The r175 index count pin moved 11 ->
+13 (two new r180 catalog entries).
+
+Suite after r180: 1616 passed, 0 failed. verify_suite 9/9.
+
+### Gotchas
+- The first cut of AUDIT_GRADE_CUTS used
+  (0,1,2,3,5,8) -> (A,B,C,D,E,F), which made E cover only
+  exactly 5 and 6-8 fall to F. Inclusive ceilings must be
+  monotone in the count: the fixed tuple is
+  (0,1,2,5,8) -> (A,B,C,D,E) with >=9 defaulting to F.
+- The r179 SKILL.md example used a shell pipe
+  (``info --json | grep ...``); the r173 example runner
+  passes the whole line to argparse, which rejected the
+  pipe. The example now uses ``--format lock_state.state``
+  — a pure controller flag — the way every documented
+  example must be a single argv, not a pipeline.
+- The heredoc that patched test_r180 mangled ``\[``
+  escape sequences into invalid ``\[`` warnings; the fix
+  was to stop regex-matching the whole line and assert the
+  two stable substrings (``[D1] delete`` and
+  ``(evidence:``) instead — the r156 shape test is the
+  regex pin, and duplicating it here would only drift.

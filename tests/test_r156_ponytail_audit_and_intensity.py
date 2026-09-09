@@ -175,12 +175,15 @@ class AuditReportContractTests(AuditBase):
         self._ledger(open_=("?01 same question — settled by: test a",
                             "?02 same question — settled by: test a"))
         r = _invoke(["audit"], cwd=self.workspace)
-        line = next(l for l in r.stdout.splitlines() if l.startswith("delete"))
-        # <tag> <what to cut>. <replacement>.  (evidence: ...)
-        # The base ponytail shape is the first three fields; the
-        # evidence summary is an inline addition that r160 brings
-        # in to make the conclusion traceable.
-        self.assertRegex(line, r"^delete .+\. .+\.(  \(evidence: .+\))?$")
+        line = next(l for l in r.stdout.splitlines()
+                    if l.split(" ", 1)[-1].startswith("delete"))
+        # [D1] <tag> <what to cut>. <replacement>.  (evidence: ...)
+        # The base ponytail shape is tag + what + replacement; the
+        # r180 stable-id prefix and the r160 evidence suffix are
+        # inline additions that keep the ponytail core intact.
+        self.assertRegex(
+            line,
+            r"^\[[A-Z]\d+\] delete .+\. .+\.(  \(evidence: .+\))?$")
 
 
 class AuditIntensityTests(AuditBase):
@@ -212,7 +215,8 @@ class AuditIntensityTests(AuditBase):
         r = _invoke(["audit", "--intensity", "lite"], cwd=self.workspace)
         self.assertEqual(r.returncode, 0, r.stderr)
         body = [l for l in r.stdout.splitlines()
-                if l.startswith(("delete", "stdlib", "yagni", "shrink"))]
+                if l.split(" ", 1)[-1].startswith(
+                    ("delete", "stdlib", "yagni", "shrink"))]
         self.assertEqual(len(body), 3, r.stdout)
         self.assertIn("+1 more finding", r.stdout)
 
