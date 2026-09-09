@@ -2808,6 +2808,48 @@ move the r175 prose already anticipates.
 
 Suite after r181: 1627 passed, 0 failed. verify_suite 9/9.
 
+### r182 — deep optimization: eliminate redundant IO and recomputation
+
+Three pure-function dedups, each invisible to the host except as fewer
+disk reads:
+
+1. ``mode_audit`` called ``audit_findings(book, hist)`` twice along the
+   ``--baseline-write`` path. The second call is a pure-function
+   duplicate — the first call's result, saved before the ``--tag``
+   projection reshapes ``findings``, is the exact unprojected list the
+   baseline writer needs. Cached as ``full_findings`` and reused.
+
+2. ``mode_history`` called ``read_history()`` three times along the
+   ``--keep`` path — a length check, the truncation read, then an
+   unconditional ``hist = read_history()[0]`` that overwrote the
+   truncated slice. The overwrite silently cancelled the rotation: the
+   on-disk file was slimmed, but the in-memory ``hist`` the rest of the
+   function filtered and rendered was the full pre-truncation log, so a
+   ``history --keep 2 --json`` reported ``history_count: N`` (the full
+   count) while the disk held 2 rows. Read once, branch on the cached
+   list; the rendered count now matches the on-disk survivors.
+
+3. ``mode_skillbook`` called ``read_history()[0]`` twice — once to mine
+   and once to pick the "no history" message. The cached ``hist`` from
+   the first read answers the emptiness check.
+
+Collateral: ``info --json`` ``audit_summary.top_tag`` now computed in a
+single pass over ``by_tag`` (ties break by lexicographic tag name, same
+as the original ``sorted(...)[0]``), replacing a full sort that only
+served to take the first element.
+
+### Tests
+test_r182_deep_optimization.py — 5 tests in four sub-suites:
+AuditBaselineDedupTests (1: baseline write records the full unprojected
+finding set, not the ``--tag`` projection, matching a fresh audit);
+HistoryKeepTruncationTests (2: ``--keep`` truncates the rendered count
+not just the disk; a follow-up ``--filter`` sees the slimmed window);
+SkillbookCacheTests (1: empty-history message without a second read);
+InfoAuditSummaryTopTagTests (1: single-pass top-tag tie-break agrees
+with the reference ``min`` over (-count, tag)).
+
+Suite after r182: 1632 passed, 0 failed. verify_suite 9/9.
+
 ### Gotchas
 - The first cut of AUDIT_GRADE_CUTS used
   (0,1,2,3,5,8) -> (A,B,C,D,E,F), which made E cover only

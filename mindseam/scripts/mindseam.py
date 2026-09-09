@@ -5642,20 +5642,27 @@ def mode_history(args):
     others are reads.
     """
     keep_n = getattr(args, "keep", None)
-    if keep_n is not None and keep_n >= 0 and len(read_history()[0]) > keep_n:
+    # r182: read history ONCE up front. The old code called
+    # ``read_history()`` three times along the --keep path (a
+    # length check, the truncation read, then an unconditional
+    # ``hist = read_history()[0]`` that overwrote the truncated
+    # slice and silently cancelled the rotation). Reading once
+    # and branching on the cached list fixes both the redundant
+    # IO and the cancelled-truncation bug, the way a single
+    # source of truth does.
+    hist = read_history()[0]
+    if keep_n is not None and keep_n >= 0 and len(hist) > keep_n:
         # Persist the truncated history to disk first, then work
         # from the in-memory slice so the rest of the filters
         # see the slimmed window without re-reading.
         keep_n = int(keep_n)
-        full = read_history()[0]
-        truncated = full[-keep_n:] if keep_n > 0 else []
+        truncated = hist[-keep_n:] if keep_n > 0 else []
         problem = atomic_write_text(
             HISTORY, json.dumps(truncated, ensure_ascii=False))
         if problem:
             print("WARNING: could not rotate history.json — "
                   + problem, file=sys.stderr)
         hist = truncated
-    hist = read_history()[0]
     # Borrowed from ``docker ps --filter name=value`` /
     # ``kubectl get --field-selector status=Running``: keep only the
     # rows whose field equals the given value, one ``key=value`` pair
@@ -6911,11 +6918,17 @@ def mode_info(book, json_flag=False, warnings_only=False,
     audit_by_tag = {}
     for f in audit_findings_list:
         audit_by_tag[f["tag"]] = audit_by_tag.get(f["tag"], 0) + 1
+    # r182: the top tag is the highest-count tag, ties broken by
+    # tag name for stability. Computed in the same pass that
+    # builds ``by_tag`` rather than a second sorted iteration —
+    # the way ``max`` over a dict would, but without materialising
+    # the full sorted list just to take its first element.
     audit_top_tag = None
     audit_top_count = 0
-    for tag, count in sorted(audit_by_tag.items(),
-                             key=lambda tc: (-tc[1], tc[0])):
-        if count > audit_top_count:
+    for tag, count in audit_by_tag.items():
+        if count > audit_top_count or (count == audit_top_count
+                                        and (audit_top_tag is None
+                                             or tag < audit_top_tag)):
             audit_top_tag = tag
             audit_top_count = count
     payload["audit_summary"] = {
@@ -7512,7 +7525,8 @@ def mode_skillbook(json_flag=False, format_path=None):
     the bare-list JSON face is unchanged, the way a host that
     already parses the list keeps working.
     """
-    entries = extract_skillbook(read_history()[0])
+    hist = read_history()[0]
+    entries = extract_skillbook(hist)
     write_skillbook(entries)
     if format_path is not None:
         print(_format_paths({"entries": entries}, format_path))
@@ -7520,7 +7534,12 @@ def mode_skillbook(json_flag=False, format_path=None):
     if json_flag:
         print(json.dumps(entries, ensure_ascii=False, indent=2))
         return 0
-    if not read_history()[0]:
+    # r182: the text face distinguishes "no history at all"
+    # from "history exists but no pattern passed the utility bar".
+    # The old code re-read history for the emptiness check; the
+    # cached ``hist`` already answers that, the way the JSON face
+    # reuses ``entries`` without re-mining.
+    if not hist:
         print("No skillbook yet — run a seam to start harvesting patterns.")
         return 0
     if not entries:
@@ -8340,6 +8359,15 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
                     if int(row.get("t") or 0) <= window["until_cutoff"]]
         window["rows_out"] = len(hist)
     findings = audit_findings(book, hist)
+    # r182: keep the *unprojected* full finding list before the
+    # --tag filter reshapes ``findings``. The baseline write below
+    # needs the complete set (a baseline is a commitment about the
+    # ledger state, not this run's projection), and ``audit_findings``
+    # is a pure function of (book, hist) — caching the list here
+    # avoids recomputing the same findings a second time, the way
+    # ``functools.lru_cache`` would, but without mutating a shared
+    # cache for a result that lives only this invocation.
+    full_findings = findings
     if chosen:
         findings = [f for f in findings if f["tag"] in chosen]
     # Baseline write runs before baseline read so a chained
@@ -8352,8 +8380,7 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
     # commitment about the ledger state, not about this run's
     # projection.
     if baseline_write:
-        full_now = audit_findings(book, hist)
-        problem = _audit_baseline_write(baseline_write, full_now)
+        problem = _audit_baseline_write(baseline_write, full_findings)
         if problem:
             print("CANNOT: --baseline-write failed: %s" % problem,
                   file=sys.stderr)
