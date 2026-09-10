@@ -2959,6 +2959,39 @@ that tuple).
 
 Suite after r185: 1652 passed, 0 failed. verify_suite 9/9.
 
+### r186 — one health score per seam
+
+``session_health_score`` is a pure function of (hist, book) — roughly
+thirty detectors over the stall window plus several full-history
+scans. The seam payload needs the score, and the premature-convergence
+fact inside ``observations`` needs the same score's risk / stall /
+compound flags. The old call order ran the full detector suite twice
+per seam on identical inputs: once inside ``observations`` (via
+``premature_convergence``'s internal call) and once in ``mode_seam``
+for the payload. Below STALL_RUN the fact short-circuits before
+scoring, so the double-run only shows on a session with enough
+history to reach it — the in-process counting probe read 2 calls per
+seam at 4 rows, 1 at 1 row.
+
+r186 computes the score once in ``mode_seam`` (before
+``observations``) and passes the result down: ``observations`` gains
+an optional ``health`` parameter, ``premature_convergence`` (fact
+mode) an optional ``health_result``. Without the precomputed result
+both fall back to the internal computation, so every direct caller
+and every existing test sees byte-identical behaviour — the r182
+pure-function-reuse pattern applied to the score.
+
+### Tests
+test_r186_seam_health_score_dedup.py — 5 tests: a seam with
+sufficient history scores exactly once (counting wrapper around the
+scorer), the payload score and factors match a direct recomputation
+over the persisted history, a precomputed result skips the scorer
+while producing identical facts, the no-health fallback still scores
+once, and ``observations`` forwards the health result (with/without
+paths produce equal fact lists).
+
+Suite after r186: 1657 passed, 0 failed. verify_suite 9/9.
+
 ### Gotchas
 - The first cut of AUDIT_GRADE_CUTS used
   (0,1,2,3,5,8) -> (A,B,C,D,E,F), which made E cover only

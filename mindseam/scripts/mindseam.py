@@ -780,8 +780,14 @@ def append_history(book, meta=None):
     return hist, compact_reasons
 
 
-def observations(hist, meta=None, book=None, run=None):
-    """Facts about recent state. Facts only — the judgement is not the script's."""
+def observations(hist, meta=None, book=None, run=None, health=None):
+    """Facts about recent state. Facts only — the judgement is not the script's.
+
+    ``health`` (r186) accepts a precomputed ``session_health_score``
+    result so the premature-convergence fact reuses the caller's score
+    instead of running the full detector suite a second time on the
+    same (hist, book).
+    """
     if isinstance(hist, dict):
         hist = [hist]
     if len(hist) < STALL_RUN:
@@ -970,7 +976,8 @@ def observations(hist, meta=None, book=None, run=None):
     vd = verification_depth(hist)
     if vd <= 1 and first_verified_val is not None:
         found.append("Verification depth is shallow (%d unique verifier name(s)); confidence may be over-claimed." % vd)
-    pc = premature_convergence(hist, book=book, run=run)
+    pc = premature_convergence(hist, book=book, run=run,
+                               health_result=health)
     found.extend(pc)
     rr = resolution_rate(hist, run=run)
     if rr < 0.4:
@@ -1514,12 +1521,19 @@ def verification_depth(hist, run=None):
     return len(verifiers)
 
 
-def premature_convergence(hist, book=None, score=None, run=None):
+def premature_convergence(hist, book=None, score=None, run=None,
+                          health_result=None):
     """Return list of premature-convergence facts, or a 0-100 scalar if score is True.
 
     Scalar mode does not require a book; it measures whether steps marked
     done remain consistently unverified, which signals a gap between
     claimed and evidenced progress.
+
+    ``health_result`` (r186) accepts a precomputed ``session_health_score``
+    result so a caller that already scored the same (hist, book) — the
+    seam's payload does — can reuse it instead of paying for a second
+    full detector run. The score is a pure function of (hist, book), so
+    the reuse is byte-identical to recomputing.
     """
     if score:
         if not hist or len(hist) < STALL_RUN:
@@ -1541,7 +1555,9 @@ def premature_convergence(hist, book=None, score=None, run=None):
         return []
     # Score mode short-circuits above, so passing book here cannot recurse.
     # Scoring blind here would contradict the seam banner, which is ledger-aware.
-    result = session_health_score(hist, book=book)
+    result = health_result
+    if result is None:
+        result = session_health_score(hist, book=book)
     score = result.score
     if score < 75:
         return []
@@ -4836,7 +4852,16 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
     for key in METACOGNITION_EVENT_KEYS:
         meta.pop(key, None)
     state_reasons = repair_reasons + compact_reasons
-    found = observations(hist, meta=meta, book=book)
+    # r186: score once, share twice. The health score is a pure
+    # function of (hist, book), but the old order ran the full
+    # detector suite two times per seam — once inside
+    # ``observations`` (via the premature-convergence fact) and once
+    # here for the payload. Computing it first and passing the
+    # result down merges them; the number in the payload is
+    # byte-identical because the inputs are.
+    health = session_health_score(hist, book=book)
+    health_score, health_reasons = health
+    found = observations(hist, meta=meta, book=book, health=health)
     risk_level, risk_reasons = assess_risk(hist)
     if risk_level != "low" or risk_reasons:
         meta["risk"] = {"level": risk_level, "reasons": risk_reasons}
@@ -4847,7 +4872,6 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
     risks.append(risk_level)
     if len(risks) > STALL_RUN:
         del risks[:-STALL_RUN]
-    health_score, health_reasons = session_health_score(hist, book=book)
     # r183: the dry-run contract is "write nothing", the same way
     # ``terraform plan`` writes nothing and the r177 note dry-run
     # defers its meta write. The history append above is already
