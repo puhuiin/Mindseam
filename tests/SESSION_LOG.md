@@ -2925,6 +2925,40 @@ write through the seam surface does not churn the file.
 
 Suite after r184: 1645 passed, 0 failed. verify_suite 9/9.
 
+### r185 — the intensity ladder is validated
+
+``resolve_intensity`` resolves the verbosity ladder as
+flag > MINDSEAM_INTENSITY > full, but nothing validated the resolved
+value: ``mode_audit`` only checked for the literal ``off``, so a
+typo — ``--intensity banana`` or ``MINDSEAM_INTENSITY=banana`` — fell
+through and the audit ran at full verbosity with exit 0. A host that
+meant ``off`` got the opposite of what it asked for, silently. The
+``INTENSITY_LEVELS`` constant existed since r156 but had never been
+wired to anything — a dead constant documenting the exact contract
+nobody enforced.
+
+r185 refuses an unrecognised level with exit 2 to stderr and lists
+the valid ladder, the way ``--tag unknown`` refuses. ``off`` keeps
+its dedicated refusal (exit 2 to stdout, "audit intensity is off")
+because its message names the fix. The r156 resolution order (flag
+beats environment) is untouched — validation happens on the
+*resolved* value, after the precedence rules have spoken.
+
+Found by the r184 dead-code scan: the scanner flagged
+``INTENSITY_LEVELS`` as defined-but-never-referenced, which raised
+the question of what it was supposed to guard.
+
+### Tests
+test_r185_intensity_validation.py — 7 tests: unknown flag value
+refused with exit 2, unknown env value refused, the motivating
+"of" typo refused rather than silently full, off keeps its
+dedicated stdout refusal, valid levels unchanged (lite/full exit 0,
+case-insensitive), flag beats an invalid environment value, and
+``INTENSITY_LEVELS`` is the validator (the refusal lists exactly
+that tuple).
+
+Suite after r185: 1652 passed, 0 failed. verify_suite 9/9.
+
 ### Gotchas
 - The first cut of AUDIT_GRADE_CUTS used
   (0,1,2,3,5,8) -> (A,B,C,D,E,F), which made E cover only

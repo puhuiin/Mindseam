@@ -8339,6 +8339,20 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
         print("  evidence: %s" % doc["evidence"])
         return 0
     level = resolve_intensity(intensity)
+    # r185: the ladder is now validated. A typo in the flag or the
+    # MINDSEAM_INTENSITY environment variable used to fall through
+    # the ``off`` check and run the audit at full verbosity, so
+    # ``--intensity of`` or ``MINDSEAM_INTENSITY=banana`` silently
+    # behaved as ``full`` — the opposite of what a host that set
+    # ``off`` wanted. An unrecognised level is refused with exit 2
+    # and lists the valid ladder, the way ``--tag unknown`` refuses.
+    if level not in INTENSITY_LEVELS:
+        print("CANNOT: --intensity %r is not a recognised level."
+              % level, file=sys.stderr)
+        print("  valid levels: %s (flag or %s)"
+              % (", ".join(INTENSITY_LEVELS), INTENSITY_ENV),
+              file=sys.stderr)
+        return 2
     if level == "off":
         print("CANNOT: audit intensity is off.")
         print("  set --intensity lite|full (or MINDSEAM_INTENSITY) to run the audit")
