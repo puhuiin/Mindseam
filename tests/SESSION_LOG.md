@@ -3031,6 +3031,42 @@ catalog move.
 
 Suite after r187: 1668 passed, 0 failed. verify_suite 9/9.
 
+### r188 — audit --at and the window flags are exclusive
+
+The r161 ``--at`` branch slices ``hist[:N]`` and returns; the
+``--since``/``--until`` filtering lives in the *else* branch. A call
+like ``audit --at 5 --since 3600`` therefore silently dropped the
+window — and the ``history_window`` JSON block still carried
+``since_seconds: 3600``, reporting a filter that never ran. A host
+reading the JSON believed the window was applied: not just silent
+ignore, but active misinformation in the machine face.
+
+r188 refuses the combination with exit 2 before any history is read,
+naming the offending flag(s) (``--since``, ``--until``, or
+``--since/--until`` when both were passed), the way
+``info --field``/``--format`` refuse to compose (the
+``kubectl get -o json -o yaml`` precedent). The refusal precedes the
+``--at`` range check: the combination is invalid as a combination,
+before any single flag's own validation matters.
+
+Alone-paths are untouched: ``--at N`` alone, ``--since`` alone,
+``--until`` alone, and the r173 ``--since --until`` bracket keep
+their behaviour byte-for-byte.
+
+### Tests
+test_r188_audit_at_window_exclusive.py — 8 tests: at+since refused
+(stderr names both flags), at+until refused, at+both names the pair,
+the refusal precedes the range check (out-of-range --at still gets
+the composition refusal), at alone unchanged (at_row / rows_out in
+history_window, since/until None), since alone unchanged, the
+since+until bracket still composes, and the catalog entry
+(audit-at-window-exclusive, since r188).
+
+One existing pin moved: the r175 index-since count advanced 15 -> 16
+(the r188 catalog entry).
+
+Suite after r188: 1676 passed, 0 failed. verify_suite 9/9.
+
 ### Gotchas
 - The first cut of AUDIT_GRADE_CUTS used
   (0,1,2,3,5,8) -> (A,B,C,D,E,F), which made E cover only

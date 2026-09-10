@@ -6741,6 +6741,9 @@ _FEATURE_CATALOG = (
     {"id": "skillbook-staleness", "since": "r187",
      "summary": "skillbook entries carry first_seen / last_seen / age_seams and a stale flag (unseen for SKILLBOOK_STALE_SEAMS seams), so a host can weigh a recalled pattern by its recency before trusting it (Claude Code memory staleness protocol borrow, like git log -1 on a line)",
      "default": True},
+    {"id": "audit-at-window-exclusive", "since": "r188",
+     "summary": "audit --at refuses to compose with --since/--until (exit 2, naming both flags): the at-branch slices hist[:N] and never applied the window, so a combined call silently dropped it while history_window still reported the unapplied filter",
+     "default": True},
 )
 
 
@@ -8453,6 +8456,24 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
             print("CANNOT: %s expects non-negative seconds, got %r"
                   % (flag_name, value), file=sys.stderr)
             return 2
+    # r188: --at and the window flags are exclusive. The --at branch
+    # slices hist to hist[:N] and never applies --since/--until, so a
+    # combined call silently dropped the window — and the
+    # history_window JSON block still carried the unapplied
+    # since_seconds/until_seconds, reporting a filter that never ran.
+    # Refuse the ambiguity instead, the way --field/--format refuse
+    # to compose (exit 2, naming both flags).
+    if at_row is not None and (since_seconds is not None
+                               or until_seconds is not None):
+        clash = "--since" if since_seconds is not None else "--until"
+        if since_seconds is not None and until_seconds is not None:
+            clash = "--since/--until"
+        print("CANNOT: --at %d composes with neither --since nor --until "
+              "(got %s)." % (at_row, clash), file=sys.stderr)
+        print("  --at audits a single historical seam (hist[:N]); the "
+              "window flags filter the live log. Use one or the other.",
+              file=sys.stderr)
+        return 2
     hist_full, _, _ = read_history()
     # The window narrows only the history slice the facet tags
     # see. Ledger-surface tags operate on ``book`` directly and
@@ -8831,7 +8852,7 @@ def main(argv=None):
     au.add_argument("--until", dest="until", default=None,
                     help="the upper bound on --since, in the same three shapes. Composes with --since to bracket a window (like the same flag on journalctl / git log --until). Negative values are refused with exit 2")
     au.add_argument("--at", dest="at", type=int, default=None,
-                    help="audit as of the 1-based row N in history: slices the history to hist[:N] so the audit reflects everything that had happened by that seam (like git log -1 / gh pr view N). Out-of-range exits 2 to stderr")
+                    help="audit as of the 1-based row N in history: slices the history to hist[:N] so the audit reflects everything that had happened by that seam (like git log -1 / gh pr view N). Out-of-range exits 2 to stderr. Exclusive with --since/--until: a combined call is refused with exit 2 (the at-branch slices, the window flags filter the live log — they never applied together)")
     au.add_argument("--baseline", dest="baseline", default=None,
                     help="path to a JSON baseline file (produced by --baseline-write); findings whose (tag, what) fingerprint matches a baseline entry are marked baselined in the output and excluded from the --strict gate (like eslint --baseline / terraform plan -detailed-exitcode)")
     au.add_argument("--baseline-write", dest="baseline_write", default=None,
