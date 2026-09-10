@@ -6738,6 +6738,9 @@ _FEATURE_CATALOG = (
     {"id": "health-velocity-trend", "since": "r181",
      "summary": "info --health carries a velocity block: the health score recomputed at each of the last 5 seam boundaries, classified improving / stable / degrading (borrowed from gsd-core's STATE.md Trend word)",
      "default": True},
+    {"id": "skillbook-staleness", "since": "r187",
+     "summary": "skillbook entries carry first_seen / last_seen / age_seams and a stale flag (unseen for SKILLBOOK_STALE_SEAMS seams), so a host can weigh a recalled pattern by its recency before trusting it (Claude Code memory staleness protocol borrow, like git log -1 on a line)",
+     "default": True},
 )
 
 
@@ -7524,6 +7527,10 @@ def mode_info(book, json_flag=False, warnings_only=False,
 
 SKILLBOOK_MIN_RECURRENCE = 2
 SKILLBOOK_MAX_ENTRIES = 20
+# r187: a pattern unseen for this many seams is stamped stale, the
+# way Claude Code's memory protocol verifies a recalled fact before
+# recommending it. Inclusive: age_seams >= SKILLBOOK_STALE_SEAMS.
+SKILLBOOK_STALE_SEAMS = 10
 SKILLBOOK = os.path.join(LEDGER_DIR, "skillbook.md")
 
 
@@ -7535,14 +7542,27 @@ def extract_skillbook(hist):
     and ``hard`` — the same domain prefix in the next action paired
     with unplanned extra steps. Utility sums outcome signals: ``ok``
     +1, ``failed`` -1, absent 0; negative-utility patterns never ship.
+
+    r187 stamps every entry with recency evidence, borrowed from
+    Claude Code's memory staleness protocol ("verify a recalled
+    memory still applies before recommending it"): ``first_seen`` /
+    ``last_seen`` are the 1-based seam indices of the first and most
+    recent occurrence, ``age_seams`` is the distance from the newest
+    history row, and ``stale`` marks a pattern unseen for
+    SKILLBOOK_STALE_SEAMS seams. Stale entries still ship — the way
+    the r162 audit marks baselined debt instead of hiding it — so a
+    host can weigh a recalled pattern by its recency rather than
+    mistaking a long-fixed error for a live one.
     """
     counts = {}
-    for h in hist:
+    for index, h in enumerate(hist, 1):
         err = (h.get("error") or "").strip()
         if err:
             entry = counts.setdefault(
-                ("error", err), {"count": 0, "utility": 0})
+                ("error", err),
+                {"count": 0, "utility": 0, "first": index, "last": index})
             entry["count"] += 1
+            entry["last"] = index
             outcome = (h.get("outcome") or "").strip().lower()
             if outcome.startswith("ok"):
                 entry["utility"] += 1
@@ -7552,19 +7572,27 @@ def extract_skillbook(hist):
         domain = nxt.split(":", 1)[0].strip() if ":" in nxt else ""
         if domain and (h.get("extra_steps") or 0) > 0:
             entry = counts.setdefault(
-                ("hard", domain), {"count": 0, "utility": 0})
+                ("hard", domain),
+                {"count": 0, "utility": 0, "first": index, "last": index})
             entry["count"] += 1
+            entry["last"] = index
             outcome = (h.get("outcome") or "").strip().lower()
             if outcome.startswith("ok"):
                 entry["utility"] += 1
             elif outcome:
                 entry["utility"] -= 1
-    entries = [
-        {"kind": kind, "text": text, "count": v["count"],
-         "utility": v["utility"]}
-        for (kind, text), v in counts.items()
-        if v["count"] >= SKILLBOOK_MIN_RECURRENCE and v["utility"] >= 0
-    ]
+    total = len(hist)
+    entries = []
+    for (kind, text), v in counts.items():
+        if v["count"] < SKILLBOOK_MIN_RECURRENCE or v["utility"] < 0:
+            continue
+        age = total - v["last"]
+        entries.append({
+            "kind": kind, "text": text, "count": v["count"],
+            "utility": v["utility"],
+            "first_seen": v["first"], "last_seen": v["last"],
+            "age_seams": age, "stale": age >= SKILLBOOK_STALE_SEAMS,
+        })
     entries.sort(key=lambda e: (-e["count"], e["kind"], e["text"]))
     return entries[:SKILLBOOK_MAX_ENTRIES]
 
@@ -7622,8 +7650,15 @@ def mode_skillbook(json_flag=False, format_path=None):
         return 0
     print("── mindseam ─ skillbook")
     for e in entries:
-        print("  [%s] %s (x%d, utility %+d)"
-              % (e["kind"], e["text"], e["count"], e["utility"]))
+        # r187: stale entries carry a visible marker, the way the
+        # r162 audit appends ``[baselined]`` — acknowledge the
+        # recency gap instead of hiding it. Fresh entries render
+        # byte-identically to the pre-r187 text face.
+        line = "  [%s] %s (x%d, utility %+d)" % (
+            e["kind"], e["text"], e["count"], e["utility"])
+        if e.get("stale"):
+            line += " [stale: last seen seam %d]" % e["last_seen"]
+        print(line)
     return 0
 
 

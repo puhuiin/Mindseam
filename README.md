@@ -126,7 +126,7 @@ the task workspace as the current directory.
 | `seam --json` | Same seam report, machine-readable JSON |
 | `ship FILE` | Inspect outgoing text for register leakage and failure signatures |
 | `resume` | Reload the premise, invariants, and full ledger after a long gap |
-| `skillbook` | Print recurring patterns extracted from session history |
+| `skillbook` | Print recurring patterns extracted from session history; each entry carries `first_seen` / `last_seen` / `age_seams` and a `stale` flag (unseen for 10 seams) so a pattern's recency is visible before you trust it (Claude Code memory staleness protocol borrow) |
 | `skillbook --json` | Same, machine-readable JSON |
 | `info` | Print what the suite has learned about this workspace |
 | `info --json` | Same, machine-readable JSON; carries an `audit_summary` block (lean, net, by_tag, top tag) and a `lock_state` block so a host reads the audit roll-up alongside the rest of the workspace health |

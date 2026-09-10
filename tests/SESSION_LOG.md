@@ -2992,6 +2992,45 @@ paths produce equal fact lists).
 
 Suite after r186: 1657 passed, 0 failed. verify_suite 9/9.
 
+### r187 — skillbook recency evidence (Claude Code memory staleness borrow)
+
+Source: asgeirtj/system_prompts_leaks (CC0), Anthropic/claude-code —
+the memory protocol's rule "verify a recalled memory still applies
+before recommending it". Mindseam's skillbook is the controller's
+recalled-pattern store (errors that recurred, domains that cost
+unplanned steps), but an entry carried only kind / text / count /
+utility — no recency evidence — so a host reading skillbook.md could
+not tell whether a documented error was from three seams ago or three
+hundred, and a long-fixed error read as a live one.
+
+r187 stamps every entry with ``first_seen`` / ``last_seen`` (1-based
+seam indices), ``age_seams`` (distance from the newest history row),
+and ``stale`` (age >= SKILLBOOK_STALE_SEAMS = 10, inclusive boundary).
+Stale entries still ship — the r162 baselined-debt pattern:
+acknowledge the recency gap instead of hiding it. The text face
+appends ``[stale: last seen seam N]`` to stale lines only; fresh
+lines render byte-identically to the pre-r187 face. ``--format``
+resolves the new keys (entries[0].last_seen, entries[0].stale).
+
+Defended pins: kind / text / count / utility survive, sort order
+ignores staleness (a marker, not a rank change), the entry cap and
+negative-utility suppression are untouched.
+
+### Tests
+test_r187_skillbook_staleness.py — 11 tests: ExtractionRecencyTests
+(6: fresh pattern records both indices at age 0, old pattern is
+stale, the inclusive boundary at age 10 vs 9, the hard kind carries
+the same evidence, backward-compat keys survive, sort order ignores
+staleness); SurfaceRecencyTests (3: JSON face carries the fields,
+text face marks stale and leaves fresh untouched, --format resolves
+the new paths); CatalogTests (2: feature in catalog, since r187).
+
+One existing pin moved: the r175 index-since count advanced 14 -> 15
+(the skillbook-staleness catalog entry), the documented deliberate
+catalog move.
+
+Suite after r187: 1668 passed, 0 failed. verify_suite 9/9.
+
 ### Gotchas
 - The first cut of AUDIT_GRADE_CUTS used
   (0,1,2,3,5,8) -> (A,B,C,D,E,F), which made E cover only

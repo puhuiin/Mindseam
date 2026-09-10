@@ -120,7 +120,7 @@ loop 三种 pass，以及可选控制器负责记录长任务状态而不负责�
 | `seam --json` | 同上，机器可读 JSON |
 | `ship FILE` | 检查输出文本中的寄存器泄漏和失效特征 |
 | `resume` | 在长间隔后重新加载 premise、invariants 和完整账本 |
-| `skillbook` | 打印从会话历史中提取的反复模式 |
+| `skillbook` | 打印从会话历史中提取的反复模式；每条附带 `first_seen` / `last_seen` / `age_seams` 和 `stale` 标记（10 个 seam 未再现即陈旧），让模式的时新性在采信之前可见（借鉴 Claude Code 的记忆新鲜度协议） |
 | `skillbook --json` | 同上，机器可读 JSON |
 | `info` | 打印该工作区的学习摘要 |
 | `info --json` | 同上，机器可读 JSON；附带 `audit_summary` 块（lean、net、by_tag、top tag）和 `lock_state` 块，host 可一并读取审计汇总与工作区健康度 |
