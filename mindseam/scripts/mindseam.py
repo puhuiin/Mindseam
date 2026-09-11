@@ -6841,6 +6841,9 @@ _FEATURE_CATALOG = (
     {"id": "audit-at-window-exclusive", "since": "r188",
      "summary": "audit --at refuses to compose with --since/--until (exit 2, naming both flags): the at-branch slices hist[:N] and never applied the window, so a combined call silently dropped it while history_window still reported the unapplied filter",
      "default": True},
+    {"id": "note-from-stdin-exclusive", "since": "r199",
+     "summary": "note --from-stdin refuses argv edit flags (exit 2, naming the flags the stdin spec would drop): the stdin spec replaces argv, so a combined call silently dropped the command-line edits; --dry-run composes",
+     "default": True},
 )
 
 
@@ -8845,7 +8848,7 @@ def main(argv=None):
     n.add_argument("--extra-steps", dest="extra_steps", type=int,
                    help="how many unplanned sub-steps this step cost")
     n.add_argument("--from-stdin", dest="from_stdin", action="store_true",
-                   help="read the flag/value spec from standard input instead of argv (like kubectl apply -f - / git config --file -); the payload is shlex-split and re-parsed by the note parser, so the edit semantics are identical to a command-line call")
+                   help="read the flag/value spec from standard input instead of argv (like kubectl apply -f - / git config --file -); the payload is shlex-split and re-parsed by the note parser, so the edit semantics are identical to a command-line call. r199: exclusive with argv edit flags — a combined call is refused with exit 2 naming the flags the stdin spec would drop; --dry-run composes")
     n.add_argument("--dry-run", dest="dry_run", action="store_true",
                    help="compute the edits, print a section-level plan of what would change, and write nothing (like terraform plan / git add --dry-run); the refusal contract is byte-identical, so a host can validate a note call before applying it")
 
@@ -9174,6 +9177,25 @@ def main(argv=None):
         # subparser so the edit path is identical to a CLI call; the
         # dispatch swallows the read so mode_note stays argv-agnostic.
         if getattr(args, "from_stdin", False):
+            # r199: the stdin spec REPLACES the argv spec, so any edit
+            # flag the caller also typed on the command line would be
+            # silently dropped — ``note --goal "new" --from-stdin``
+            # ran to exit 0 with the old goal still on the ledger.
+            # Refuse the ambiguity before reading stdin, naming the
+            # flags that would vanish; --dry-run composes (it is a
+            # mode, not an edit) the way it composes with a CLI spec.
+            dropped = ["--" + name.replace("_", "-")
+                       for name, value in vars(args).items()
+                       if name not in ("cmd", "from_stdin", "dry_run")
+                       and value is not None and value is not False]
+            if dropped:
+                print("CANNOT: --from-stdin replaces the argv flag spec; "
+                      "these flags would be silently dropped: %s."
+                      % ", ".join(dropped), file=sys.stderr)
+                print("  move them into the stdin spec (one "
+                      "--flag value per line), or run note twice.",
+                      file=sys.stderr)
+                return 2
             try:
                 stream = getattr(sys.stdin, "buffer", None)
                 raw = (stream.read() if stream is not None
@@ -9189,6 +9211,15 @@ def main(argv=None):
             if reason is not None:
                 print("CANNOT: --from-stdin %s." % reason, file=sys.stderr)
                 return 2
+            # r199: the stdin spec is a fresh namespace, so the argv
+            # ``--dry-run`` never reached mode_note — ``note --dry-run
+            # --from-stdin`` performed the real edit, violating the
+            # r177 preview contract through this path. Merge the two
+            # sources with OR: either one asking for a preview is the
+            # safe direction, and a caller can never write by accident
+            # because the other source stayed silent.
+            spec.dry_run = bool(getattr(args, "dry_run", False)
+                                or getattr(spec, "dry_run", False))
             return mode_note(book, spec)
         return mode_note(book, args)
 

@@ -3324,6 +3324,48 @@ in JSON warnings).
 Suite after r198: 1735 passed, 1 xfailed, 0 failed.
 verify_suite 9/9.
 
+### r199 — note --from-stdin is exclusive with argv edit flags
+### (and the stdin path was ignoring --dry-run)
+
+The combination probe swept ``note`` — the last major surface without
+one. Two findings, one large:
+
+1. **``--dry-run`` never reached the stdin path.** The r174 dispatch
+   re-parses the stdin payload into a *fresh* argparse namespace and
+   passes that to ``mode_note``, so argv's ``--dry-run`` was dropped:
+   ``note --dry-run --from-stdin`` performed the **real edit**,
+   violating the r177 preview contract ("write nothing") through this
+   path since the day it landed. Found by the composition test's
+   byte-comparison — the ledger's Goal changed to the preview value.
+   The flag had zero direct test coverage, which is why four rounds
+   of dry-run contracts never noticed. Fix: merge the two sources
+   with OR (either asking for a preview is the safe direction).
+
+2. **argv edit flags alongside --from-stdin were silently dropped.**
+   The stdin spec *replaces* argv, so
+   ``note --goal "new" --from-stdin`` ran to exit 0 with the old goal
+   still on the ledger. r199 refuses the combination before stdin is
+   read, naming every flag that would vanish; ``--dry-run`` composes
+   (it is a mode, not an edit).
+
+Also pinned from the probe: ``--settled-by`` without ``--open`` keeps
+its refusal, an empty stdin spec is refused ("read no flags from
+stdin"), and an unparseable spec is refused ("stdin spec failed to
+parse").
+
+### Tests
+test_r199_note_from_stdin_exclusive.py — 8 tests: argv flag refused
+with the flag named and the ledger untouched, multiple dropped flags
+all named, ``--dry-run`` composes and writes nothing (the
+byte-comparison that caught finding 1), a valid stdin spec applies
+its edits, empty stdin refused, unparseable stdin refused,
+``--settled-by`` alone refused, and the catalog entry
+(note-from-stdin-exclusive, since r199 — the r175 index pin moved
+16 -> 17).
+
+Suite after r199: 1743 passed, 1 xfailed, 0 failed.
+verify_suite 9/9.
+
 ### Gotchas
 - The first cut of AUDIT_GRADE_CUTS used
   (0,1,2,3,5,8) -> (A,B,C,D,E,F), which made E cover only
