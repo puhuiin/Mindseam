@@ -350,6 +350,7 @@ Mindseam-Cognition-Suite-V3.6/
 ├── README.zh-CN.md                 # Chinese engineering guide
 ├── THIRD_PARTY_NOTICES.md          # attribution and license boundaries for source material
 ├── tests/                          # controller regression tests (test_r*.py rounds)
+├── tools/                          # metric_audit.py — liveness/range/redundancy audit
 └── mindseam/
     ├── SKILL.md                    # single entry, gate, routing, and invariants
     ├── modules/                    # eleven selectively loaded protocols
@@ -367,6 +368,8 @@ Maintainers can verify the package from its root:
 
 ```text
 <python-command> mindseam/scripts/verify_suite.py
+<python-command> mindseam/scripts/verify_suite.py --json   # same checks, machine-readable
+<python-command> tools/metric_audit.py --check             # metric layer: no crash, no range drift
 <python-command> -m unittest discover -s tests -v
 ```
 

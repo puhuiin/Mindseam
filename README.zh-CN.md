@@ -341,6 +341,7 @@ Mindseam-Cognition-Suite-V3.6/
 ├── README.zh-CN.md                 # 中文工程指南
 ├── THIRD_PARTY_NOTICES.md          # 外部材料的归属与许可边界
 ├── tests/test_mindseam.py            # 标准库控制器回归测试
+├── tools/metric_audit.py             # 指标层审计：存活/越界/冗余
 └── mindseam/
     ├── SKILL.md                    # 唯一入口、门控、路由与 invariants
     ├── modules/                    # 十一个按需加载的协议模块
@@ -357,6 +358,8 @@ Mindseam-Cognition-Suite-V3.6/
 
 ```text
 <python-command> mindseam/scripts/verify_suite.py
+<python-command> mindseam/scripts/verify_suite.py --json   # 同样的检查，机器可读
+<python-command> tools/metric_audit.py --check             # 指标层：无崩溃、无越界
 <python-command> -m unittest discover -s tests -v
 ```
 

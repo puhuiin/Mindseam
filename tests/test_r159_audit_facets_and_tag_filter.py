@@ -28,6 +28,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from _controller_helper import invoke_cli
 
 ROOT = Path(__file__).resolve().parents[1]
 MINDSEAM = ROOT / "mindseam" / "scripts" / "mindseam.py"
@@ -38,15 +39,8 @@ import mindseam
 
 
 def _invoke(args, cwd, env=None):
-    run_env = os.environ.copy()
-    run_env.pop("MINDSEAM_INTENSITY", None)
-    if env:
-        run_env.update(env)
-    return subprocess.run(
-        [sys.executable, str(MINDSEAM), *args],
-        cwd=cwd, capture_output=True, text=True, encoding="utf-8",
-        env=run_env,
-    )
+    return invoke_cli(cwd, args, env=env,
+                       drop_env=("MINDSEAM_INTENSITY",))
 
 
 def _write_history(workspace, rows):
@@ -507,10 +501,7 @@ class TagFilterParserTests(unittest.TestCase):
                 # argparse error; the point is that the parser
                 # accepts the flag name, not that the call
                 # succeeds.
-                import subprocess
-                r = subprocess.run(
-                    [sys.executable, str(MINDSEAM), "audit", "--tag"],
-                    capture_output=True, text=True, encoding="utf-8")
+                r = invoke_cli(os.getcwd(), ["audit", "--tag"])
                 self.assertNotEqual(r.returncode, 0)
                 # argparse names the missing value; the flag itself
                 # was recognised (otherwise it would say

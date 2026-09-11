@@ -27,6 +27,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from _controller_helper import invoke_cli
 
 ROOT = Path(__file__).resolve().parents[1]
 MINDSEAM = ROOT / "mindseam" / "scripts" / "mindseam.py"
@@ -37,9 +38,7 @@ import mindseam
 
 
 def _invoke(args, cwd):
-    return subprocess.run(
-        [sys.executable, str(MINDSEAM), *args],
-        cwd=cwd, capture_output=True, text=True, encoding="utf-8")
+    return invoke_cli(cwd, args)
 
 
 class AtWindowExclusivityTests(unittest.TestCase):

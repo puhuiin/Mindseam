@@ -19,6 +19,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from _controller_helper import invoke_cli
 
 ROOT = Path(__file__).resolve().parents[1]
 MINDSEAM = ROOT / "mindseam" / "scripts" / "mindseam.py"
@@ -29,11 +30,7 @@ import mindseam
 
 
 def _invoke(args, cwd, stdin=None):
-    return subprocess.run(
-        [sys.executable, str(MINDSEAM), *args],
-        cwd=cwd, capture_output=True, text=True, encoding="utf-8",
-        input=stdin,
-    )
+    return invoke_cli(cwd, args, stdin=stdin)
 
 
 class TwoFacesBase(unittest.TestCase):

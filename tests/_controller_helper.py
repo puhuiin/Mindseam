@@ -3,8 +3,17 @@ import os
 import shutil
 import sys
 import importlib.util
-import verify_suite
 from pathlib import Path
+
+# Bootstrap the controller's import path here, not in each importer:
+# this helper is the one module that needs both ``verify_suite`` and
+# ``mindseam``, and relying on whichever test file happens to import
+# first to have inserted the path broke collection the moment a
+# lexicographically-earlier file (test_history_*, test_info_*) picked
+# the helper up. A duplicate insert is harmless to importers that
+# bootstrap themselves.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mindseam" / "scripts"))
+import verify_suite
 
 
 def _clear_mindseam(workspace):
@@ -20,6 +29,46 @@ def _clear_mindseam(workspace):
 
 def run_controller(workspace, *args, stdin=None):
     return _RunControllerResult.call(workspace, *args, stdin=stdin)
+
+
+def invoke_cli(workspace, args, stdin=None, env=None, drop_env=()):
+    """Run the controller in-process, returning a subprocess.run-shaped result.
+
+    Drop-in for the per-file ``_invoke`` wrappers: same ``returncode`` /
+    ``stdout`` / ``stderr`` attributes, no child process. A real spawn costs
+    ~400 ms, nearly all of it interpreter startup plus the 9k-line module
+    import, and the suite was spending ~99% of its wall time waiting on
+    children that do ~30 ms of actual work. The child boundary itself is
+    still covered end-to-end by the tests that need it -- r128 pins
+    verify_suite's own subprocess encoding, and the from-stdin baseline
+    exercises the real stdin pipe.
+
+    ``drop_env`` / ``env`` reproduce the environment the old helpers built:
+    the intensity overrides start from a clean ``MINDSEAM_INTENSITY`` so a
+    value leaking in from the outer shell cannot change a test's default.
+    """
+    saved = {}
+
+    def _stage(key, value):
+        if key not in saved:
+            saved[key] = os.environ.get(key)
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+
+    try:
+        for key in drop_env:
+            _stage(key, None)
+        for key, value in (env or {}).items():
+            _stage(key, value)
+        return run_controller(workspace, *args, stdin=stdin)
+    finally:
+        for key, value in saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 def _run_verify_suite(repo_path):

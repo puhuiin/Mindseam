@@ -65,6 +65,13 @@ HISTORY_ROW_FIELDS = (
     "marker", "confidence", "verifier", "risk",
     "error", "outcome", "extra_steps",
 )
+
+# The closed domain of the ``risk`` row field, ordered worst-last so the
+# ordered comparison in _fuse_run can read it as a ladder. Unlike marker,
+# confidence, verifier and error, risk is not free text: the health score
+# indexes a penalty table with the raw value, so anything outside this set
+# is repaired to "" at the boundary rather than carried into that table.
+RISK_LEVELS = ("low", "medium", "high")
 HEAL_REPORT_MAX = 5    # heal lines printed at a seam before the rest are summarised
 HEAL_HEALTH_FLOOR = 45      # health scores below this earn a heal line
 HEAL_SEVERITY_CEILING = 100 - HEAL_HEALTH_FLOOR   # severity scores above this do
@@ -667,6 +674,15 @@ def read_history():
             if key in fixed and not isinstance(fixed[key], str):
                 fixed[key] = ""
                 changed = True
+        # ``risk`` is a closed domain, not free text: the health score
+        # indexes a penalty table with the raw value, so an unrecognised
+        # level ("critical", a typo, a value from some other tool) raised
+        # KeyError straight out of ``info --health``. The type check above
+        # cannot catch it, because the value is a perfectly good string.
+        # Repair it the way extra_steps' non-negative domain is repaired.
+        if fixed.get("risk") and fixed["risk"] not in RISK_LEVELS:
+            fixed["risk"] = ""
+            changed = True
         if "extra_steps" in fixed and (
             not isinstance(fixed["extra_steps"], int)
             or isinstance(fixed["extra_steps"], bool)
@@ -3996,6 +4012,176 @@ def _fuse_run(hist, run=None):
     return (vol_changes, decay, st_score, has_stall, risk_escalated, risk_recovered, last_risk, has_risk, has_weak_conf, has_verified)
 
 
+_WindowFacts = collections.namedtuple(
+    "_WindowFacts",
+    "adjacent_next_pair_in_run conf_label_in_run domain_in6 done_any3 "
+    "effort_or_delivery3 err_events3x2 err_events4 err_pairs6 "
+    "err_recoverable esc6 hi_conf_in_run high_low_risk6 marker_pair_in_run "
+    "next_in3 next_in4 strong_conf_in_run thread_evt4 va_measured "
+    "verified6 verified_in_run verifier_in_run vt6")
+
+
+def _health_window_facts(hist):
+    """Gather the run-window signal-presence flags the health score reads.
+
+    Measurement-presence flags. Several detectors answer "nothing to
+    measure" with the same sentinel 100 they award to measured
+    perfection, so their fusion branches are gated on whether the
+    quantity was actually observed (convention introduced by the
+    goal_set / ledger-plan gates). Each flag mirrors the exact window
+    and counting rule of its detector, including the minimum window
+    length, so a short history cannot smuggle the sentinel through an
+    open gate.
+
+    Pure with respect to the score: nothing here reads or writes the
+    running total, so it was lifted out of session_health_score whole.
+    """
+    win4 = hist[-(STALL_RUN + 1):]
+    win6 = hist[-(STALL_RUN * 2):]
+
+    def _pair_seen(entries, pred):
+        return any(pred(entries[i], entries[i + 1])
+                   for i in range(len(entries) - 1))
+
+    # Fused run-window signal-presence gates — replaces ~12 separate
+    # any()/sum()/list-comprehension passes over the same slices.
+    # Extended to cover win6 (last 6 entries) with position-aware flags
+    # for win4/win6 gates while preserving the run-level (last 3) logic.
+    verified_in_run = False
+    hi_conf_in_run = False
+    strong_conf_in_run = False
+    conf_label_in_run = False
+    verifier_in_run = False
+    marker_count = 0
+    adj_next_pair = False
+    done_any3 = False
+    effort_or_delivery3 = False
+    err_events3x2_count = 0
+    next_in3_found = False
+    verified_in_win6 = False
+    err_in_win4_count = 0
+    err_in_win6_count = 0
+    risk_high_seen = False
+    risk_low_seen = False
+    next_in_win4_found = False
+    domain_in_win6_found = False
+    run_start = len(win6) - STALL_RUN
+    prev_has_next_run = False
+    for idx, h in enumerate(win6):
+        in_run = idx >= run_start
+        in_win4 = idx >= len(win6) - len(win4)
+        if in_run:
+            if h.get("verified", 0) > 0:
+                verified_in_run = True
+            c = h.get("confidence")
+            if c in ("strong", "shaky"):
+                hi_conf_in_run = True
+            if c == "strong":
+                strong_conf_in_run = True
+            if (c or "").strip():
+                conf_label_in_run = True
+            if (h.get("verifier") or "").strip():
+                verifier_in_run = True
+            if (h.get("marker") or "").strip():
+                marker_count += 1
+                if h.get("marker") == "DONE":
+                    done_any3 = True
+            if (h.get("extra_steps") or 0) > 0 or h.get("verified", 0) > 0 or h.get("outcome"):
+                effort_or_delivery3 = True
+            _e = (h.get("error") or "").strip()
+            if _e:
+                err_events3x2_count += 1
+            has_n = bool((h.get("next") or "").strip())
+            if has_n:
+                next_in3_found = True
+            if prev_has_next_run and has_n:
+                adj_next_pair = True
+            prev_has_next_run = has_n
+        if h.get("verified", 0) > 0:
+            verified_in_win6 = True
+        if in_win4:
+            if h.get("error") or h.get("verified", 0) < 0:
+                err_in_win4_count += 1
+            if (h.get("next") or "").strip():
+                next_in_win4_found = True
+        _e_w6 = (h.get("error") or "").strip()
+        if _e_w6:
+            err_in_win6_count += 1
+        r = (h.get("risk") or "").lower()
+        if r == "high":
+            risk_high_seen = True
+        elif r == "low":
+            risk_low_seen = True
+        if (h.get("next") or "").split(":", 1)[0].strip():
+            domain_in_win6_found = True
+    marker_pair_in_run = marker_count >= 2
+    adjacent_next_pair_in_run = adj_next_pair
+    err_events3x2 = len(hist) >= STALL_RUN and err_events3x2_count >= 2
+    next_in3 = next_in3_found
+    err_events4 = len(hist) >= STALL_RUN + 1 and err_in_win4_count >= 1
+    err_subseq6 = err_in_win6_count
+    err_pairs6 = len(hist) >= STALL_RUN * 2 and err_subseq6 >= 2
+    verified6 = len(hist) >= STALL_RUN * 2 and verified_in_win6
+    esc6 = len(hist) >= STALL_RUN * 2 and _pair_seen(
+        win6, lambda a, b: (a.get("risk") or "").lower() == "low"
+        and (b.get("risk") or "").lower() == "high")
+    vt6 = len(hist) >= STALL_RUN * 2 and _pair_seen(
+        win6, lambda a, b: (a.get("verified", 0) > 0
+                            and (b.get("marker") in ("OPEN", "")
+                                 or not b.get("verified", 0)))
+        or (b.get("verified", 0) > 0 and a.get("marker") in ("OPEN", "")))
+    va_measured = False
+    if len(hist) >= STALL_RUN * 2:
+        seen_names = {}
+        for h in win6:
+            v = h.get("verifier")
+            if v:
+                seen_names[v] = seen_names.get(v, 0) + 1
+                if seen_names[v] >= 2:
+                    va_measured = True
+                    break
+    thread_evt4 = False
+    if len(hist) >= STALL_RUN + 1:
+        for i in range(1, len(win4)):
+            p = win4[i - 1]
+            if p.get("error") or p.get("outcome") == "error":
+                pd = (p.get("next") or "").split(":", 1)[0].strip().lower()
+                cd = (win4[i].get("next") or "").split(":", 1)[0].strip().lower()
+                if pd != cd or (pd == cd
+                                and (win4[i].get("extra_steps") or 0) > 0):
+                    thread_evt4 = True
+                    break
+    high_low_risk6 = len(hist) >= STALL_RUN * 2 and risk_high_seen and risk_low_seen
+    next_in4 = len(hist) >= STALL_RUN + 1 and next_in_win4_found
+    domain_in6 = len(hist) >= STALL_RUN * 2 and domain_in_win6_found
+    err_recoverable = any(
+        h.get("error") and h.get("verified", 0) == 0 and not h.get("outcome")
+        for h in hist)
+    return _WindowFacts(
+        adjacent_next_pair_in_run=adjacent_next_pair_in_run,
+        conf_label_in_run=conf_label_in_run,
+        domain_in6=domain_in6,
+        done_any3=done_any3,
+        effort_or_delivery3=effort_or_delivery3,
+        err_events3x2=err_events3x2,
+        err_events4=err_events4,
+        err_pairs6=err_pairs6,
+        err_recoverable=err_recoverable,
+        esc6=esc6,
+        hi_conf_in_run=hi_conf_in_run,
+        high_low_risk6=high_low_risk6,
+        marker_pair_in_run=marker_pair_in_run,
+        next_in3=next_in3,
+        next_in4=next_in4,
+        strong_conf_in_run=strong_conf_in_run,
+        thread_evt4=thread_evt4,
+        va_measured=va_measured,
+        verified6=verified6,
+        verified_in_run=verified_in_run,
+        verifier_in_run=verifier_in_run,
+        vt6=vt6)
+
+
 def session_health_score(hist, book=None, run=None):
     """Return health score from 0-100 based on recent session patterns."""
     score = 100
@@ -4039,7 +4225,11 @@ def session_health_score(hist, book=None, run=None):
         next((h.get("risk") for h in reversed(hist) if h.get("risk")), "low")
     )
     risk_penalty = {"high": -20, "medium": -10, "low": 0}
-    if last_risk != "low":
+    # Membership first: this function is public and a direct caller can
+    # hand it a row the boundary never saw. _fuse_run guards the same
+    # table the same way, and read_history now repairs the domain, so an
+    # unrecognised level is treated as absent rather than fatal.
+    if last_risk in risk_penalty and last_risk != "low":
         score += risk_penalty[last_risk]
         reasons.append("%s risk (%+d)" % (last_risk, risk_penalty[last_risk]))
     vol_changes, decay, st_score, has_stall, risk_esc, risk_rec, last_risk, has_risk, has_weak_conf, has_verified = _fuse_run(hist, run=run)
@@ -4183,135 +4373,17 @@ def session_health_score(hist, book=None, run=None):
     elif tr >= 70:
         score += 5
         reasons.append("high tension resolution %d/100 +5" % tr)
-    # Measurement-presence flags. Several detectors answer "nothing to
-    # measure" with the same sentinel 100 they award to measured
-    # perfection, so their fusion branches are gated on whether the
-    # quantity was actually observed (convention introduced by the
-    # goal_set / ledger-plan gates below). Each flag mirrors the exact
-    # window and counting rule of its detector, including the minimum
-    # window length, so a short history cannot smuggle the sentinel
-    # through an open gate.
-    win4 = hist[-(STALL_RUN + 1):]
-    win6 = hist[-(STALL_RUN * 2):]
-
-    def _pair_seen(entries, pred):
-        return any(pred(entries[i], entries[i + 1])
-                   for i in range(len(entries) - 1))
-
-    # Fused run-window signal-presence gates — replaces ~12 separate
-    # any()/sum()/list-comprehension passes over the same slices.
-    # Extended to cover win6 (last 6 entries) with position-aware flags
-    # for win4/win6 gates while preserving the run-level (last 3) logic.
-    verified_in_run = False
-    hi_conf_in_run = False
-    strong_conf_in_run = False
-    conf_label_in_run = False
-    verifier_in_run = False
-    marker_count = 0
-    adj_next_pair = False
-    done_any3 = False
-    effort_or_delivery3 = False
-    err_events3x2_count = 0
-    next_in3_found = False
-    verified_in_win6 = False
-    err_in_win4_count = 0
-    err_in_win6_count = 0
-    risk_high_seen = False
-    risk_low_seen = False
-    next_in_win4_found = False
-    domain_in_win6_found = False
-    run_start = len(win6) - STALL_RUN
-    prev_has_next_run = False
-    for idx, h in enumerate(win6):
-        in_run = idx >= run_start
-        in_win4 = idx >= len(win6) - len(win4)
-        if in_run:
-            if h.get("verified", 0) > 0:
-                verified_in_run = True
-            c = h.get("confidence")
-            if c in ("strong", "shaky"):
-                hi_conf_in_run = True
-            if c == "strong":
-                strong_conf_in_run = True
-            if (c or "").strip():
-                conf_label_in_run = True
-            if (h.get("verifier") or "").strip():
-                verifier_in_run = True
-            if (h.get("marker") or "").strip():
-                marker_count += 1
-                if h.get("marker") == "DONE":
-                    done_any3 = True
-            if (h.get("extra_steps") or 0) > 0 or h.get("verified", 0) > 0 or h.get("outcome"):
-                effort_or_delivery3 = True
-            _e = (h.get("error") or "").strip()
-            if _e:
-                err_events3x2_count += 1
-            has_n = bool((h.get("next") or "").strip())
-            if has_n:
-                next_in3_found = True
-            if prev_has_next_run and has_n:
-                adj_next_pair = True
-            prev_has_next_run = has_n
-        if h.get("verified", 0) > 0:
-            verified_in_win6 = True
-        if in_win4:
-            if h.get("error") or h.get("verified", 0) < 0:
-                err_in_win4_count += 1
-            if (h.get("next") or "").strip():
-                next_in_win4_found = True
-        _e_w6 = (h.get("error") or "").strip()
-        if _e_w6:
-            err_in_win6_count += 1
-        r = (h.get("risk") or "").lower()
-        if r == "high":
-            risk_high_seen = True
-        elif r == "low":
-            risk_low_seen = True
-        if (h.get("next") or "").split(":", 1)[0].strip():
-            domain_in_win6_found = True
-    marker_pair_in_run = marker_count >= 2
-    adjacent_next_pair_in_run = adj_next_pair
-    err_events3x2 = len(hist) >= STALL_RUN and err_events3x2_count >= 2
-    next_in3 = next_in3_found
-    err_events4 = len(hist) >= STALL_RUN + 1 and err_in_win4_count >= 1
-    err_subseq6 = err_in_win6_count
-    err_pairs6 = len(hist) >= STALL_RUN * 2 and err_subseq6 >= 2
-    verified6 = len(hist) >= STALL_RUN * 2 and verified_in_win6
-    esc6 = len(hist) >= STALL_RUN * 2 and _pair_seen(
-        win6, lambda a, b: (a.get("risk") or "").lower() == "low"
-        and (b.get("risk") or "").lower() == "high")
-    vt6 = len(hist) >= STALL_RUN * 2 and _pair_seen(
-        win6, lambda a, b: (a.get("verified", 0) > 0
-                            and (b.get("marker") in ("OPEN", "")
-                                 or not b.get("verified", 0)))
-        or (b.get("verified", 0) > 0 and a.get("marker") in ("OPEN", "")))
-    va_measured = False
-    if len(hist) >= STALL_RUN * 2:
-        seen_names = {}
-        for h in win6:
-            v = h.get("verifier")
-            if v:
-                seen_names[v] = seen_names.get(v, 0) + 1
-                if seen_names[v] >= 2:
-                    va_measured = True
-                    break
-    thread_evt4 = False
-    if len(hist) >= STALL_RUN + 1:
-        for i in range(1, len(win4)):
-            p = win4[i - 1]
-            if p.get("error") or p.get("outcome") == "error":
-                pd = (p.get("next") or "").split(":", 1)[0].strip().lower()
-                cd = (win4[i].get("next") or "").split(":", 1)[0].strip().lower()
-                if pd != cd or (pd == cd
-                                and (win4[i].get("extra_steps") or 0) > 0):
-                    thread_evt4 = True
-                    break
-    high_low_risk6 = len(hist) >= STALL_RUN * 2 and risk_high_seen and risk_low_seen
-    next_in4 = len(hist) >= STALL_RUN + 1 and next_in_win4_found
-    domain_in6 = len(hist) >= STALL_RUN * 2 and domain_in_win6_found
-    err_recoverable = any(
-        h.get("error") and h.get("verified", 0) == 0 and not h.get("outcome")
-        for h in hist)
+    # Measurement-presence flags, gathered by _health_window_facts so the
+    # health score reads as a penalty ledger rather than as a scan. Each
+    # flag mirrors the exact window and counting rule of its detector,
+    # including the minimum window length, so a short history cannot
+    # smuggle a detector's unmeasurable sentinel through an open gate.
+    (adjacent_next_pair_in_run, conf_label_in_run, domain_in6, done_any3,
+     effort_or_delivery3, err_events3x2, err_events4, err_pairs6,
+     err_recoverable, esc6, hi_conf_in_run, high_low_risk6,
+     marker_pair_in_run, next_in3, next_in4, strong_conf_in_run,
+     thread_evt4, va_measured, verified6, verified_in_run,
+     verifier_in_run, vt6) = _health_window_facts(hist)
     ers = error_recovery_speed(hist)
     if err_recoverable:
         if ers < 40:
@@ -6995,30 +7067,50 @@ def mode_info(book, json_flag=False, warnings_only=False,
     # host that reads both ``info --json`` and ``audit --json`` gets
     # matching counts. The summary is computed once and shared
     # between the JSON and text faces, the way ``warnings`` is.
-    audit_findings_list = audit_findings(book, hist)
-    audit_by_tag = {}
-    for f in audit_findings_list:
-        audit_by_tag[f["tag"]] = audit_by_tag.get(f["tag"], 0) + 1
-    # r182: the top tag is the highest-count tag, ties broken by
-    # tag name for stability. Computed in the same pass that
-    # builds ``by_tag`` rather than a second sorted iteration —
-    # the way ``max`` over a dict would, but without materialising
-    # the full sorted list just to take its first element.
-    audit_top_tag = None
-    audit_top_count = 0
-    for tag, count in audit_by_tag.items():
-        if count > audit_top_count or (count == audit_top_count
-                                        and (audit_top_tag is None
-                                             or tag < audit_top_tag)):
-            audit_top_tag = tag
-            audit_top_count = count
-    payload["audit_summary"] = {
-        "lean": not audit_findings_list,
-        "net": len(audit_findings_list),
-        "by_tag": audit_by_tag,
-        "top_tag": audit_top_tag,
-        "top_tag_count": audit_top_count,
-    }
+    #
+    # r189: computed lazily. The early-return faces — ``--version``,
+    # ``--check``, ``--memory``, ``--list-fields`` — build their own
+    # payloads and never surface ``audit_summary``, but the eager
+    # computation above made every one of them pay for the full
+    # audit scan anyway. The closure defers the scan to its first
+    # real consumer (the health block, the warnings-only JSON face,
+    # or the format/main faces), the way a ``kubectl get -o json``
+    # only gathers the fields it will render.
+    audit_state = {}
+
+    def _ensure_audit_findings():
+        """The full finding list, computed at most once per invocation."""
+        _ensure_audit_summary()
+        return audit_state["findings"]
+
+    def _ensure_audit_summary():
+        if "audit_summary" in payload:
+            return
+        audit_findings_list = audit_findings(book, hist)
+        audit_state["findings"] = audit_findings_list
+        audit_by_tag = {}
+        for f in audit_findings_list:
+            audit_by_tag[f["tag"]] = audit_by_tag.get(f["tag"], 0) + 1
+        # r182: the top tag is the highest-count tag, ties broken by
+        # tag name for stability. Computed in the same pass that
+        # builds ``by_tag`` rather than a second sorted iteration —
+        # the way ``max`` over a dict would, but without materialising
+        # the full sorted list just to take its first element.
+        audit_top_tag = None
+        audit_top_count = 0
+        for tag, count in audit_by_tag.items():
+            if count > audit_top_count or (count == audit_top_count
+                                            and (audit_top_tag is None
+                                                 or tag < audit_top_tag)):
+                audit_top_tag = tag
+                audit_top_count = count
+        payload["audit_summary"] = {
+            "lean": not audit_findings_list,
+            "net": len(audit_findings_list),
+            "by_tag": audit_by_tag,
+            "top_tag": audit_top_tag,
+            "top_tag_count": audit_top_count,
+        }
     # r163: the workspace fingerprint lets a host (CI, direnv
     # hook, ``poetry run``, ``pytest --test-environment``) prove
     # "I am in the right place" without parsing the path string.
@@ -7042,7 +7134,9 @@ def mode_info(book, json_flag=False, warnings_only=False,
         baseline_fps = _fingerprint_findings(baseline_findings)
         fresh = 0
         baselined = 0
-        for f in audit_findings_list:
+        # r189: the lazy summary also caches the full finding list;
+        # this block is its second consumer.
+        for f in _ensure_audit_findings():
             if _finding_fingerprint(f) in baseline_fps:
                 baselined += 1
             else:
@@ -7061,9 +7155,12 @@ def mode_info(book, json_flag=False, warnings_only=False,
     # detector did not run, not just that the detector found
     # nothing.
     if manifest:
+        # r189: the manifest reads the lazy summary's by_tag map.
+        _ensure_audit_summary()
+        summary_by_tag = payload["audit_summary"]["by_tag"]
         manifest_map = {}
         for tag in AUDIT_TAGS:
-            manifest_map[tag] = audit_by_tag.get(tag, 0)
+            manifest_map[tag] = summary_by_tag.get(tag, 0)
         payload["audit_manifest"] = {
             "tags_total": len(AUDIT_TAGS),
             "tags_fired": sum(1 for c in manifest_map.values() if c),
@@ -7121,6 +7218,9 @@ def mode_info(book, json_flag=False, warnings_only=False,
     # or a fresh audit finding). The reasons list is
     # stable so a host can grep for specific keys.
     if health:
+        # r189: the health reasons read audit_summary.lean — pull the
+        # lazy summary in here, the only audit cost this face pays.
+        _ensure_audit_summary()
         reasons = []
         if lock_state == "held_by_other":
             reasons.append({
@@ -7211,8 +7311,10 @@ def mode_info(book, json_flag=False, warnings_only=False,
         # payload still contains the full key set, with the warning
         # list — the flag only trims the text renderer. Below, we
         # keep both code paths identical except for the text
-        # shortening.
+        # shortening. r189: the JSON face carries audit_summary (the
+        # r161 no-suppression pin), so pull the lazy summary here.
         if json_flag:
+            _ensure_audit_summary()
             print(json.dumps(payload, ensure_ascii=False, indent=2))
             return 0
         for warning in payload["warnings"]:
@@ -7404,6 +7506,10 @@ def mode_info(book, json_flag=False, warnings_only=False,
             },
         }
     if format_path is not None:
+        # r189: the format face renders the full payload, so pull the
+        # lazy audit summary in here; the main text/JSON faces below
+        # share the same payload and the same single computation.
+        _ensure_audit_summary()
         # r169: --format "path1,path2" prints only the
         # values at the given dot-paths, the way
         # ``docker inspect --format '{{.State.Running}}'``
@@ -7420,6 +7526,9 @@ def mode_info(book, json_flag=False, warnings_only=False,
         # this feature present?" without crashing.
         print(_format_paths(payload, format_path))
         return 0
+    # r189: the format and text-only faces below render the full
+    # payload — this is the last audit-summary consumer.
+    _ensure_audit_summary()
     if json_flag and not text_only:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0

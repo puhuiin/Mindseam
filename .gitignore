@@ -4,3 +4,7 @@
 # Python caches
 __pycache__/
 *.py[cod]
+.pytest_cache/
+
+# Tool runtime state (finding ledgers, hook state, per-run reports)
+.mimosa/

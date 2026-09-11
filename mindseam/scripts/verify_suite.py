@@ -5,6 +5,7 @@ Exits 0 on success, non-zero on any failure.
 """
 import argparse
 import importlib.util
+import json
 import os
 import re
 import subprocess
@@ -13,16 +14,21 @@ from pathlib import Path
 
 FAIL = 0
 PASS = 0
+RESULTS = []
+QUIET = False
 
 
 def check(name, cond):
     global PASS, FAIL
+    RESULTS.append({"name": name, "ok": bool(cond)})
     if cond:
         PASS += 1
-        print(f"PASS {name}")
+        if not QUIET:
+            print(f"PASS {name}")
     else:
         FAIL += 1
-        print(f"FAIL {name}")
+        if not QUIET:
+            print(f"FAIL {name}")
 
 
 def find_repo():
@@ -183,10 +189,11 @@ def run_unittest_discover(project_root, skill_root):
         )
         passed = result.returncode == 0
         check("unittest discover passes", passed)
-        if result.stdout:
-            print(result.stdout.rstrip()[-1000:])
-        if result.stderr:
-            print(result.stderr.rstrip()[-1000:])
+        if not QUIET:
+            if result.stdout:
+                print(result.stdout.rstrip()[-1000:])
+            if result.stderr:
+                print(result.stderr.rstrip()[-1000:])
     except FileNotFoundError:
         check("unittest discover available", False)
     except subprocess.TimeoutExpired:
@@ -305,11 +312,17 @@ def check_integrity(mod, skill_root):
 
 
 def main(argv=None):
+    global QUIET
     configure_streams()
     parser = argparse.ArgumentParser(description="Mindseam V3.6 suite smoke test")
     parser.add_argument("--skip-unittest", action="store_true",
                         help="skip unittest discover (faster)")
+    parser.add_argument("--json", action="store_true",
+                        help="emit the check results as machine-readable JSON on stdout")
     args = parser.parse_args(argv)
+
+    QUIET = args.json
+    del RESULTS[:]
 
     project_root, skill_root, script = find_repo()
     has_tests = (project_root / "tests").is_dir()
@@ -329,7 +342,11 @@ def main(argv=None):
         if not args.skip_unittest:
             check("unittest discover passes", True)
 
-    print(f"\n{PASS} passed, {FAIL} failed")
+    if args.json:
+        print(json.dumps({"passed": PASS, "failed": FAIL, "checks": RESULTS},
+                         indent=2, ensure_ascii=False))
+    else:
+        print(f"\n{PASS} passed, {FAIL} failed")
     sys.exit(1 if FAIL else 0)
 
 

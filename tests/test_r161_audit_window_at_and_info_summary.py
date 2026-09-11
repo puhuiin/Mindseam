@@ -31,6 +31,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from _controller_helper import invoke_cli
 
 ROOT = Path(__file__).resolve().parents[1]
 MINDSEAM = ROOT / "mindseam" / "scripts" / "mindseam.py"
@@ -41,15 +42,8 @@ import mindseam
 
 
 def _invoke(args, cwd, env=None):
-    run_env = os.environ.copy()
-    run_env.pop("MINDSEAM_INTENSITY", None)
-    if env:
-        run_env.update(env)
-    return subprocess.run(
-        [sys.executable, str(MINDSEAM), *args],
-        cwd=cwd, capture_output=True, text=True, encoding="utf-8",
-        env=run_env,
-    )
+    return invoke_cli(cwd, args, env=env,
+                       drop_env=("MINDSEAM_INTENSITY",))
 
 
 def _write_history(workspace, rows):
@@ -563,11 +557,9 @@ class ParserAcceptanceTests(unittest.TestCase):
         # If a flag were dropped, argparse would say "unrecognised
         # arguments". The point of the test is to prove the
         # flags are wired.
-        r = subprocess.run(
-            [sys.executable, str(MINDSEAM), "audit", "--since", "60",
-             "--until", "30", "--at", "1"],
-            cwd=tempfile.mkdtemp(),
-            capture_output=True, text=True, encoding="utf-8")
+        r = invoke_cli(tempfile.mkdtemp(),
+                       ["audit", "--since", "60",
+                        "--until", "30", "--at", "1"])
         # The flag parsing succeeded (any exit code is fine
         # here; what matters is the absence of "unrecognised
         # arguments").

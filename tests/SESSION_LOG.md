@@ -3067,6 +3067,124 @@ One existing pin moved: the r175 index-since count advanced 15 -> 16
 
 Suite after r188: 1676 passed, 0 failed. verify_suite 9/9.
 
+### r189 — verify_suite --json (machine-readable integrity face)
+
+``verify_suite.py`` only printed a human line per check and a
+``N passed, M failed`` summary, so a CI job or an editor plugin had to
+scrape stdout to learn which check failed. Every other surface in the
+suite already answers this way (``info --json``, ``seam --json``,
+``audit --json``); the verifier was the last one that did not. r189
+adds ``--json``: the same checks, emitted as
+``{"passed", "failed", "checks": [{"name", "ok"}]}`` on stdout with
+the human lines suppressed, so stdout parses cleanly. The default
+text face is unchanged.
+
+### r190 — the health score's window facts are a named unit
+
+``session_health_score`` had grown to 670 lines, and its first ~120
+were not scoring at all: they were a scan over the run window that
+produced 22 boolean presence flags the scoring half then consulted.
+That scan mutated nothing in the running total, so it was lifted out
+whole into ``_health_window_facts``, which returns a ``_WindowFacts``
+namedtuple. The lift is behaviour-preserving by construction — the
+block moved verbatim — and was checked against the pre-lift
+implementation over 20,000 randomly generated histories: identical
+score, reasons, and flags.
+
+### r191 — the suite runs the controller in-process
+
+A real spawn costs ~400 ms (~234 ms interpreter startup + ~153 ms
+module import) while the controller itself does ~30 ms of work; an
+instrumented run of the 42 spawning test modules counted 1100 spawns
+in a 448 s subset — 98.8% of wall time spent waiting on processes
+that did almost nothing. The per-file ``_invoke`` helpers now
+delegate to ``invoke_cli`` in ``tests/_controller_helper``, which
+calls ``mindseam.main`` in-process with the same captured-stdout /
+env semantics. The child boundary stays covered where it matters
+(r128 pins verify_suite's subprocess encoding; the from-stdin
+baseline exercises the real pipe). Suite wall time dropped from
+~4.5 minutes to ~30 seconds.
+
+### r192 — an out-of-domain risk value cannot kill a command
+
+``read_history`` typed every string field but never bounded
+``risk``, which is not free text: ``session_health_score`` indexes a
+penalty table with it, so a perfectly good string like
+``"critical"`` (a typo, or a value from some other tool) raised
+``KeyError`` straight out of ``info --health``. r192 adds the closed
+domain ``RISK_LEVELS = ("low", "medium", "high")`` and repairs
+out-of-domain values to ``""`` at the read boundary, the way
+``extra_steps``' non-negative domain is repaired.
+
+### r193 — book_thread_alignment tests the format the writer writes
+
+``book_thread_alignment`` compares the last action's domain prefix
+against the most recent Open row, but its eleven unit tests fed it a
+hand-written ``"alpha:task1"`` form the controller never writes —
+``note --open`` appends ``"?NN <text> — settled by: <by>"``. The
+detector's ``?NN``-prefix stripping (the r156 audit lesson) means the
+unit fixtures never exercised the real shape. r193 aligns the tests
+with the written format so the unit suite guards the actual contract.
+
+### r194 — the metric audit gains a gate
+
+``tools/metric_audit.py`` answers "is each of the ~90 detectors
+alive, bounded, distinct and responsive?", but a report nobody runs
+is not a guard. r194 adds ``--check``, which turns the two invariants
+that hold for every legal input into an exit code (no metric raises
+on a boundary-sanitized row; no metric that documents a 0-100 or 0-1
+scale leaves it), and wires ``python tools/metric_audit.py --check
+--samples 400`` into the verify.yml CI job between the integrity
+check and the regression suite.
+
+### r195 — the info audit summary is lazy
+
+``mode_info`` builds one payload shared by every face, and the r161
+``audit_summary`` block sat inside that build — computed eagerly
+before any face branch ran. But the early-return faces never surface
+it: ``--version``, ``--check``, ``--memory`` and ``--list-fields``
+build their own payloads and discarded the audit scan they had paid
+for. r195 wraps the computation in an ``_ensure_audit_summary``
+closure called only at the real consumers: the health block (reads
+``audit_summary.lean``), the warnings-only JSON face (the r161
+no-suppression pin), the audit-baseline diff block (second consumer
+of the cached finding list), the manifest block (reads ``by_tag``),
+and the format/main faces. A counting wrapper reads: early-return
+faces 0 calls; every consumer face exactly 1.
+
+Two integration breaks surfaced while landing the batch, both fixed:
+
+- ``tests/_controller_helper`` bootstraps
+  ``sys.path`` itself before importing ``verify_suite``. The bare
+  top-level import had silently relied on whichever test file
+  happened to import the helper first having inserted the path; the
+  moment a lexicographically-earlier file (``test_history_*``,
+  ``test_info_*``, converted to ``invoke_cli`` by r191) picked the
+  helper up, collection died with ``ModuleNotFoundError``.
+- The manifest and audit-baseline blocks referenced the eager
+  computation's locals (``audit_by_tag`` /
+  ``audit_findings_list``); laziness turned them into ``NameError``.
+  They now read through the closure (``by_tag`` from the summary,
+  findings from the cache).
+
+### Tests
+test_r189_verify_suite_json.py (r189, verifier JSON face);
+test_r190_health_window_facts.py (r190, lift equivalence over 20k
+histories); test_r191_in_process_invocation.py (r191, in-process
+harness); test_r192_risk_domain_repair.py (r192, closed risk domain);
+test_r193_book_thread_alignment_divergence.py (r193, real written
+format); test_r194_metric_audit_gate.py (r194, --check exit code);
+test_r195_info_lazy_audit.py (r195, 8 tests: early-return faces skip
+the audit, consumer faces run it exactly once, check/version exit
+contracts unchanged, the main-face audit line and the r161
+no-suppression and health-lean wirings intact).
+
+.gitignore now ignores ``.mimosa/`` (hook runtime state leaves the
+repo), and the CI job runs the r194 metric gate.
+
+Suite after r195: 1717 passed, 1 xfailed, 0 failed.
+verify_suite 9/9 (1 expected failure).
+
 ### Gotchas
 - The first cut of AUDIT_GRADE_CUTS used
   (0,1,2,3,5,8) -> (A,B,C,D,E,F), which made E cover only

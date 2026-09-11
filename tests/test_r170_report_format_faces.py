@@ -46,6 +46,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from _controller_helper import invoke_cli
 
 ROOT = Path(__file__).resolve().parents[1]
 MINDSEAM = ROOT / "mindseam" / "scripts" / "mindseam.py"
@@ -56,15 +57,8 @@ import mindseam
 
 
 def _invoke(args, cwd, env=None):
-    run_env = os.environ.copy()
-    run_env.pop("MINDSEAM_INTENSITY", None)
-    if env:
-        run_env.update(env)
-    return subprocess.run(
-        [sys.executable, str(MINDSEAM), *args],
-        cwd=cwd, capture_output=True, text=True, encoding="utf-8",
-        env=run_env,
-    )
+    return invoke_cli(cwd, args, env=env,
+                       drop_env=("MINDSEAM_INTENSITY",))
 
 
 def _write_history(workspace, rows):
@@ -364,10 +358,7 @@ class ParityTests(unittest.TestCase):
         for face in self.FACES:
             args = [face] if face not in ("ship",) else [face, "-"]
             args = args + ["--format", "x"]
-            r = subprocess.run(
-                [sys.executable, str(MINDSEAM), *args],
-                cwd=tempfile.mkdtemp(), input="",
-                capture_output=True, text=True, encoding="utf-8")
+            r = invoke_cli(tempfile.mkdtemp(), args, stdin="")
             combined = r.stderr + r.stdout
             self.assertNotIn(
                 "unrecognised arguments", combined,
@@ -377,10 +368,7 @@ class ParityTests(unittest.TestCase):
         # note is an editor, not a report; r158 excluded it from
         # the JSON parity and r170 excludes it here for the same
         # reason.
-        r = subprocess.run(
-            [sys.executable, str(MINDSEAM), "note", "--format", "x"],
-            cwd=tempfile.mkdtemp(),
-            capture_output=True, text=True, encoding="utf-8")
+        r = invoke_cli(tempfile.mkdtemp(), ["note", "--format", "x"])
         # argparse's American spelling.
         self.assertIn("unrecognized arguments",
                       r.stderr + r.stdout)

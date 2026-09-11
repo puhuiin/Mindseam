@@ -29,7 +29,7 @@ Model-agnostic workspace controller for deep reasoning. Skill package, stdlib on
 ## Key differentiators for listing
 
 1. **Inference-time only** — weights and training unchanged; works with any model
-2. **Standard library only** — `python -m pytest` runs 1034 tests, no pip install needed
+2. **Standard library only** — `python -m unittest discover -s tests` runs 1676 tests, no pip install needed
 3. **Skill-native** — SKILL.md first-class entry; 11 modules + 3 references loaded selectively
 4. **Skillbook pattern** — auto-extracts recurring failure patterns from history to `.mindseam/skillbook.md`
 5. **Ship gate** — `mindseam.py ship OUTPUT_FILE` checks outgoing text for inner-register leakage
@@ -40,7 +40,7 @@ Model-agnostic workspace controller for deep reasoning. Skill package, stdlib on
 
 | Metric | Value |
 |---|---|
-| Python stdlib tests | 1034 passed, 0 failed |
+| Python stdlib tests | 1676 passed, 0 failed |
 | Integrity verifier | 9/9 PASS |
 | README coverage | EN + ZH |
 | License | Apache 2.0 |

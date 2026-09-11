@@ -37,6 +37,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from _controller_helper import invoke_cli
 
 ROOT = Path(__file__).resolve().parents[1]
 MINDSEAM = ROOT / "mindseam" / "scripts" / "mindseam.py"
@@ -47,15 +48,8 @@ import mindseam
 
 
 def _invoke(args, cwd, env=None):
-    run_env = os.environ.copy()
-    run_env.pop("MINDSEAM_INTENSITY", None)
-    if env:
-        run_env.update(env)
-    return subprocess.run(
-        [sys.executable, str(MINDSEAM), *args],
-        cwd=cwd, capture_output=True, text=True, encoding="utf-8",
-        env=run_env,
-    )
+    return invoke_cli(cwd, args, env=env,
+                       drop_env=("MINDSEAM_INTENSITY",))
 
 
 class AliasHelperTests(unittest.TestCase):
@@ -287,9 +281,6 @@ class ParserAcceptanceTests(unittest.TestCase):
     def test_aliases_flag_registered(self):
         # If the flag were dropped, ``info --aliases``
         # would say "unrecognised arguments".
-        r = subprocess.run(
-            [sys.executable, str(MINDSEAM), "info", "--aliases"],
-            cwd=tempfile.mkdtemp(),
-            capture_output=True, text=True, encoding="utf-8")
+        r = invoke_cli(tempfile.mkdtemp(), ["info", "--aliases"])
         self.assertNotIn("unrecognised arguments",
                          r.stderr + r.stdout)
