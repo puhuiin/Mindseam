@@ -3941,13 +3941,8 @@ def _fuse_run(hist, run=None):
         return (0, 0.0, 0, False, False, False, None, False, False, False)
     if run is None:
         run = hist[-STALL_RUN:]
-    valid_count = 0
-    first_valid = None
-    last_valid = None
     next_set = set()
     real_nexts = []
-    first_verified = None
-    last_verified = None
     vol_changes = 0
     prev_lv = None
     last_risk = "low"
@@ -3967,19 +3962,19 @@ def _fuse_run(hist, run=None):
         if c:
             lv = CONFIDENCE_LEVEL.get(c, -1)
             if lv >= 0:
-                valid_count += 1
-                if first_valid is None:
-                    first_valid = lv
-                last_valid = lv
+                # r196: only the volatility counter needs the ladder
+                # values now — the decay and stall arithmetic below
+                # delegate to confidence_decay_rate / stall_score, so
+                # the first/last/valid tracking that fed the inline
+                # copy is gone. One formula, one place: the health
+                # score's stall input can no longer drift from the
+                # observations fact that reads stall_score directly.
                 if prev_lv is not None and lv != prev_lv:
                     vol_changes += 1
                 prev_lv = lv
             if c in ("thin", "shaky"):
                 has_weak_conf = True
         v = h.get("verified", 0)
-        if first_verified is None:
-            first_verified = v
-        last_verified = v
         if v > 0:
             has_verified = True
         r = h.get("risk")
@@ -3994,20 +3989,14 @@ def _fuse_run(hist, run=None):
                 elif rv < prev_rv:
                     risk_recovered = True
             prev_rv = rv
-    decay = 0.0
-    if valid_count >= 2:
-        start_val, end_val = first_valid, last_valid
-        if not (start_val == 0 and end_val == 0) and end_val > start_val:
-            span = max(end_val, start_val)
-            decay = (end_val - start_val) / span if span > 0 else 0.0
-    s = 0
-    if len(next_set) == 1 and real_nexts:
-        s += 40
-    if first_verified is not None and first_verified == last_verified:
-        s += 30
-    if decay > 0:
-        s += int(decay * 30)
-    st_score = min(s, 100)
+    # r196: the decay and stall arithmetic used to be inlined here as a
+    # byte-for-byte copy of confidence_decay_rate / stall_score. Two
+    # copies of one formula drift independently — the r193 lesson, where
+    # a detector's tests and its writer disagreed until a host caught
+    # it — so the fusion now calls the named functions. The values are
+    # identical: the inline copy was written from these.
+    decay = confidence_decay_rate(hist, run=run)
+    st_score = stall_score(hist, decay=decay, run=run)
     has_stall = bool(real_nexts) and len(next_set) == 1
     return (vol_changes, decay, st_score, has_stall, risk_escalated, risk_recovered, last_risk, has_risk, has_weak_conf, has_verified)
 

@@ -3185,6 +3185,55 @@ repo), and the CI job runs the r194 metric gate.
 Suite after r195: 1717 passed, 1 xfailed, 0 failed.
 verify_suite 9/9 (1 expected failure).
 
+### r196 — the stall formula has one implementation
+
+Selected by running the r194 metric audit end to end: the metric layer
+came back clean (0 dead, 0 crashes, 0 out of range; the 19 categorical
+returns are classifiers and fact emitters by design), so the next
+defect class to hunt was duplicated arithmetic. ``_fuse_run`` carried
+a byte-for-byte inline copy of the confidence decay arithmetic
+(``confidence_decay_rate``) and of the stall scoring arithmetic
+(``stall_score``: 40 for a single next action, 30 for a flat verified
+counter, ``int(decay * 30)``, capped at 100).
+
+The drift hazard is concrete, not hypothetical: the health score reads
+``_fuse_run``'s st_score while the observations fact layer reads
+``stall_score`` directly, so a divergence would make the seam's
+"Stall severity is elevated (N/100)" fact and the score's "moderate
+stall N/100 (-8)" reason quote different numbers for the same session
+— the r193 divergence class (tests vs writer), one level deeper
+(formula vs formula).
+
+r196 deletes the inline copies: ``_fuse_run`` calls
+``confidence_decay_rate(hist, run=run)`` for the decay and
+``stall_score(hist, decay=decay, run=run)`` for the score. The
+``first_valid`` / ``last_valid`` / ``valid_count`` tracking that only
+fed the inline copy is gone; the volatility counter keeps its own
+ladder reads, and the verified tracking the inline stall used is gone
+too (``stall_score`` recomputes it — the r139 AST zero-unused-variables
+guard caught the leftover on the first cut).
+
+Equivalence was verified over 20,000 randomly generated histories with
+a fixed seed: identical 10-field output tuple on every one, before and
+after. The equivalence probe itself had a bug worth recording — the
+snapshot script consumed its RNG in two phases (generate all, then
+evaluate) while the first comparison script interleaved generation and
+evaluation, producing 95% phantom mismatches; the streams must match
+exactly, not just the seed.
+
+### Tests
+test_r196_stall_formula_single_source.py — 6 tests: the fusion's decay
+IS ``confidence_decay_rate``'s and its st_score IS ``stall_score``'s
+over 2,000 random histories; a custom ``run=`` window reaches both
+delegates; source-level pin that the inline copies (``s += 40``,
+``span = max(``) are gone and the delegates are called; the 10-field
+tuple contract with per-field types; the below-STALL_RUN all-neutral
+sentinel; and the end-to-end point — the fact layer and the score
+layer agree on the shared window over 200 random sessions.
+
+Suite after r196: 1723 passed, 1 xfailed, 0 failed.
+verify_suite 9/9.
+
 ### Gotchas
 - The first cut of AUDIT_GRADE_CUTS used
   (0,1,2,3,5,8) -> (A,B,C,D,E,F), which made E cover only
