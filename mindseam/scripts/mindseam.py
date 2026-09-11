@@ -5739,6 +5739,38 @@ def _history_when(ts, human=False, now=None):
     return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
 
 
+def _render_format_lines(hist, template):
+    """Render one line per history row through the --format template.
+
+    Shared by the text face and the JSON face (r197): ``%X``
+    placeholders are replaced with the row's field ``X`` — ``%t``
+    timestamp, ``%n`` next action (``%next`` alias), ``%m`` message,
+    ``%v`` verified, ``%o`` open, ``%h`` 1-based row index — and a
+    literal ``%%`` survives the way printf renders it. Missing or
+    empty fields render as ``-``.
+    """
+    lines = []
+    for index, row in enumerate(hist, 1):
+        line = template
+        line = line.replace("%%", "\x00PCT\x00")
+        for short, value in (
+            ("t", str(row.get("t") or "-")),
+            ("n", str(row.get("next") or "-")),
+            ("next", str(row.get("next") or "-")),
+            ("m", str(row.get("msg") or "-")),
+            ("v", str(row.get("verified")
+                      if row.get("verified") is not None else "-")),
+            ("o", str(row.get("open")
+                      if row.get("open") is not None else "-")),
+            ("h", str(index)),
+        ):
+            line = line.replace("%" + short, value)
+        line = line.replace("%", "")
+        line = line.replace("\x00PCT\x00", "%")
+        lines.append(line)
+    return lines
+
+
 def mode_history(args):
     """Print the recent seam history.
 
@@ -5777,6 +5809,29 @@ def mode_history(args):
     flag is the destructive part: ``--keep`` is a write, the
     others are reads.
     """
+    # r197: the four renderers are mutually exclusive. The branch
+    # order (--csv, then --domains, then --format, then --quiet) made
+    # the first one win and silently dropped the rest, so
+    # ``history --csv --format '%t|%n'`` emitted stock CSV while the
+    # host believed its template was applied. Refuse the ambiguity
+    # before any work — including the destructive ``--keep`` rotation
+    # below — the way info's --field/--format refuse to compose.
+    # Composition stays intact where it was real: --fields selects
+    # columns for --csv and the table, --human renders timestamps,
+    # --format rides --json (r170), --row-id keeps its
+    # documented before-every-render-flag precedence.
+    renderers = [name for name, picked in (
+        ("--csv", getattr(args, "csv", False)),
+        ("--domains", getattr(args, "domains", False)),
+        ("--format", getattr(args, "format", None)),
+        ("--quiet", getattr(args, "quiet", False)),
+    ) if picked]
+    if len(renderers) > 1:
+        print("CANNOT: %s are mutually exclusive renderers; pick one."
+              % ", ".join(renderers), file=sys.stderr)
+        print("  --fields composes with --csv or the table; --human "
+              "and --row-id compose with any of them.", file=sys.stderr)
+        return 2
     keep_n = getattr(args, "keep", None)
     # r182: read history ONCE up front. The old code called
     # ``read_history()`` three times along the --keep path (a
@@ -6146,14 +6201,27 @@ def mode_history(args):
             print("  %3d  %s" % (index, when))
         return 0
     if args.json:
-        print(json.dumps({
+        payload = {
             "history_count": len(hist),
             "limit": args.limit,
             "since": since_seconds,
             "grep": grep_text,
             "reverse": bool(getattr(args, "reverse", False)),
             "rows": list(hist),
-        }, ensure_ascii=False, indent=2))
+        }
+        # r197: --format rides --json. The template branch below the
+        # general face carried an args.json sub-branch emitting
+        # ``{"history_count", "format", "lines"}``, but the general
+        # face returned first, so it was dead code and the template
+        # was silently ignored under --json. Compose instead: the
+        # full payload keeps its rows, and the rendered lines ride
+        # alongside — the r170 two-faces rule, and the shape the
+        # r15x round-trip test's docstring always described.
+        format_template = getattr(args, "format", None)
+        if format_template:
+            payload["format"] = format_template
+            payload["lines"] = _render_format_lines(hist, format_template)
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
     if getattr(args, "quiet", False):
         # Borrowed from ``git log --oneline`` and
@@ -6195,46 +6263,9 @@ def mode_history(args):
         # shape-only renderer, borrowed from ``git log --no-header`` /
         # ``docker ps --no-trunc``. ``--csv`` / ``--fields``
         # give the host the header-bearing and comma-bearing
-        # forms respectively.
-        if args.json:
-            rendered = []
-            for index, row in enumerate(hist, 1):
-                line = format_template
-                line = line.replace("%%", "\x00PCT\x00")
-                for short, value in (
-                    ("t", str(row.get("t") or "-")),
-                    ("n", str(row.get("next") or "-")),
-                    ("next", str(row.get("next") or "-")),
-                    ("m", str(row.get("msg") or "-")),
-                    ("v", str(row.get("verified") if row.get("verified") is not None else "-")),
-                    ("o", str(row.get("open") if row.get("open") is not None else "-")),
-                    ("h", str(index)),
-                ):
-                    line = line.replace("%" + short, value)
-                line = line.replace("%", "")
-                line = line.replace("\x00PCT\x00", "%")
-                rendered.append(line)
-            print(json.dumps({
-                "history_count": len(hist),
-                "format": format_template,
-                "lines": rendered,
-            }, ensure_ascii=False, indent=2))
-            return 0
-        for index, row in enumerate(hist, 1):
-            line = format_template
-            line = line.replace("%%", "\x00PCT\x00")
-            for short, value in (
-                ("t", str(row.get("t") or "-")),
-                ("n", str(row.get("next") or "-")),
-                ("next", str(row.get("next") or "-")),
-                ("m", str(row.get("msg") or "-")),
-                ("v", str(row.get("verified") if row.get("verified") is not None else "-")),
-                ("o", str(row.get("open") if row.get("open") is not None else "-")),
-                ("h", str(index)),
-            ):
-                line = line.replace("%" + short, value)
-            line = line.replace("%", "")
-            line = line.replace("\x00PCT\x00", "%")
+        # forms respectively. Under ``--json`` the lines ride the
+        # general payload (see the json face above).
+        for line in _render_format_lines(hist, format_template):
             print(line)
         return 0
     if fields:
@@ -8901,24 +8932,26 @@ def main(argv=None):
     hist_p.add_argument("--empty", dest="empty", action="store_true",
         help="keep only the rows whose next action is blank (like find -empty / awk '/^$/')")
     hist_p.add_argument("--quiet", dest="quiet", action="store_true",
-        help="print only the next action of each row, one per line (like git log --oneline)")
+        help="print only the next action of each row, one per line (like git log --oneline); r197: one of four mutually exclusive renderers (--csv/--domains/--format/--quiet) — a combined call is refused with exit 2")
     hist_p.add_argument("-c", "--count", dest="count", action="store_true",
         help="print only the row count (like wc -l, like git rev-list --count)")
     hist_p.add_argument("--first-match", dest="first_match", action="store_true",
         help="stop after the first matching row (like grep -m 1 / ripgrep --max-count=1)")
     hist_p.add_argument("--fields", dest="fields", default=None,
-        help="comma-separated list of history fields to print (like docker ps --format)")
+        help="comma-separated list of history fields to print (like docker ps --format); composes with --csv and the table")
     hist_p.add_argument("--format", dest="format", default=None,
         help=("per-row template where placeholders are replaced with "
               "the row fields. Available placeholders: "
               "%%t (timestamp), %%n (next action), %%m (message), "
               "%%v (verified count), %%o (open count), "
               "%%h (row index, 1-based). "
-              "Example: '%%t %%n' (like git log --format='%%h %%s')."))
+              "Example: '%%t %%n' (like git log --format='%%h %%s'). "
+              "r197: one of four mutually exclusive renderers — a "
+              "combined call is refused with exit 2"))
     hist_p.add_argument("--csv", dest="csv", action="store_true",
-        help="emit history as CSV (like aws --output csv, PowerShell ConvertTo-Csv)")
+        help="emit history as CSV (like aws --output csv, PowerShell ConvertTo-Csv); r197: one of four mutually exclusive renderers — a combined call is refused with exit 2")
     hist_p.add_argument("--domains", dest="domains", action="store_true",
-        help="group history by next-action domain prefix, the way JIT-Agent factors memory/planning/action/capability")
+        help="group history by next-action domain prefix, the way JIT-Agent factors memory/planning/action/capability; r197: one of four mutually exclusive renderers — a combined call is refused with exit 2")
     hist_p.add_argument("--span", dest="span", action="store_true",
                    help="print the first-seam, last-seam and duration of the window (like git log --stat / journalctl --list-boots)")
     hist_p.add_argument("--filter", dest="filter", action="append", metavar="KEY=VALUE",

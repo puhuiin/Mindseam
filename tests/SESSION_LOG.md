@@ -3234,6 +3234,57 @@ layer agree on the shared window over 200 random sessions.
 Suite after r196: 1723 passed, 1 xfailed, 0 failed.
 verify_suite 9/9.
 
+### r197 — history's four renderers are mutually exclusive (and
+### --format finally rides --json)
+
+Selected by running the r188 combination probe over a surface it had
+not covered: ``history``. The flag family grew four renderers over its
+lifetime — ``--csv``, ``--domains``, ``--format``, ``--quiet`` — and
+the branch order made the first one win while the rest were silently
+dropped: ``history --csv --format '%t|%n'`` emitted stock CSV while
+the host believed its template was applied, and ``--quiet --csv``
+handed header-bearing rows to a caller parsing one-word lines. Same
+shape as r188 (``audit --at`` × window flags) and the same
+two-output-formats ambiguity info's ``--field``/``--format`` have
+refused since r172.
+
+r197 refuses any combination of two or more of
+``{--csv, --domains, --format, --quiet}`` with exit 2, naming the
+offending flags. The check sits at the very top of ``mode_history``,
+before the destructive ``--keep`` rotation, so a refused call never
+writes. ``--count`` is an aggregator, not a renderer, and stays
+composable; so do ``--fields`` (a column selector for ``--csv`` and
+the table), ``--human``, and ``--row-id``'s documented
+before-every-render-flag precedence.
+
+The probe also uncovered a second, older defect: the format branch
+carried an ``args.json`` sub-branch emitting
+``{"history_count", "format", "lines"}``, but the general ``--json``
+face returned first — dead code since the day it landed, and the r170
+two-faces rule never actually held for history's template. Instead of
+moving the branch, the general JSON face now composes: the full
+payload keeps its ``rows`` and gains ``format`` + ``lines`` when the
+template is set — the shape the baseline round-trip test's docstring
+always described (``rows`` *and* ``lines`` in one pass) but its
+assertions only half-pinned. The rendering loop moved into a shared
+``_render_format_lines`` helper so the two faces cannot drift.
+
+### Tests
+test_r197_history_renderers_exclusive.py — 7 tests: all six renderer
+pairs refused with the flag names on stderr and empty stdout, the
+refusal precedes the ``--keep`` rotation (on-disk history
+byte-identical), ten real compositions survive (including
+``--csv --fields`` column selection and ``--row-id --quiet``
+precedence), and the format-rides-JSON payload carries ``format``,
+``lines``, and the original ``rows`` together.
+
+The r191 spawning-set guard caught the first cut spawning subprocesses;
+the tests use ``invoke_cli`` in-process, keeping the spawning set
+unchanged.
+
+Suite after r197: 1729 passed, 1 xfailed, 0 failed.
+verify_suite 9/9.
+
 ### Gotchas
 - The first cut of AUDIT_GRADE_CUTS used
   (0,1,2,3,5,8) -> (A,B,C,D,E,F), which made E cover only
