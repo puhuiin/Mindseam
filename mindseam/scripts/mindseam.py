@@ -5809,28 +5809,33 @@ def mode_history(args):
     flag is the destructive part: ``--keep`` is a write, the
     others are reads.
     """
-    # r197: the four renderers are mutually exclusive. The branch
-    # order (--csv, then --domains, then --format, then --quiet) made
-    # the first one win and silently dropped the rest, so
-    # ``history --csv --format '%t|%n'`` emitted stock CSV while the
-    # host believed its template was applied. Refuse the ambiguity
-    # before any work — including the destructive ``--keep`` rotation
-    # below — the way info's --field/--format refuse to compose.
-    # Composition stays intact where it was real: --fields selects
-    # columns for --csv and the table, --human renders timestamps,
-    # --format rides --json (r170), --row-id keeps its
-    # documented before-every-render-flag precedence.
+    # r197/r198: the six renderers are mutually exclusive. The branch
+    # order (--csv, --domains, --span, --row-id, --json, --quiet,
+    # --count, --format) made the first one win and silently dropped
+    # the rest, so ``history --csv --format '%t|%n'`` emitted stock
+    # CSV while the host believed its template was applied, and
+    # ``--quiet --span`` printed the span block to a caller parsing
+    # one-word lines. Refuse the ambiguity before any work — including
+    # the destructive ``--keep`` rotation below — the way info's
+    # --field/--format refuse to compose. Composition stays intact
+    # where it was real: --fields selects columns for --csv and the
+    # table, --human renders timestamps, --format and --span ride
+    # --json (r170), --row-id keeps its documented
+    # before-every-render-flag precedence.
     renderers = [name for name, picked in (
+        ("--count", getattr(args, "count", False)),
         ("--csv", getattr(args, "csv", False)),
         ("--domains", getattr(args, "domains", False)),
         ("--format", getattr(args, "format", None)),
         ("--quiet", getattr(args, "quiet", False)),
+        ("--span", getattr(args, "span", False)),
     ) if picked]
     if len(renderers) > 1:
         print("CANNOT: %s are mutually exclusive renderers; pick one."
               % ", ".join(renderers), file=sys.stderr)
         print("  --fields composes with --csv or the table; --human "
-              "and --row-id compose with any of them.", file=sys.stderr)
+              "and --row-id compose with any of them; --json carries "
+              "the full payload either way.", file=sys.stderr)
         return 2
     keep_n = getattr(args, "keep", None)
     # r182: read history ONCE up front. The old code called
@@ -8932,9 +8937,9 @@ def main(argv=None):
     hist_p.add_argument("--empty", dest="empty", action="store_true",
         help="keep only the rows whose next action is blank (like find -empty / awk '/^$/')")
     hist_p.add_argument("--quiet", dest="quiet", action="store_true",
-        help="print only the next action of each row, one per line (like git log --oneline); r197: one of four mutually exclusive renderers (--csv/--domains/--format/--quiet) — a combined call is refused with exit 2")
+        help="print only the next action of each row, one per line (like git log --oneline); r197/r198: one of six mutually exclusive renderers — a combined call is refused with exit 2")
     hist_p.add_argument("-c", "--count", dest="count", action="store_true",
-        help="print only the row count (like wc -l, like git rev-list --count)")
+        help="print only the row count (like wc -l, like git rev-list --count); r198: one of six mutually exclusive renderers — a combined call is refused with exit 2")
     hist_p.add_argument("--first-match", dest="first_match", action="store_true",
         help="stop after the first matching row (like grep -m 1 / ripgrep --max-count=1)")
     hist_p.add_argument("--fields", dest="fields", default=None,
@@ -8946,14 +8951,14 @@ def main(argv=None):
               "%%v (verified count), %%o (open count), "
               "%%h (row index, 1-based). "
               "Example: '%%t %%n' (like git log --format='%%h %%s'). "
-              "r197: one of four mutually exclusive renderers — a "
+              "r197/r198: one of six mutually exclusive renderers — a "
               "combined call is refused with exit 2"))
     hist_p.add_argument("--csv", dest="csv", action="store_true",
-        help="emit history as CSV (like aws --output csv, PowerShell ConvertTo-Csv); r197: one of four mutually exclusive renderers — a combined call is refused with exit 2")
+        help="emit history as CSV (like aws --output csv, PowerShell ConvertTo-Csv); r197/r198: one of six mutually exclusive renderers — a combined call is refused with exit 2")
     hist_p.add_argument("--domains", dest="domains", action="store_true",
-        help="group history by next-action domain prefix, the way JIT-Agent factors memory/planning/action/capability; r197: one of four mutually exclusive renderers — a combined call is refused with exit 2")
+        help="group history by next-action domain prefix, the way JIT-Agent factors memory/planning/action/capability; r197/r198: one of six mutually exclusive renderers — a combined call is refused with exit 2")
     hist_p.add_argument("--span", dest="span", action="store_true",
-                   help="print the first-seam, last-seam and duration of the window (like git log --stat / journalctl --list-boots)")
+                   help="print the first-seam, last-seam and duration of the window (like git log --stat / journalctl --list-boots); r198: one of six mutually exclusive renderers — a combined call is refused with exit 2; rides --json")
     hist_p.add_argument("--filter", dest="filter", action="append", metavar="KEY=VALUE",
                    help="keep only rows whose field KEY equals VALUE; repeatable, all filters AND together (like docker ps --filter)")
     hist_p.add_argument("--human", dest="human", action="store_true",

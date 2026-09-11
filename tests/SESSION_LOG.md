@@ -3285,6 +3285,45 @@ unchanged.
 Suite after r197: 1729 passed, 1 xfailed, 0 failed.
 verify_suite 9/9.
 
+### r198 — the renderer exclusivity set is complete
+
+The r197 combination probe kept sweeping after landing, and the same
+silent-ignore family covered two renderers the refusal set missed:
+``--span`` (a summary block) and ``--count`` (a one-number aggregate).
+The branch order made ``history --csv --span`` print CSV (span
+dropped) while ``history --quiet --span`` printed the span block
+(quiet dropped) and ``history --count --quiet`` printed one-word lines
+(count dropped) — the winner depends on branch order, which is exactly
+the ambiguity a host cannot reason about.
+
+r198 extends the r197 refusal to all six renderers:
+``{--count, --csv, --domains, --format, --quiet, --span}``. Any pair
+is refused with exit 2 naming the flags, before the destructive
+``--keep`` rotation. ``--json`` is still not a renderer: it is the
+machine face everything rides (``--span --json`` keeps its own span
+block inside the payload, and a host wanting the count reads
+``history_count``). Filters stay composable with every renderer.
+
+A neighbour candidate was investigated and deliberately left alone:
+``seam --quiet --dry-run`` prints facts but never the dry-run marker —
+however ``test_quiet_drops_banner_ledger_telemetry`` pins exactly that
+with a comment ("quiet at its quietest"), and the marker rides the
+JSON warnings for scripting hosts. A pinned, commented decision is a
+contract, not a bug.
+
+### Tests
+test_r198_renderer_set_complete.py — 6 tests: all nine span/count
+renderer pairs refused with named flags and empty stdout, the refusal
+names --count/--span, all six renderers alone still work, span and
+count compose with --json (span block inside the payload,
+history_count as the count), filters still compose with renderers
+(--grep --count, --grep --csv), and the quiet-dry-run design decision
+is pinned from the outside (no marker in quiet stdout, marker present
+in JSON warnings).
+
+Suite after r198: 1735 passed, 1 xfailed, 0 failed.
+verify_suite 9/9.
+
 ### Gotchas
 - The first cut of AUDIT_GRADE_CUTS used
   (0,1,2,3,5,8) -> (A,B,C,D,E,F), which made E cover only
