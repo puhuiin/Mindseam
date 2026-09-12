@@ -3521,3 +3521,46 @@ verify_suite 9/9.
   list. And when a refusal could mask a more precise existing
   error (unknown tag/id), keep the old check first — the combo
   refusal is about valid-flag clashes, not invalid values.
+
+### r203 — seam --from-stdin previews in the conditional tense
+
+The round opened with the static sweep (0 dead defs, 0 dead upper
+constants after r201/r202's edits) and moved to the seam
+combination matrix. The defect was not a dropped flag but a
+contradicted one: the r183 dry-run contract gates the append loop
+on ``not dry_run``, and the JSON face says so —
+``dry-run: history.json was not updated`` — while the very next
+warning in the same list said ``from-stdin: 2 next actions
+RECORDED``. A host parsing the warnings list got a completed write
+and a denied write side by side. The message warning right above
+carries the same ``not dry_run`` gate; the from-stdin branch just
+forgot it existed. The r174 baseline pins had locked the bug in:
+``test_from_stdin_records_one_row_per_line`` invokes ``--dry-run``
+and asserts the past tense — but its own docstring knew the
+truth ("``--dry-run`` does not write history.json; the row count
+is in the from-stdin warning"), so the count was the contract and
+the tense was the accident. r203 keeps the count and fixes the
+tense: ``N next actions would be recorded`` under a preview;
+non-dry wording (including the 0-line case) byte-identical.
+
+test_r203_from_stdin_dry_run_tense.py — 9 tests: conditional
+tense (3 lines, and the 0-line preview), markers agree in one
+payload, preview writes nothing (rows snapshot), real run keeps
+the past tense (both counts), no warning without the flag, the
+--format face renders the same conditional payload, catalog
+entry. Three r174 baseline pins advanced to the new tense
+(deliberate pin move: the pinned wording was the bug).
+
+Catalog entry seam-from-stdin-dry-run-tense (since r203): r175
+count pin 23 -> 24; r200 empty-window bracket r203 -> r204.
+
+Suite after r203: 1803 passed, 1 xfailed, 0 failed.
+verify_suite 9/9.
+
+### Gotchas
+- Wording pins can lock a bug the asserting test's own docstring
+  contradicts. When a pin's text and the pin's stated intent
+  disagree (dry-run "does not write" + assertIn("recorded")),
+  the intent is the contract and the text is the accident —
+  fix the wording and advance the pin, and let the new test
+  assert BOTH tenses so the corrected half can't drift back.

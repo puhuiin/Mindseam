@@ -119,7 +119,7 @@ class SeamFromStdinFlagTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         payload = json.loads(stdout)
         joined = " ".join(payload["warnings"])
-        self.assertIn("from-stdin: 3 next actions recorded", joined)
+        self.assertIn("from-stdin: 3 next actions would be recorded", joined)
 
         # Without ``--dry-run`` the rows are committed in order.
         rc, stdout, _ = _run(self.workspace,
@@ -145,7 +145,7 @@ class SeamFromStdinFlagTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         payload = json.loads(stdout)
         joined = " ".join(payload["warnings"])
-        self.assertIn("from-stdin: 2 next actions recorded", joined)
+        self.assertIn("from-stdin: 2 next actions would be recorded", joined)
 
     def test_from_stdin_message_attaches_to_every_row(self):
         # ``--message`` applies to every row in the batch, the
@@ -194,4 +194,4 @@ class SeamFromStdinFlagTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         payload = json.loads(stdout)
         joined = " ".join(payload["warnings"])
-        self.assertIn("from-stdin: 0 next actions recorded", joined)
+        self.assertIn("from-stdin: 0 next actions would be recorded", joined)

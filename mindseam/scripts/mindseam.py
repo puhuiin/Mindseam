@@ -4860,7 +4860,9 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
     ``--json`` mirrors the full text report machine-readably; ``--quiet``
     prints only the fact lines; ``--dry-run`` skips the history append;
     ``--message`` annotates the recorded row; ``--from-stdin`` records
-    one row per input line.
+    one row per input line — under ``--dry-run`` the from-stdin
+    warning switches to the conditional tense (r203), so a preview
+    never claims a write the dry-run marker denies.
 
     ``--quiet`` and ``--format`` are mutually exclusive renderers
     (r202, exit 2): the face dispatch made the format branch win and
@@ -4982,12 +4984,20 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
                 "dry-run: history.json was not updated")
         if message and not dry_run and hist:
             payload.setdefault("warnings", []).append("message: %s" % message)
-        if extra_nexts:
+        # r203: the from-stdin warning shares the warnings list with
+        # the dry-run marker above, and the two contradicted each
+        # other: ``--from-stdin --dry-run`` said "dry-run:
+        # history.json was not updated" AND "from-stdin: 2 next
+        # actions recorded". The append loop is gated on
+        # ``not dry_run`` (r183); the message warning carries the
+        # same gate; this branch forgot it. Under a preview the
+        # tense is conditional — the count is the same fact, the
+        # completion is not.
+        if extra_nexts or from_stdin:
             payload.setdefault("warnings", []).append(
-                "from-stdin: %d next actions recorded" % len(extra_nexts))
-        elif from_stdin:
-            payload.setdefault("warnings", []).append(
-                "from-stdin: 0 next actions recorded")
+                "from-stdin: %d next actions %s"
+                % (len(extra_nexts),
+                   "would be recorded" if dry_run else "recorded"))
         if format_path is not None:
             print(_format_paths(payload, format_path))
             return 0
@@ -6876,6 +6886,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "seam-quiet-format-exclusive", "since": "r202",
      "summary": "seam --quiet and --format refuse to compose (exit 2 before the stdin read and any ledger work): the face dispatch made the format branch win and dropped quiet without a word — the r197/r198 history renderer family arriving on seam; --json stays the machine face everything rides",
+     "default": True},
+    {"id": "seam-from-stdin-dry-run-tense", "since": "r203",
+     "summary": "seam --from-stdin --dry-run warns 'N next actions WOULD BE recorded', not 'recorded': the append loop is gated on not dry_run (r183), so the past-tense warning sat in the same warnings list as 'dry-run: history.json was not updated' and contradicted it — the count is the same fact, the completion is not",
      "default": True},
 )
 
