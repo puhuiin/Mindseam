@@ -45,6 +45,9 @@ SPAWNING_ALLOWLIST = {
     "test_r122_suite_hygiene.py",
     "test_r173_dry_run_and_skill_examples.py",
     "test_r189_verify_suite_json.py",
+    # r209: verify_suite's exit contract IS the process boundary
+    # -- the tool must be observed from outside, like r189.
+    "test_r209_verify_suite_exit_contract.py",
 }
 
 

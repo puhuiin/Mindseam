@@ -3811,3 +3811,49 @@ verify_suite 9/9.
   explicit tail vanished. When a flag aliases another flag,
   probe the alias pair as its own combination, because the
   conflict happens at assignment time, not dispatch time.
+
+### r209 — ERRATUM: the r208 commit-gate failure was the pipe, not the tool
+
+The r208 post-mortem got its own root cause wrong. Both the
+SESSION_LOG gotcha and the 5f91bc9 commit message said
+verify_suite "prints 1 failed with exit 0". False: verify_suite
+has ALWAYS ended with ``sys.exit(1 if FAIL else 0)`` — the
+empty-shell scenario exits 1 exactly as designed (pinned
+end-to-end by test_r209: a stub repo whose gates fail gives
+3 passed, 7 failed, exit 1). The real culprit was the shell
+pipeline the round used to gate its own commit:
+``python verify_suite.py | tail -2 && git commit`` — bash's &&
+sees TAIL's exit code, not the python process's, so the chain
+ran git regardless of what verify_suite reported. The tool was
+correct; the plumbing around it was not. (5f91bc9's message
+carries the wrong claim too; it is pushed, so the correction
+lives here.) Standard verification from now on runs verify_suite
+BARE — its own exit code, no pipe — before any commit.
+
+The probe matrix that opened the round was clean across the
+board: info block-flag pairs each add their own payload keys
+with no collisions, argparse's only dest-sharing aliases are
+seam --message/--msg (repeated-flag last-wins is argparse
+convention, not a silent drop), and --human renders on the text
+face while the machine faces keep raw epoch (correct; the r197
+comment now says so). r209 has no controller behaviour change
+and therefore no catalog entry — the r175 count pin is
+untouched.
+
+test_r209_verify_suite_exit_contract.py — 2 tests: the clean
+repo exits 0 with "0 failed" on the tail line, and the stub
+repo whose gates fail exits 1 with a nonzero failed count.
+
+Suite after r209: 1850 passed, 1 xfailed, 0 failed.
+verify_suite 9/9 (run bare, exit 0 checked).
+
+### Gotchas
+- A pipe swallows the exit code of everything left of it:
+  ``cmd | tail && next`` runs next unconditionally. The r208
+  round trusted such a chain and landed a red-gate commit, then
+  mis-blamed the tool. Verify gates BARE (no pipe) and read the
+  exit code itself; if a summary line is wanted, capture the
+  exit code first (``rc=$?``) or use pipefail. And when a
+  post-mortem blames a tool, reproduce the tool's contract in
+  isolation before writing it down — the erratum cost one extra
+  round.

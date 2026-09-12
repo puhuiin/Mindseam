@@ -5869,7 +5869,9 @@ def mode_history(args):
     # the destructive ``--keep`` rotation below — the way info's
     # --field/--format refuse to compose. Composition stays intact
     # where it was real: --fields selects columns for --csv and the
-    # table, --human renders timestamps, --format and --span ride
+    # table, --human renders timestamps on the text face (the
+    # machine faces keep raw epoch -- r209 wording), --format and
+    # --span ride
     # --json (r170), --row-id keeps its documented
     # before-every-render-flag precedence.
     renderers = [name for name, picked in (
