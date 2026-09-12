@@ -4861,7 +4861,22 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
     prints only the fact lines; ``--dry-run`` skips the history append;
     ``--message`` annotates the recorded row; ``--from-stdin`` records
     one row per input line.
+
+    ``--quiet`` and ``--format`` are mutually exclusive renderers
+    (r202, exit 2): the face dispatch made the format branch win and
+    dropped quiet without a word, the shape r197/r198 refused in the
+    history family. ``--json`` stays the machine face everything
+    rides.
     """
+    # r202: refuse the renderer clash before the stdin read and any
+    # ledger work — a host asking for one-word facts AND a scalar
+    # template gets an answer, not the format face plus silence.
+    if quiet and format_path is not None:
+        print("CANNOT: --quiet and --format are mutually exclusive "
+              "renderers; pick one.", file=sys.stderr)
+        print("  the seam prints one face per call; --json carries "
+              "the full payload either way.", file=sys.stderr)
+        return 2
     extra_nexts = []
     if from_stdin:
         try:
@@ -6853,6 +6868,15 @@ _FEATURE_CATALOG = (
     {"id": "audit-baseline-write-window-exclusive", "since": "r201",
      "summary": "audit --baseline-write refuses to compose with --at/--since/--until (exit 2, naming the flags, before any ledger read or write): the narrowed history fingerprints different findings, so a windowed write silently under-gated every later full audit — a chained write+baseline run even reported gate=clean while the next full run exited 1 (r182 whole-ledger doctrine extended past projections to slices)",
      "default": True},
+    {"id": "audit-explain-face-exclusive", "since": "r202",
+     "summary": "audit --explain refuses every audit flag (--strict/--intensity/--tag/--since/--until/--at/--baseline/--baseline-write/--format, exit 2, naming the dropped set): the explain branch returns before the audit runs, so a combined call exited 0 while the instruction — including a baseline WRITE — vanished unexecuted; --json stays explain's machine face (r171)",
+     "default": True},
+    {"id": "info-explain-face-exclusive", "since": "r202",
+     "summary": "info --explain joined the r200 short-circuit-face set (face-vs-face and renderer clashes refused in the dispatcher) and the explain branch itself refuses the remaining payload flags (exit 2, naming them): it answers from the static catalog and builds no payload, so --manifest/--mtime/--health/... alongside it were silently dropped",
+     "default": True},
+    {"id": "seam-quiet-format-exclusive", "since": "r202",
+     "summary": "seam --quiet and --format refuse to compose (exit 2 before the stdin read and any ledger work): the face dispatch made the format branch win and dropped quiet without a word — the r197/r198 history renderer family arriving on seam; --json stays the machine face everything rides",
+     "default": True},
 )
 
 
@@ -7055,6 +7079,34 @@ def mode_info(book, json_flag=False, warnings_only=False,
             print("  known ids: %s"
                   % ", ".join(item["id"] for item in _FEATURE_CATALOG),
                   file=sys.stderr)
+            return 2
+        # r202: same family as the audit --explain refusal. The
+        # explain branch returns before the payload is ever built,
+        # so every other info instruction was silently dropped —
+        # ``info --explain info-memory --manifest`` exited 0 with the
+        # manifest never computed. Face-vs-face and renderer clashes
+        # are refused in the dispatcher (r200); this names the rest.
+        payload_flags = [name for name, picked in (
+            ("--warnings-only", warnings_only),
+            ("--human", human),
+            ("--workspace-id", workspace_id),
+            ("--audit-baseline", audit_baseline is not None),
+            ("--manifest", manifest),
+            ("--mtime", mtime),
+            ("--health", health),
+            ("--text", text_only),
+            ("--content-hash", content_hash),
+            ("--changed", changed),
+            ("--features", features),
+            ("--aliases", aliases),
+            ("--format", format_path is not None),
+        ) if picked]
+        if payload_flags:
+            print("CANNOT: --explain %s answers from the static catalog "
+                  "and builds no payload; %s would be silently dropped."
+                  % (wanted, ", ".join(payload_flags)), file=sys.stderr)
+            print("  --json is explain's machine face; the rest of info "
+                  "needs a run of its own.", file=sys.stderr)
             return 2
         if json_flag:
             print(json.dumps({
@@ -8539,6 +8591,33 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
             print("  known tags: %s" % ", ".join(AUDIT_TAGS),
                   file=sys.stderr)
             return 2
+        # r202: --explain answers without running the audit, so audit
+        # flags combined with it were silently dropped. Probe:
+        # ``--explain delete --baseline-write X`` exited 0 with the
+        # file never written, ``--intensity banana`` bypassed the
+        # r185 validation, ``--at 3`` skipped its range check — the
+        # host got exit 0 and a doc while its instruction vanished.
+        # Refuse the combination with exit 2, naming the dropped
+        # flags, the r188/r200/r201 family on this face; --json
+        # stays explain's machine face (r171).
+        audit_flags = [name for name, picked in (
+            ("--strict", strict),
+            ("--intensity", intensity is not None),
+            ("--tag", bool(tags)),
+            ("--since", since_seconds is not None),
+            ("--until", until_seconds is not None),
+            ("--at", at_row is not None),
+            ("--baseline", baseline is not None),
+            ("--baseline-write", bool(baseline_write)),
+            ("--format", format_path is not None),
+        ) if picked]
+        if audit_flags:
+            print("CANNOT: --explain %s prints static tag docs and runs "
+                  "no audit; %s would be silently dropped."
+                  % (tag, ", ".join(audit_flags)), file=sys.stderr)
+            print("  --json is explain's machine face; the audit flags "
+                  "need a run of their own.", file=sys.stderr)
+            return 2
         doc = AUDIT_TAG_EXPLAIN[tag]
         if json_flag:
             payload = {"tag": tag}
@@ -9050,8 +9129,11 @@ def main(argv=None):
         # index (the template never applied). Same family as the r172
         # --field/--format, r188 --at/window, r197/198 renderer and
         # r199 from-stdin refusals: two formats asked, one answer
-        # given, the host believes both. The five short-circuit faces
-        # are {--index, --version, --check, --memory, --list-fields};
+        # given, the host believes both. The six short-circuit faces
+        # are {--index, --version, --check, --memory, --list-fields,
+        # --explain} (--explain joined in r202: it answers from the
+        # static catalog ahead of every other branch, so a combined
+        # call dropped the other face silently);
         # the renderers are {--format, --field}. --json is NOT in
         # either set — every face carries its own machine sub-face
         # (r158 two-faces rule), --index's arrived in r200.
@@ -9061,6 +9143,7 @@ def main(argv=None):
             ("--check", getattr(args, "check_only", False)),
             ("--memory", getattr(args, "memory_only", False)),
             ("--list-fields", getattr(args, "list_fields", False)),
+            ("--explain", getattr(args, "explain", None) is not None),
         ) if picked]
         if len(faces) > 1:
             print("CANNOT: %s are mutually exclusive info faces; pick one."

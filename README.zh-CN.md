@@ -140,7 +140,7 @@ loop 三种 pass，以及可选控制器负责记录长任务状态而不负责�
 | `info --index --index-since r172` | 类似 `tldr` 的 listing flag / `git log --since`：按轮次过滤索引（轮次标签包含在内，无效轮次标签拒绝并退出码 2）|
 | `info --index --index-since r172 --index-until r174` | 框定一个轮次窗口：两个边界都包含在内，倒置窗口拒绝并退出码 2（类似 `git log` / `journalctl` 上的同名 flag）|
 | `info --aliases` | 附带 `aliases` 块，列出内置和用户定义的短名；用户别名从 `.mindseam/aliases.json` 读。一个裸别名（`mindseam.py audit-ci`）会在 argparse 看到之前自动展开为完整 argv（类似 `git co` → `git checkout` / `gh alias` 的 list 输出） |
-| `info --explain info-memory` | 打印单个能力 id 的静态文档（summary、since、default）后退出（类似 `kubectl explain`）；文档来自内置 feature catalog，因此空工作区也可用且不创建 ledger；未知 id 拒绝并退出码 2 |
+| `info --explain info-memory` | 打印单个能力 id 的静态文档（summary、since、default）后退出（类似 `kubectl explain`）；文档来自内置 feature catalog，因此空工作区也可用且不创建 ledger；未知 id 拒绝并退出码 2。r202：加入短路路面集——与其他路面或 `--format`/`--field` 渲染器的组合在调度层拒绝，其余 payload 标志（`--manifest`、`--mtime` 等）在 `mode_info` 拒绝并点名被丢弃的标志；`--json` 仍为 explain 的机读面 |
 | `history` | 查看 seam 审计日志（类似 `git log`） |
 | `history -n N` | 仅打印最近 N 条记录 |
 | `history --json` | 机器可读审计日志尾 |
@@ -157,7 +157,7 @@ loop 三种 pass，以及可选控制器负责记录长任务状态而不负责�
 | `audit --at 5` | 审计到历史的 1-based 第 5 行：把 history 切到 `hist[:5]`，即审计反映到第 5 个 seam 为止的全部历史（类似 `git log -1` / `gh pr view N`）。JSON 的 `gate` 字段为 `clean` / `finding` / `gated`。r188：与 `--since`/`--until` 互斥——组合调用以 exit 2 拒绝，因为 at 分支只做切片、从未应用时间窗口 |
 | `audit --baseline baseline.json` | 仅对**新** finding（相对基线而言）触发 gate；已入库的 finding 移到 `baselined_findings`（JSON）并在文本面打 `[baselined]` 标记。`net` 与 `--strict` 只看 fresh 集（类似 `eslint --baseline`） |
 | `audit --baseline-write baseline.json` | 把当前（未投影的）findings 写入 JSON 文件，下次运行可作为 `--baseline` 使用（类似 `eslint --output-file`）。写先于读，所以 `--baseline-write X --baseline X` 一次调用即可完成"记录并门禁"。r201：与 `--since`/`--until`/`--at` 互斥——组合调用以 exit 2 拒绝，因为切片运行指纹的是不同的 findings，窗口化写入会让后续全量审计静默地漏门禁 |
-| `audit --explain next-stall` | 打印单个 audit 标签的静态文档（trigger / fix / evidence）后退出（类似 `git help` / `kubectl explain`）；空工作区也可用，未知标签拒绝并退出码 2 |
+| `audit --explain next-stall` | 打印单个 audit 标签的静态文档（trigger / fix / evidence）后退出（类似 `git help` / `kubectl explain`）；空工作区也可用，未知标签拒绝并退出码 2。r202：与任一 audit 标志（`--strict`/`--intensity`/`--tag`/`--since`/`--until`/`--at`/`--baseline`/`--baseline-write`/`--format`）互斥——组合调用以 exit 2 拒绝并点名被丢弃的标志，因为 explain 路面从不运行审计，此前 `--baseline-write` 组合会静默跳过写入、`--intensity banana` 绕过 r185 校验；`--json` 仍是 explain 的机读面 |
 | `note --dry-run` | 计算 edit、打印 section 级变更计划，不写任何东西（类似 `terraform plan` / `git add --dry-run`）；拒绝合约逐字节一致，host 可在应用前验证 note 调用 |
 | `info --json` lock_state | r179：附带 owner_alive / age_seconds / stale；死 owner 且超过 300 秒的锁标记为 state=stale，下一个写者自动恢复（类似 git index.lock 恢复 / kill -0 存活探测） |
 | `resume --dry-run` | 计算 reentry 报告但不追加 history 行、不压缩 history；JSON 面带 `dry_run` 标记（类似 `terraform plan`；补全 seam / note / resume 三件套） |

@@ -3469,3 +3469,55 @@ verify_suite 9/9.
   entry the bracket matched it. Every round that adds a
   catalog entry must grep for "past the catalog" style
   assertions and advance them, the way it moves the count pin.
+
+### r202 — the explain faces are exclusive; seam's renderer pair closes
+
+The combination probe swept the last un-swept surfaces
+(ship/resume/discover: single-face, clean) and landed on the
+short-circuit doc faces. ``audit --explain`` answers before the
+audit branch chain — so ``--explain delete --baseline-write X``
+exited 0 with the file never written, ``--intensity banana``
+bounced past r185's validation, ``--at 3`` skipped its range
+check, and ``--tag``/``--format``/``--strict`` all vanished
+unexecuted under a success code. ``info --explain`` was the same
+shape twice over: it had never joined r200's face set, so
+``--index --explain`` let the index branch win in the dispatcher,
+and every payload block flag reached ``mode_info`` only to be
+dropped by the explain return. ``seam --quiet --format`` was the
+r197/198 renderer-pair family's last hold-out: the format branch
+won, quiet was dropped silently. r202 refuses all three with
+exit 2 naming the dropped flags — the explain refusals keep the
+r171/r172 unknown-id checks as predecessors (an invalid face
+value is its own, more precise error) and leave ``--json`` as
+each face's documented machine face. ``--explain`` also joined
+the dispatcher's face list, so face-vs-face and renderer clashes
+come free with the r200 machinery.
+
+test_r202_explain_faces_exclusive.py — 28 tests across three
+classes: audit explain refused with each of the nine audit flags
+(valid and invalid values alike), the sentinel baseline left
+untouched, unknown-tag precedence, --json composing, alone
+paths unchanged; info explain refused at the dispatcher
+(--index/--format/--field) and in mode_info (--manifest/--health
++--workspace-id/each block flag), unknown-id precedence,
+--json composing; seam quiet×format refused before any history
+append (row-count snapshot), quiet/format/json rides unchanged,
+all three catalog entries pinned.
+
+Catalog: audit-explain-face-exclusive, info-explain-face-exclusive,
+seam-quiet-format-exclusive (since r202). r175 count pin 20 -> 23;
+r200 empty-window bracket r202 -> r203 (the moving pin advanced
+again, on schedule this time).
+
+Suite after r202: 1794 passed, 1 xfailed, 0 failed.
+verify_suite 9/9.
+
+### Gotchas
+- Doc-face short-circuits are invisible to face-combination
+  sweeps that only enumerate the *dispatched* faces: --explain
+  lived inside mode_audit/mode_info, ahead of the branch chain,
+  so r200's face list never saw it. Probe faces by branch order
+  ("what returns before what"), not just by the dispatcher's
+  list. And when a refusal could mask a more precise existing
+  error (unknown tag/id), keep the old check first — the combo
+  refusal is about valid-flag clashes, not invalid values.
