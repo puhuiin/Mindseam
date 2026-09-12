@@ -3366,6 +3366,43 @@ its edits, empty stdin refused, unparseable stdin refused,
 Suite after r199: 1743 passed, 1 xfailed, 0 failed.
 verify_suite 9/9.
 
+### r200 — info's faces are exclusive; --index gets a JSON face
+
+The combination probe swept ``info``, the last surface with a branch
+order of five short-circuit faces — ``--index``, ``--version``,
+``--check``, ``--memory``, ``--list-fields`` — each of which returns
+before the next one's branch is reached. A call asking for two faces
+got whichever was checked first and silently dropped the rest:
+``info --version --check`` printed the version and the fsck issues list
+never ran; ``info --index --format version`` printed the flat listing
+and the path renderer never applied. Same misinformation shape as r188
+/ r197 / r198 / r199.
+
+r200 refuses two classes: two or more short-circuit faces together
+(naming them), and any face together with ``--format``/``--field`` —
+the renderers only read the full payload those faces skip. ``--json``
+is in neither class: every face already carries its own machine
+sub-face (the r158 two-faces rule) except ``--index``, whose
+``--index --json`` used to print text and leave the host's JSON parser
+choking on ``info.…`` lines. The last gap gets the honest shape —
+``{"index": [...]}`` — text face byte-identical, the r175/r176 window
+filters still narrow it (an empty window yields ``[]``, not a leak).
+
+### Tests
+test_r200_info_faces_exclusive.py — 8 tests in two classes: all ten
+face pairs refused naming both flags (stderr, empty stdout, exit 2),
+every face × renderer refused (both --format and --field, singular verb
+on a one-name list), single faces still work (text and their JSON
+sub-faces), the r172 --field/--format check is untouched when no face
+is involved, and the index JSON face matches the text lines exactly
+while respecting the since/until bracket.
+
+The r175 index-since count pin moved 17 -> 19 (two r200 catalog
+entries, info-face-exclusivity + info-index-json-face).
+
+Suite after r200: 1751 passed, 1 xfailed, 0 failed.
+verify_suite 9/9.
+
 ### Gotchas
 - The first cut of AUDIT_GRADE_CUTS used
   (0,1,2,3,5,8) -> (A,B,C,D,E,F), which made E cover only

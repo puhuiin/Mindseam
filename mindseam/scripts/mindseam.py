@@ -6844,6 +6844,12 @@ _FEATURE_CATALOG = (
     {"id": "note-from-stdin-exclusive", "since": "r199",
      "summary": "note --from-stdin refuses argv edit flags (exit 2, naming the flags the stdin spec would drop): the stdin spec replaces argv, so a combined call silently dropped the command-line edits; --dry-run composes",
      "default": True},
+    {"id": "info-face-exclusivity", "since": "r200",
+     "summary": "info refuses pairs of the short-circuit faces (--index/--version/--check/--memory/--list-fields) and their combination with --format/--field: the branch order made the earliest face win while the rest were silently dropped",
+     "default": True},
+    {"id": "info-index-json-face", "since": "r200",
+     "summary": "info --index --json emits the sorted listing as {\"index\": [...]} (the r158 two-faces rule arrives for the last unpinned face; --index --json used to print text and silently drop the machine face)",
+     "default": True},
 )
 
 
@@ -8904,7 +8910,7 @@ def main(argv=None):
         metavar="FEATURE-ID",
         help="print the static documentation for one capability id (summary, since, default) and exit, like kubectl explain; reads the built-in feature catalog, so it works in an empty workspace; unknown ids refuse with exit 2")
     info_p.add_argument("--index", dest="index", action="store_true",
-        help="print a flat, line-oriented index of subcommand.flag names and their since round, the way pytest's fixture listing does; pure text, line-per-entry, greppable, exits 0, works in an empty workspace")
+        help="print a flat, line-oriented index of subcommand.flag names and their since round, the way pytest's fixture listing does; line-per-entry, greppable, exits 0, works in an empty workspace. r200: --json emits the same list as {\"index\": [...]}; mutually exclusive with the other short-circuit faces (--version/--check/--memory/--list-fields) and with --format/--field — combined calls are refused with exit 2")
     info_p.add_argument("--index-since", dest="index_since", default=None, metavar="ROUND",
         help="with --index, only list features introduced in this round or later; r175 borrows from the listing flag of `tldr` / `git log --since` (filter an index by recency), the way `git log --since` filters a log by date. Accepts the literal round tag (r156, r175) the SESSION_LOG and the commit subject use")
     info_p.add_argument("--index-until", dest="index_until", default=None, metavar="ROUND",
@@ -9003,6 +9009,43 @@ def main(argv=None):
 
     args = p.parse_args(argv)
 
+    if args.cmd == "info":
+        # r200: the short-circuit faces are mutually exclusive, and
+        # the path renderers only read the full payload. The branch
+        # order made the earliest face win and silently drop the rest
+        # — ``info --version --check`` printed the version (the check
+        # never ran), ``info --index --format version`` printed the
+        # index (the template never applied). Same family as the r172
+        # --field/--format, r188 --at/window, r197/198 renderer and
+        # r199 from-stdin refusals: two formats asked, one answer
+        # given, the host believes both. The five short-circuit faces
+        # are {--index, --version, --check, --memory, --list-fields};
+        # the renderers are {--format, --field}. --json is NOT in
+        # either set — every face carries its own machine sub-face
+        # (r158 two-faces rule), --index's arrived in r200.
+        faces = [name for name, picked in (
+            ("--index", getattr(args, "index", False)),
+            ("--version", getattr(args, "version_only", False)),
+            ("--check", getattr(args, "check_only", False)),
+            ("--memory", getattr(args, "memory_only", False)),
+            ("--list-fields", getattr(args, "list_fields", False)),
+        ) if picked]
+        if len(faces) > 1:
+            print("CANNOT: %s are mutually exclusive info faces; pick one."
+                  % ", ".join(faces), file=sys.stderr)
+            return 2
+        renderers = [name for name, picked in (
+            ("--format", getattr(args, "format_path", None) is not None),
+            ("--field", getattr(args, "field_path", None) is not None),
+        ) if picked]
+        if faces and renderers:
+            verb = "render" if len(renderers) > 1 else "renders"
+            print("CANNOT: %s %s only the full payload and would be "
+                  "dropped by %s; run them separately."
+                  % (", ".join(renderers), verb, ", ".join(faces)),
+                  file=sys.stderr)
+            return 2
+
     if args.cmd == "info" and getattr(args, "index", False):
         # r174: flat, line-oriented index. Borrowed from
         # pytest's fixture listing / git help config: every
@@ -9052,7 +9095,17 @@ def main(argv=None):
             if ceiling is not None and entry_round > ceiling:
                 continue
             lines.append("info." + entry["id"])
-        for line in sorted(lines):
+        lines = sorted(lines)
+        # r200: the two-faces rule (r158) arrives for --index: until
+        # now ``--index --json`` printed the text listing and silently
+        # dropped the machine face, so a host parsing JSON choked on
+        # ``info.…`` lines. The text face is unchanged; the JSON face
+        # carries the same sorted list under ``index``.
+        if getattr(args, "json", False):
+            print(json.dumps({"index": lines}, ensure_ascii=False,
+                             indent=2))
+            return 0
+        for line in lines:
             print(line)
         return 0
 

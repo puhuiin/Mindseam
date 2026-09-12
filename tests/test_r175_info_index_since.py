@@ -118,12 +118,13 @@ class IndexSinceContractTests(unittest.TestCase):
         # audit-finding-ids + audit-grade, r181
         # health-velocity-trend, r187 skillbook-staleness, r188
         # audit-at-window-exclusive, r199
-        # note-from-stdin-exclusive). The count is stable
+        # note-from-stdin-exclusive, r200 info-face-exclusivity +
+        # info-index-json-face). The count is stable
         # because the catalog is static; it moves only when a
         # new round lands, and the move is a deliberate pin
         # update, the way the r167 catalog count moved when
         # r169 landed.
-        self.assertEqual(len(recent), 17)
+        self.assertEqual(len(recent), 19)
         for line in recent:
             self.assertIn(line, full)
 
