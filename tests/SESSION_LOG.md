@@ -3421,3 +3421,51 @@ verify_suite 9/9.
   two stable substrings (``[D1] delete`` and
   ``(evidence:``) instead — the r156 shape test is the
   regex pin, and duplicating it here would only drift.
+
+### r201 — audit --baseline-write is exclusive with the window flags
+
+r182 established that a baseline commits to the whole ledger
+state: the write uses the *unprojected* findings so a ``--tag``
+projection can never shrink it. The probe swept the next layer
+and found the doctrine leaking on the *slicing* side:
+``--since``/``--until``/``--at`` narrow the history the facet
+detectors see, which changes the findings themselves — a shrink
+finding names the rows inside its slice, so the sliced
+fingerprint never matches the full audit's. Probe:
+``audit --at 2 --baseline-write bl`` records one entry; the next
+full ``audit --baseline bl`` reports baselined=0 net=1 — the
+baseline is dead weight. The chained form is worse:
+``--since 3000 --baseline-write X --baseline X`` printed
+gate=clean exit 0, and the very next full strict run exited 1.
+The write-time run was lying about the later gate. r201 refuses
+the combination with exit 2 before any ledger read or write,
+naming the flags — the r188 family, moved to the write side.
+The read side keeps composing with the window (``--baseline`` +
+``--since``): viewing is not committing.
+
+test_r201_baseline_write_window_exclusive.py — 14 tests: each
+window/slice flag refused with the write (and all three named
+together), no file created, a sentinel pre-seeded baseline left
+byte-identical, refusal beating the out-of-range check, r188's
+own refusal keeping priority in a three-way clash, the JSON face
+staying empty on refusal, unwindowed write working, baseline
+read composing with the window, --tag still composing with the
+write (r182 doctrine), the chained lie no longer possible,
+catalog entry present.
+
+Catalog entry audit-baseline-write-window-exclusive (since
+r201): the r175 index-since count pin moved 19 -> 20, and r200's
+empty-window bracket advanced r201 -> r202 (it matched the new
+entry — the bracket is a moving pin like the count).
+
+Suite after r201: 1766 passed, 1 xfailed, 0 failed.
+verify_suite 9/9.
+
+### Gotchas
+- "Past the catalog" round numbers in tests are a third
+  moving pin beside the r175 count: r200's
+  ``--index-since r201 --index-until r201`` was chosen because
+  r201 did not exist yet, and the moment r201 landed a catalog
+  entry the bracket matched it. Every round that adds a
+  catalog entry must grep for "past the catalog" style
+  assertions and advance them, the way it moves the count pin.

@@ -325,7 +325,7 @@ That keeps `.mindseam/` with the task rather than with the skill.
 <python-command> <skill-root>/scripts/mindseam.py audit --since 30m --until 7d                       # r173: --since/--until accept a span (30s/45m/12h/7d/2w), an ISO-8601 date (2026-09-01, trailing Z pins UTC), or bare seconds (3600); unreadable/future values refuse with exit 2 (like git log --since / docker logs --since)
 <python-command> <skill-root>/scripts/mindseam.py audit --since 450 --until 250                      # bracket a window: --until is the upper bound on --since, both in seconds before now (like journalctl / git log --until)
 <python-command> <skill-root>/scripts/mindseam.py audit --baseline baseline.json                       # gate only on findings *new* relative to the baseline; baselined findings move to `baselined_findings` (JSON) and are marked `[baselined]` in text (like eslint --baseline)
-<python-command> <skill-root>/scripts/mindseam.py audit --baseline-write baseline.json                  # record the current (unprojected) findings to a JSON file the next run can use as `--baseline` (like the `outputFile` option of `eslint` / `flake8`)
+<python-command> <skill-root>/scripts/mindseam.py audit --baseline-write baseline.json                  # record the current (unprojected) findings to a JSON file the next run can use as `--baseline` (like the `outputFile` option of `eslint` / `flake8`); r201: exclusive with --since/--until/--at — a combined call is refused with exit 2, because the sliced run fingerprints different findings and a windowed write silently under-gates every later full audit
 ```
 
 The commands are named for moments, not for passes, so this is the mapping — a lookup, not a

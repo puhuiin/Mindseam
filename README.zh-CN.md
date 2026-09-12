@@ -156,7 +156,7 @@ loop 三种 pass，以及可选控制器负责记录长任务状态而不负责�
 | `audit --since 30m` / `--since 7d` / `--since 2026-09-01` | r173：`--since` / `--until` 现在支持时长跨度（`30s`/`45m`/`12h`/`7d`/`2w`）、ISO-8601 日期（`2026-09-01`、`2026-09-01T10:30:00`；末尾 `Z` 锁定 UTC），或纯秒数（`3600`）。无法解析的取值与未来日期一律以 exit 2 拒绝（类似 `git log --since` / `docker logs --since`） |
 | `audit --at 5` | 审计到历史的 1-based 第 5 行：把 history 切到 `hist[:5]`，即审计反映到第 5 个 seam 为止的全部历史（类似 `git log -1` / `gh pr view N`）。JSON 的 `gate` 字段为 `clean` / `finding` / `gated`。r188：与 `--since`/`--until` 互斥——组合调用以 exit 2 拒绝，因为 at 分支只做切片、从未应用时间窗口 |
 | `audit --baseline baseline.json` | 仅对**新** finding（相对基线而言）触发 gate；已入库的 finding 移到 `baselined_findings`（JSON）并在文本面打 `[baselined]` 标记。`net` 与 `--strict` 只看 fresh 集（类似 `eslint --baseline`） |
-| `audit --baseline-write baseline.json` | 把当前（未投影的）findings 写入 JSON 文件，下次运行可作为 `--baseline` 使用（类似 `eslint --output-file`）。写先于读，所以 `--baseline-write X --baseline X` 一次调用即可完成"记录并门禁" |
+| `audit --baseline-write baseline.json` | 把当前（未投影的）findings 写入 JSON 文件，下次运行可作为 `--baseline` 使用（类似 `eslint --output-file`）。写先于读，所以 `--baseline-write X --baseline X` 一次调用即可完成"记录并门禁"。r201：与 `--since`/`--until`/`--at` 互斥——组合调用以 exit 2 拒绝，因为切片运行指纹的是不同的 findings，窗口化写入会让后续全量审计静默地漏门禁 |
 | `audit --explain next-stall` | 打印单个 audit 标签的静态文档（trigger / fix / evidence）后退出（类似 `git help` / `kubectl explain`）；空工作区也可用，未知标签拒绝并退出码 2 |
 | `note --dry-run` | 计算 edit、打印 section 级变更计划，不写任何东西（类似 `terraform plan` / `git add --dry-run`）；拒绝合约逐字节一致，host 可在应用前验证 note 调用 |
 | `info --json` lock_state | r179：附带 owner_alive / age_seconds / stale；死 owner 且超过 300 秒的锁标记为 state=stale，下一个写者自动恢复（类似 git index.lock 恢复 / kill -0 存活探测） |

@@ -6850,6 +6850,9 @@ _FEATURE_CATALOG = (
     {"id": "info-index-json-face", "since": "r200",
      "summary": "info --index --json emits the sorted listing as {\"index\": [...]} (the r158 two-faces rule arrives for the last unpinned face; --index --json used to print text and silently drop the machine face)",
      "default": True},
+    {"id": "audit-baseline-write-window-exclusive", "since": "r201",
+     "summary": "audit --baseline-write refuses to compose with --at/--since/--until (exit 2, naming the flags, before any ledger read or write): the narrowed history fingerprints different findings, so a windowed write silently under-gated every later full audit — a chained write+baseline run even reported gate=clean while the next full run exited 1 (r182 whole-ledger doctrine extended past projections to slices)",
+     "default": True},
 )
 
 
@@ -8500,7 +8503,11 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
     report, so a single invocation can record and gate:
     ``audit --baseline-write X --baseline X`` writes the state
     and then marks every current finding as baselined in the
-    same run.
+    same run. Because a baseline commits to the whole ledger
+    state (r182), it refuses to compose with ``--since`` /
+    ``--until`` / ``--at`` (r201, exit 2): the narrowed history
+    fingerprints different findings, and a windowed write would
+    silently under-gate every later full audit.
 
     ``--since`` / ``--until`` borrow from ``journalctl --since`` /
     ``find -newer``: a time window in seconds before "now" that
@@ -8617,6 +8624,31 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
               "window flags filter the live log. Use one or the other.",
               file=sys.stderr)
         return 2
+    # r201: --baseline-write commits to the whole ledger state (the
+    # r182 doctrine: a baseline ignores this run's projection), so it
+    # composes with neither the time window nor --at either. The
+    # window/slice flags narrow the *history* the facet detectors see,
+    # which changes the findings themselves — a shrink finding names
+    # the rows its slice contains, so the sliced fingerprint never
+    # matches the full audit's. The damage is invisible: the baseline
+    # file is written and counted as recorded, and a chained
+    # ``--baseline-write X --baseline X`` run even reports gate=clean,
+    # while the next full audit stays gated (probe: 0 then rc 1).
+    # Refuse before any ledger read or write, naming the flags, the
+    # way r188 refuses --at with the window.
+    if baseline_write:
+        clash = [name for name, set_ in (("--at", at_row is not None),
+                                         ("--since", since_seconds is not None),
+                                         ("--until", until_seconds is not None))
+                 if set_]
+        if clash:
+            print("CANNOT: --baseline-write composes with none of %s."
+                  % " / ".join(clash), file=sys.stderr)
+            print("  a baseline commits to the whole ledger state; the "
+                  "windowed slice fingerprints different findings, so a "
+                  "windowed write silently under-gates every later full "
+                  "audit. Run the write unwindowed.", file=sys.stderr)
+            return 2
     hist_full, _, _ = read_history()
     # The window narrows only the history slice the facet tags
     # see. Ledger-surface tags operate on ``book`` directly and
