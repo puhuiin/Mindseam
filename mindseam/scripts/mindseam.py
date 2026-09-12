@@ -767,8 +767,19 @@ def last_verifier(book):
     return RESERVED_CLOSE_SUFFIX.sub("", name)
 
 
-def append_history(book, meta=None):
-    hist, _, _ = read_history()
+def append_history(book, meta=None, hist=None, write=True):
+    """Append one seam row; pure when the caller injects hist.
+
+    The r174 ``--from-stdin`` batch used to pay this function's
+    read+write once per line (twice with ``--message``), so an
+    interrupted 3-line batch left 2 rows on disk and a batch of N
+    cost up to 2N writes. r210 lets the batch run the row math in
+    memory (``hist=`` injection, ``write=False``) and land the
+    whole batch with ONE write at the caller. Standalone callers
+    (resume) keep the default behaviour byte for byte.
+    """
+    if hist is None:
+        hist, _, _ = read_history()
     entry = {
         "t": int(time.time()),
         "next": one(book, "Next"),
@@ -800,9 +811,10 @@ def append_history(book, meta=None):
     risk_level, _ = assess_risk(hist)
     entry["risk"] = risk_level
     hist, _, compact_reasons = compact_history(hist)
-    problem = atomic_write_text(HISTORY, json.dumps(hist))
-    if problem:
-        print("WARNING: recent seam history was not saved — " + problem, file=sys.stderr)
+    if write:
+        problem = atomic_write_text(HISTORY, json.dumps(hist))
+        if problem:
+            print("WARNING: recent seam history was not saved — " + problem, file=sys.stderr)
     return hist, compact_reasons
 
 
@@ -4926,19 +4938,29 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
     rows_written = 0
     compact_reasons = []
     if not dry_run:
+        # r210: the batch runs the row math in memory and lands
+        # with ONE history write. The old loop paid a read+write
+        # per line (two writes with --message), so a 3-line batch
+        # cost up to 6 writes and an interrupted batch left a
+        # partial commit — the opposite of the
+        # ``kubectl apply -f -`` transaction the flag borrows.
+        # Final on-disk bytes are identical: append_history's row
+        # math (entry, risk, compaction) runs per line exactly as
+        # before, only the persistence moved out of the loop.
         nexts_to_record = extra_nexts if extra_nexts else [None]
         for next_value in nexts_to_record:
             if next_value is not None:
                 book["Next"] = [next_value]
-            hist, compact_reasons = append_history(book, meta=meta)
-            if message and hist:
+            hist, compact_reasons = append_history(
+                book, meta=meta, hist=hist, write=False)
+            if message:
                 hist[-1]["msg"] = message
-                problem = atomic_write_text(
-                    HISTORY, json.dumps(hist, ensure_ascii=False))
-                if problem:
-                    print("WARNING: could not write seam message — "
-                          + problem, file=sys.stderr)
             rows_written += 1
+        problem = atomic_write_text(
+            HISTORY, json.dumps(hist, ensure_ascii=False))
+        if problem:
+            print("WARNING: could not write seam history — "
+                  + problem, file=sys.stderr)
     for key in METACOGNITION_EVENT_KEYS:
         meta.pop(key, None)
     state_reasons = repair_reasons + compact_reasons
@@ -6970,6 +6992,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "history-truncation-selectors-exclusive", "since": "r208",
      "summary": "history --head/--tail/--limit refuse to pair (exit 2, naming the flags, before any rotation): the if/elif silently made --head beat --tail and --limit beat an explicit --tail (they share one variable, --limit aliasing --tail) — the old comment called it 'the last filter winning' but these are command-line flags, not a shell pipeline, and the baseline pin's own docstring said a host that needs both ends should run two invocations; the window flags stay composable (they are filters)",
+     "default": True},
+    {"id": "seam-from-stdin-single-write", "since": "r210",
+     "summary": "seam --from-stdin lands the whole batch with ONE history write: append_history grew hist=/write= injection parameters so the row math (entry, risk, compaction) still runs per line in memory, but the old loop's read+write per line (two with --message) is gone — a 3-line batch cost up to 6 writes and an interrupted batch left a partial commit, the opposite of the kubectl apply -f - transaction the flag borrows; final on-disk bytes are unchanged",
      "default": True},
 )
 

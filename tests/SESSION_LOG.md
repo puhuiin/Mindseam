@@ -3857,3 +3857,55 @@ verify_suite 9/9 (run bare, exit 0 checked).
   post-mortem blames a tool, reproduce the tool's contract in
   isolation before writing it down — the erratum cost one extra
   round.
+
+### r210 — seam --from-stdin lands the batch with one write
+
+The probe matrix was clean once more (info block pairs each add
+their own keys, the only dest-sharing aliases are --msg
+(last-wins, argparse convention) and -n/--limit (r208), resume
+--format deep paths miss to an empty line as designed,
+grep/exclude/filter compose honestly). The find was IO-shaped,
+r182's family: the r174 batch loop called ``append_history``
+per input line, and append_history reads and WRITES history on
+every call — a 3-line batch cost up to 6 history writes (one
+per append, one per --message rewrite), and an interrupted
+batch left a PARTIAL commit: rows 1-2 on disk, row 3 lost, the
+transcript lying about what was recorded — the opposite of the
+``kubectl apply -f -`` transaction the flag borrows.
+
+r210 grows append_history two injection parameters — ``hist=``
+(supply the already-read history) and ``write=False`` (keep the
+row math: entry build, risk assess, compaction — in memory) —
+and mode_seam's loop runs per line exactly as before, then one
+``atomic_write_text`` lands the whole batch. Final on-disk
+content is the same rows in the same order; the only visible
+difference is the persistence granularity: batches are now
+all-or-nothing, which is what the flag's own analogy promises.
+Standalone callers (resume, plain seam) keep the default
+read+write path untouched. One encoding nuance: the old message
+rewrite used ``ensure_ascii=False`` while append_history's write
+used the default ``True`` — the batch now writes the whole file
+with False, matching the message-path bytes for non-ASCII rows;
+json.loads cannot tell the two apart, and no pin could either.
+
+test_r210_from_stdin_single_write.py — 7 tests with a
+monkeypatched counting wrapper (the r182/r186 instrument): the
+3-line batch writes history EXACTLY once, the message batch
+still exactly once with every row annotated, the single-row
+seam unchanged, per-line row math (fields, order, timestamps)
+verified line by line, dry-run writes zero, empty stdin records
+one row in one write, catalog entry.
+
+Catalog entry seam-from-stdin-single-write (since r210): r175
+count pin 29 -> 30; r200 empty-window bracket r210 -> r211.
+
+Suite after r210: 1857 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0 (the r209 rule held).
+
+### Gotchas
+- A per-item write loop is an atomicity bug wearing an IO-cost
+  disguise. Counting writes (r182's instrument) exposed that
+  the batch's N lines meant up to 2N writes — and once you see
+  the count, the crash-window follows for free. When a loop
+  writes a whole-file JSON per item, ask what a kill -9 at item
+  k leaves behind before asking how fast it is.

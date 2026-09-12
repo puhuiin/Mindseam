@@ -128,12 +128,13 @@ class IndexSinceContractTests(unittest.TestCase):
         # info-warnings-only-face-exclusive, r206
         # refusals-on-stderr, r207
         # history-row-id-first-match-exclusive, r208
-        # history-truncation-selectors-exclusive). The count is stable
+        # history-truncation-selectors-exclusive, r210
+        # seam-from-stdin-single-write). The count is stable
         # because the catalog is static; it moves only when a
         # new round lands, and the move is a deliberate pin
         # update, the way the r167 catalog count moved when
         # r169 landed.
-        self.assertEqual(len(recent), 29)
+        self.assertEqual(len(recent), 30)
         for line in recent:
             self.assertIn(line, full)
 
