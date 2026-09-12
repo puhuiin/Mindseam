@@ -3709,3 +3709,52 @@ verify_suite 9/9.
   a grep: multi-line print( calls defeat single-line greps in
   both directions, and the guidance second-lines after a
   refusal print are a family of their own.
+
+### r207 — history's two row locators are exclusive
+
+The history probe matrix started clean: --row-id x window
+filters apply in documented order (window first, then the
+locator — self-consistent, nothing dropped), --since x --keep
+is coherent (the display filters, the rotation runs on the full
+file), and --first-match x the renderers is REAL composition —
+the slice runs first and the renderer renders the sliced rows
+(span reports "across 1 rows"). The find was the locator pair:
+``history --row-id 2 --first-match`` printed row 2 of 5 and the
+first-match slice never applied, exit 0 — the row-id branch
+runs before first_match slices hist, so two locators answered
+"show me one row" and the second one silently lost. The
+r188/r200 branch-exclusive family, on history's locators.
+
+Boundary discipline mattered here: r197's comment said --row-id
+"composes with any of them" (the renderers), but the actual
+documented contract is PRECEDENCE — the row-id face runs and
+the renderer does not (r197's own pin only asserts exit 0 for
+``--row-id 1 --quiet``). Precedence stays; only the locator
+pair is refused, before the --keep rotation like the renderer
+refusal beside it.
+
+test_r207_row_id_first_match_exclusive.py — 9 tests: the pair
+refused naming both, JSON face empty on refusal, refusal before
+the rotation (5 rows survive), out-of-range --row-id still
+losing to the pair (r201 combination-before-validation), both
+alone paths unchanged, --first-match x span/quiet/csv slicing
+pinned as real composition, the r197 precedence pin untouched,
+catalog entry.
+
+Catalog entry history-row-id-first-match-exclusive (since
+r207): r175 count pin 27 -> 28; r200 empty-window bracket
+r207 -> r208.
+
+Suite after r207: 1840 passed, 1 xfailed, 0 failed.
+verify_suite 9/9.
+
+### Gotchas
+- "Composes with X" and "precedes X" look interchangeable in a
+  comment and are opposite contracts: one runs both, the other
+  runs one and drops the rest under exit 0. r197's comment said
+  "compose" while the behavior and the pin said "precede" —
+  three rounds of face-exclusivity work read that comment as
+  composition and moved on. When a comment and a pin disagree
+  about a flag's relationship to a family, write the comment to
+  match the PIN, because the pin is what future probes will
+  trust.

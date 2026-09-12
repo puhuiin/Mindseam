@@ -5880,11 +5880,29 @@ def mode_history(args):
         ("--quiet", getattr(args, "quiet", False)),
         ("--span", getattr(args, "span", False)),
     ) if picked]
+    # r207: --row-id and --first-match are two locators that answer
+    # "show me one row" and they disagree about which row. The
+    # row-id branch runs first and indexes the FULL history, so
+    # ``history --row-id 2 --first-match`` printed row 2 of 5 and
+    # the first-match slice never applied — exit 0, the r188/r200
+    # branch-exclusive family on history's locators. (--first-match
+    # with the renderers is real composition: the slice runs first
+    # and the renderer renders the sliced rows, pinned below.)
+    if getattr(args, "row_id", None) is not None \
+            and getattr(args, "first_match", False):
+        print("CANNOT: --row-id %s and --first-match are mutually "
+              "exclusive row locators; pick one."
+              % args.row_id, file=sys.stderr)
+        print("  --row-id indexes the full history; --first-match "
+              "slices to hist[:1]. Both were given, one would win "
+              "silently.", file=sys.stderr)
+        return 2
     if len(renderers) > 1:
         print("CANNOT: %s are mutually exclusive renderers; pick one."
               % ", ".join(renderers), file=sys.stderr)
         print("  --fields composes with --csv or the table; --human "
-              "and --row-id compose with any of them; --json carries "
+              "composes with any of them and --row-id precedes them "
+              "(documented single-row precedence); --json carries "
               "the full payload either way.", file=sys.stderr)
         return 2
     keep_n = getattr(args, "keep", None)
@@ -6923,6 +6941,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "refusals-on-stderr", "since": "r206",
      "summary": "every refusal prints to stderr: note's declined() helper (NOT RECORDED lines), audit intensity-off, the ledger-unreadable / write-lock / ship-decode CANNOT prints and note's cannot-write path moved from stdout to stderr — one failure convention across the controller (the CANNOT family's stderr rule since r156), so a host reading stderr sees every refusal and stdout stays data-only; exit codes and refusal text are unchanged",
+     "default": True},
+    {"id": "history-row-id-first-match-exclusive", "since": "r207",
+     "summary": "history --row-id and --first-match refuse to compose (exit 2, naming both, before the --keep rotation): two locators answering 'show me one row' disagree about which row — the row-id branch indexed the FULL history so --row-id 2 --first-match printed row 2 of 5 and the first-match slice never applied; --first-match with the renderers stays real composition (slice first, renderer renders the sliced rows)",
      "default": True},
 )
 

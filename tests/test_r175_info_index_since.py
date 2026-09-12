@@ -126,12 +126,13 @@ class IndexSinceContractTests(unittest.TestCase):
         # seam-from-stdin-dry-run-tense, r204
         # seam-dry-run-machine-marker, r205
         # info-warnings-only-face-exclusive, r206
-        # refusals-on-stderr). The count is stable
+        # refusals-on-stderr, r207
+        # history-row-id-first-match-exclusive). The count is stable
         # because the catalog is static; it moves only when a
         # new round lands, and the move is a deliberate pin
         # update, the way the r167 catalog count moved when
         # r169 landed.
-        self.assertEqual(len(recent), 27)
+        self.assertEqual(len(recent), 28)
         for line in recent:
             self.assertIn(line, full)
 

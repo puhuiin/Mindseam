@@ -275,7 +275,7 @@ That keeps `.mindseam/` with the task rather than with the skill.
 <python-command> <skill-root>/scripts/mindseam.py history --head 5                                # first 5 entries only (like head -n 5)
 <python-command> <skill-root>/scripts/mindseam.py history --tail 5                                # last 5 entries only (like tail -n 5, alias of -n)
 <python-command> <skill-root>/scripts/mindseam.py history -c                                  # print only the row count (like wc -l)
-<python-command> <skill-root>/scripts/mindseam.py history --first-match                       # stop after the first matching row (like grep -m 1)
+<python-command> <skill-root>/scripts/mindseam.py history --first-match                       # stop after the first matching row (like grep -m 1); r207: exclusive with --row-id (exit 2) — two locators disagreed about which row and the row-id branch silently won; --first-match composes with the renderers (slice first, renderer renders the sliced rows)
 <python-command> <skill-root>/scripts/mindseam.py history --fields next                   # print only the listed fields, tab-separated (like docker ps --format)
 <python-command> <skill-root>/scripts/mindseam.py history --format "%h %n"                # per-row template, fields %t/%n/%m/%v/%o/%h (like git log --format)
 <python-command> <skill-root>/scripts/mindseam.py history --csv                           # emit the history as CSV (like aws output csv)
