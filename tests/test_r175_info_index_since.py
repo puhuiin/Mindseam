@@ -123,12 +123,13 @@ class IndexSinceContractTests(unittest.TestCase):
         # audit-baseline-write-window-exclusive, r202
         # audit-explain-face-exclusive + info-explain-face-exclusive +
         # seam-quiet-format-exclusive, r203
-        # seam-from-stdin-dry-run-tense). The count is stable
+        # seam-from-stdin-dry-run-tense, r204
+        # seam-dry-run-machine-marker). The count is stable
         # because the catalog is static; it moves only when a
         # new round lands, and the move is a deliberate pin
         # update, the way the r167 catalog count moved when
         # r169 landed.
-        self.assertEqual(len(recent), 24)
+        self.assertEqual(len(recent), 25)
         for line in recent:
             self.assertIn(line, full)
 

@@ -161,6 +161,7 @@ loop 三种 pass，以及可选控制器负责记录长任务状态而不负责�
 | `note --dry-run` | 计算 edit、打印 section 级变更计划，不写任何东西（类似 `terraform plan` / `git add --dry-run`）；拒绝合约逐字节一致，host 可在应用前验证 note 调用 |
 | `info --json` lock_state | r179：附带 owner_alive / age_seconds / stale；死 owner 且超过 300 秒的锁标记为 state=stale，下一个写者自动恢复（类似 git index.lock 恢复 / kill -0 存活探测） |
 | `resume --dry-run` | 计算 reentry 报告但不追加 history 行、不压缩 history；JSON 面带 `dry_run` 标记（类似 `terraform plan`；补全 seam / note / resume 三件套） |
+| `seam --dry-run` | 预览 seam 但不写 history.json（类似 `terraform plan`）。r204：`--json`/`--format` 面带布尔 `dry_run` 字段（恒在，真实运行为 `false`），与 resume 的 r178 机器标记一致，宿主按字段门禁而非字符串匹配 `dry-run:` 警告 |
 
 ```text
 <python-command> <skill-root>/scripts/mindseam.py note --goal "完成条件" --next "第一个动作"

@@ -164,6 +164,7 @@ the task workspace as the current directory.
 | `note --dry-run` | Compute the edits, print a section-level plan of what would change, and write nothing (like `terraform plan` / `git add --dry-run`); the refusal contract is byte-identical, so a host can validate a note call before applying it |
 | `info --json` lock_state | r179: carries owner_alive / age_seconds / stale; a lock with a dead owner older than 300s is state=stale and the next writer recovers it (like git index.lock recovery / kill -0 liveness) |
 | `resume --dry-run` | Compute the reentry report without appending the history row or compacting history; the JSON face carries a `dry_run` marker (like `terraform plan`; completes the seam / note / resume plan trio) |
+| `seam --dry-run` | Preview a seam without writing history.json (like `terraform plan`). r204: the `--json`/`--format` faces carry a boolean `dry_run` field (always present, `false` on a real run) matching resume's r178 machine marker, so a host gates on the field instead of string-matching the `dry-run:` warning |
 
 ```text
 <python-command> <skill-root>/scripts/mindseam.py note --goal "what done means" --next "first action"

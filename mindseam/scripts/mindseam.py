@@ -4857,7 +4857,9 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
               from_stdin=False, format_path=None):
     """Run a seam: re-anchor, record a history row, surface observations.
 
-    ``--json`` mirrors the full text report machine-readably; ``--quiet``
+    ``--json`` mirrors the full text report machine-readably and
+    carries a ``dry_run`` boolean the way ``resume`` does (r204,
+    r178 convention); ``--quiet``
     prints only the fact lines; ``--dry-run`` skips the history append;
     ``--message`` annotates the recorded row; ``--from-stdin`` records
     one row per input line — under ``--dry-run`` the from-stdin
@@ -4964,6 +4966,15 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
         write_skillbook(extract_skillbook(hist))
     if json_flag or format_path is not None:
         payload = _seam_json_payload(book, hist, found, gap)
+        # r204: the machine marker the warnings string has always
+        # stood in for. resume's plan face carries "dry_run":
+        # bool(dry_run) (r178); seam — the first member of the
+        # terraform-plan trio — buried the same fact in prose, so
+        # a host gating on payload["dry_run"] got a clean boolean
+        # from resume and a KeyError here. Always present, False
+        # on a real run, the resume convention; the r183 warning
+        # string rides on unchanged.
+        payload["dry_run"] = bool(dry_run)
         payload["state_repairs"] = list(state_reasons)
         payload["telemetry"] = {
             k: (meta[k] if isinstance(meta.get(k), str) else
@@ -6889,6 +6900,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "seam-from-stdin-dry-run-tense", "since": "r203",
      "summary": "seam --from-stdin --dry-run warns 'N next actions WOULD BE recorded', not 'recorded': the append loop is gated on not dry_run (r183), so the past-tense warning sat in the same warnings list as 'dry-run: history.json was not updated' and contradicted it — the count is the same fact, the completion is not",
+     "default": True},
+    {"id": "seam-dry-run-machine-marker", "since": "r204",
+     "summary": "seam --json/--format carry a boolean dry_run field (always present, False on a real run), matching resume's r178 machine marker: seam's machine face was the only one of the plan trio that buried the preview state in a prose warning, so a host gating on payload['dry_run'] got a boolean from resume and a KeyError from seam",
      "default": True},
 )
 

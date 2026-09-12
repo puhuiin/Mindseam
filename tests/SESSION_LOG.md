@@ -3564,3 +3564,46 @@ verify_suite 9/9.
   the intent is the contract and the text is the accident —
   fix the wording and advance the pin, and let the new test
   assert BOTH tenses so the corrected half can't drift back.
+
+### r204 — seam's machine face carries the dry_run boolean
+
+The read-side probes came up coherent: ``history --since --keep``
+filters the display and rotates the full file (never rotates
+against the window, which would delete rows the host never saw),
+and a windowed baseline READ is an honest narrowing after r201
+killed the skewed write. The finding came from lining the plan
+trio up face-to-face instead. resume (r178) says
+``"dry_run": bool(dry_run)`` in its JSON payload — always present,
+false on a real run. seam (r183/r203) said the same fact only as
+prose: the ``dry-run: history.json was not updated`` warning. A
+host writing one gate across the plan faces (``if
+payload["dry_run"]:``) got a boolean from resume and a KeyError
+from seam — the machine face buried in prose the very fact the
+machine face exists to carry. r204 adds the field following the
+resume convention exactly (always present, false on real); purely
+additive — the warnings string rides on, the text face is
+untouched. One correction mid-round: the first draft of the
+catalog summary claimed note also carries a boolean;
+``note --dry-run --json`` is an argparse error (note's preview is
+text-only), so the claim was narrowed to the two real machine
+faces before it could ship.
+
+test_r204_seam_dry_run_machine_marker.py — 8 tests: true under
+preview, false-not-absent on real, the --format face renders it,
+the r183 warning string still rides, boolean+prose+conditional-
+tense agree in one stdin payload, key-set parity dry-vs-real,
+seam/resume answer the same gate shape, catalog entry.
+
+Catalog entry seam-dry-run-machine-marker (since r204): r175
+count pin 24 -> 25; r200 empty-window bracket r204 -> r205.
+
+Suite after r204: 1811 passed, 1 xfailed, 0 failed.
+verify_suite 9/9.
+
+### Gotchas
+- Cross-command conventions are contracts a single command's
+  tests can never fail. seam --json passed every face test ever
+  written for it while its sibling answered the same host
+  question with a different type. When two commands share a
+  docstring phrase ("dry_run marker", "two faces"), probe the
+  SHARED shape, not just each face alone.

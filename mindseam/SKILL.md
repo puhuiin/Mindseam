@@ -240,7 +240,7 @@ That keeps `.mindseam/` with the task rather than with the skill.
 ```
 <python-command> <skill-root>/scripts/mindseam.py seam                                        # the ledger, plus what has and has not moved since
 <python-command> <skill-root>/scripts/mindseam.py seam --json                                 # the same report, machine-readable JSON
-<python-command> <skill-root>/scripts/mindseam.py seam --dry-run                                # preview a seam without writing history.json (like terraform plan)
+<python-command> <skill-root>/scripts/mindseam.py seam --dry-run                                # preview a seam without writing history.json (like terraform plan); r204: the JSON and format faces carry a boolean dry_run field (always present, False on a real run) the way resume does, so a host gates on the machine marker instead of matching the warning prose
 <python-command> <skill-root>/scripts/mindseam.py note --dry-run                                # preview a note: print a section-level plan of what would change, write nothing (like terraform plan / git add --dry-run)
 <python-command> <skill-root>/scripts/mindseam.py resume --dry-run                              # preview the reentry report without appending the history row or compacting history; the JSON face carries a dry_run marker (like terraform plan)
 <python-command> <skill-root>/scripts/mindseam.py seam --quiet                                  # print only the observation facts, one per line (like pytest -q); r202: exclusive with --format (exit 2) — the format branch used to win and drop quiet without a word, the r197/198 renderer-pair doctrine arriving on seam
