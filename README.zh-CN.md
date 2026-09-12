@@ -141,6 +141,7 @@ loop 三种 pass，以及可选控制器负责记录长任务状态而不负责�
 | `info --index --index-since r172 --index-until r174` | 框定一个轮次窗口：两个边界都包含在内，倒置窗口拒绝并退出码 2（类似 `git log` / `journalctl` 上的同名 flag）|
 | `info --aliases` | 附带 `aliases` 块，列出内置和用户定义的短名；用户别名从 `.mindseam/aliases.json` 读。一个裸别名（`mindseam.py audit-ci`）会在 argparse 看到之前自动展开为完整 argv（类似 `git co` → `git checkout` / `gh alias` 的 list 输出） |
 | `info --explain info-memory` | 打印单个能力 id 的静态文档（summary、since、default）后退出（类似 `kubectl explain`）；文档来自内置 feature catalog，因此空工作区也可用且不创建 ledger；未知 id 拒绝并退出码 2。r202：加入短路路面集——与其他路面或 `--format`/`--field` 渲染器的组合在调度层拒绝，其余 payload 标志（`--manifest`、`--mtime` 等）在 `mode_info` 拒绝并点名被丢弃的标志；`--json` 仍为 explain 的机读面 |
+| `info --warnings-only` | 仅打印警告行（类似 `gh run list --state failed`），供只想知道工作区是否健康到可以推进的 CI 钩子使用。r205：加入短路路面集——文本面拒绝 payload 块标志（`--manifest` 等，exit 2 并点名）；`--warnings-only --json` 保持可组合并打印完整 payload（r161 的 no-suppression pin） |
 | `history` | 查看 seam 审计日志（类似 `git log`） |
 | `history -n N` | 仅打印最近 N 条记录 |
 | `history --json` | 机器可读审计日志尾 |

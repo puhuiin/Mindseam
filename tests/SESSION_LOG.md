@@ -3607,3 +3607,54 @@ verify_suite 9/9.
   question with a different type. When two commands share a
   docstring phrase ("dry_run marker", "two faces"), probe the
   SHARED shape, not just each face alone.
+
+### r205 — info --warnings-only joins the faces; its text face refuses the blocks
+
+The r202 gotcha ("probe faces by branch order, not just the
+dispatcher's list") had one more catch hiding behind it. The
+sweep re-ran metric_audit (unchanged from r194: 0 dead, 0
+crashes; the pinned-metric and near-zero-discrimination entries
+remain the known deferred feature work) and checked the
+skillbook faces (bare-array JSON pinned by r174-era tests,
+{"entries": ...} format root pinned by r170 — two contracts,
+both deliberate, left alone). The find was in mode_info:
+``--warnings-only`` short-circuits at the TOP of the branch
+chain, before --version/--check/--memory/--list-fields — and it
+was never in r200's face set. ``info --check --warnings-only``
+printed the warnings (check never ran); ``info --warnings-only
+--manifest`` built the manifest into the payload and printed
+none of it. Both exit 0, both the silent-drop family.
+
+r205 joins --warnings-only as the seventh short-circuit face
+(face pairs and face-x-renderer clashes refuse in the
+dispatcher, free with the r200 machinery) and refuses the
+payload blocks on its text face through the r202 shared flag
+table — now extracted into one ``_dropped_info_flags`` helper
+serving both explain and warnings-only. The JSON face stays
+composable BY DESIGN: ``--warnings-only --json`` prints the
+FULL payload (the r161 no-suppression pin), so --manifest and
+friends are honoured there and the composition is not refused —
+the refusal keys on ``not json_flag``.
+
+test_r205_warnings_only_face_exclusive.py — 9 tests: six face
+pairs refused in the dispatcher, both renderers refused, ten
+text-face blocks refused in mode_info naming themselves, blocks
+named together, the JSON composition printing the full payload
+with audit_manifest present, alone paths unchanged, the r202
+explain contract riding the shared table, catalog entry.
+
+Catalog entry info-warnings-only-face-exclusive (since r205):
+r175 count pin 25 -> 26; r200 empty-window bracket r205 -> r206.
+
+Suite after r205: 1820 passed, 1 xfailed, 0 failed.
+verify_suite 9/9.
+
+### Gotchas
+- A face's FACE-ness can depend on the other flag in the pair:
+  --warnings-only is a short-circuit face on the text face but a
+  no-op modifier under --json. When a flag's contract is
+  conditional like that, place each refusal at the layer that
+  knows the condition (dispatcher for unconditional pairs,
+  inside the branch when --json changes the answer) instead of
+  forcing one global rule — and pin the LEGAL composition in the
+  same test file that pins the refusal, so neither half drifts.

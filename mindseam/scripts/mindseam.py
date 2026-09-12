@@ -6904,6 +6904,9 @@ _FEATURE_CATALOG = (
     {"id": "seam-dry-run-machine-marker", "since": "r204",
      "summary": "seam --json/--format carry a boolean dry_run field (always present, False on a real run), matching resume's r178 machine marker: seam's machine face was the only one of the plan trio that buried the preview state in a prose warning, so a host gating on payload['dry_run'] got a boolean from resume and a KeyError from seam",
      "default": True},
+    {"id": "info-warnings-only-face-exclusive", "since": "r205",
+     "summary": "info --warnings-only joined the r200 short-circuit-face set (face pairs refused in the dispatcher) and its text face refuses the payload blocks (exit 2, naming them, via the r202 shared table): the warnings branch printed only the warning lines while --manifest and friends rode the payload build unprinted; the JSON face stays composable — --warnings-only --json prints the FULL payload, the r161 no-suppression pin",
+     "default": True},
 )
 
 
@@ -7090,6 +7093,29 @@ def mode_info(book, json_flag=False, warnings_only=False,
     outside a repository. An unknown id refuses with exit 2 and
     lists the known set.
     """
+    def _dropped_info_flags(with_warnings_only):
+        # r202/r205: the short-circuit faces either never build the
+        # payload (explain) or render only its warnings lines
+        # (warnings-only text face), so every other info instruction
+        # alongside them is silently dropped. One table, two
+        # consumers; --warnings-only lists itself only for the
+        # explain face (the dispatcher refuses the face pair first).
+        return [name for name, picked in (
+            ("--warnings-only", with_warnings_only and warnings_only),
+            ("--human", human),
+            ("--workspace-id", workspace_id),
+            ("--audit-baseline", audit_baseline is not None),
+            ("--manifest", manifest),
+            ("--mtime", mtime),
+            ("--health", health),
+            ("--text", text_only),
+            ("--content-hash", content_hash),
+            ("--changed", changed),
+            ("--features", features),
+            ("--aliases", aliases),
+            ("--format", format_path is not None),
+        ) if picked]
+
     if explain is not None:
         # Static self-documentation, so it short-circuits ahead of
         # the first ledger read: an empty workspace can still ask
@@ -7113,21 +7139,7 @@ def mode_info(book, json_flag=False, warnings_only=False,
         # ``info --explain info-memory --manifest`` exited 0 with the
         # manifest never computed. Face-vs-face and renderer clashes
         # are refused in the dispatcher (r200); this names the rest.
-        payload_flags = [name for name, picked in (
-            ("--warnings-only", warnings_only),
-            ("--human", human),
-            ("--workspace-id", workspace_id),
-            ("--audit-baseline", audit_baseline is not None),
-            ("--manifest", manifest),
-            ("--mtime", mtime),
-            ("--health", health),
-            ("--text", text_only),
-            ("--content-hash", content_hash),
-            ("--changed", changed),
-            ("--features", features),
-            ("--aliases", aliases),
-            ("--format", format_path is not None),
-        ) if picked]
+        payload_flags = _dropped_info_flags(with_warnings_only=True)
         if payload_flags:
             print("CANNOT: --explain %s answers from the static catalog "
                   "and builds no payload; %s would be silently dropped."
@@ -7422,6 +7434,26 @@ def mode_info(book, json_flag=False, warnings_only=False,
             "long_gap": bool(gap_seconds is not None and gap_seconds > RESUME_GAP),
         }
     if warnings_only:
+        # r205: on the text face this branch prints the warning
+        # lines and nothing else, so the payload blocks were
+        # silently dropped — ``info --warnings-only --manifest``
+        # computed the manifest (it rides the payload build) and
+        # printed none of it, the r200 face family one layer
+        # deeper. The JSON face is different and stays composable:
+        # --warnings-only --json prints the FULL payload (the r161
+        # no-suppression pin), so --manifest and friends are
+        # honoured there. Refuse the text-face clash, name the
+        # flags; face-vs-face pairs are refused in the dispatcher.
+        if not json_flag:
+            dropped = _dropped_info_flags(with_warnings_only=False)
+            if dropped:
+                print("CANNOT: --warnings-only prints the warning lines "
+                      "only; %s would be silently dropped."
+                      % ", ".join(dropped), file=sys.stderr)
+                print("  the blocks belong to the full info payload "
+                      "(--json keeps them all); run them separately.",
+                      file=sys.stderr)
+                return 2
         # The ``--warnings-only`` path is independent of ``--json``:
         # a host can ask for ``--json --warnings-only`` and the JSON
         # payload still contains the full key set, with the warning
@@ -9156,11 +9188,12 @@ def main(argv=None):
         # index (the template never applied). Same family as the r172
         # --field/--format, r188 --at/window, r197/198 renderer and
         # r199 from-stdin refusals: two formats asked, one answer
-        # given, the host believes both. The six short-circuit faces
+        # given, the host believes both. The seven short-circuit faces
         # are {--index, --version, --check, --memory, --list-fields,
-        # --explain} (--explain joined in r202: it answers from the
-        # static catalog ahead of every other branch, so a combined
-        # call dropped the other face silently);
+        # --explain, --warnings-only} (--explain joined in r202:
+        # it answers from the static catalog ahead of every other
+        # branch; --warnings-only joined in r205: its text face
+        # prints only the warning lines);
         # the renderers are {--format, --field}. --json is NOT in
         # either set — every face carries its own machine sub-face
         # (r158 two-faces rule), --index's arrived in r200.
@@ -9171,6 +9204,7 @@ def main(argv=None):
             ("--memory", getattr(args, "memory_only", False)),
             ("--list-fields", getattr(args, "list_fields", False)),
             ("--explain", getattr(args, "explain", None) is not None),
+            ("--warnings-only", getattr(args, "warnings_only", False)),
         ) if picked]
         if len(faces) > 1:
             print("CANNOT: %s are mutually exclusive info faces; pick one."
