@@ -5905,6 +5905,30 @@ def mode_history(args):
               "(documented single-row precedence); --json carries "
               "the full payload either way.", file=sys.stderr)
         return 2
+    # r208: the three truncation selectors are mutually exclusive.
+    # The if/elif made --head win over --tail and --limit win over
+    # an explicit --tail (they share one variable), so
+    # ``history --head 2 --tail 3`` printed the head rows and exit 0
+    # — the old comment called it "the last filter winning", but
+    # these are command-line flags, not a shell pipeline, and the
+    # baseline pin's own docstring said a host that wants both
+    # should split into two invocations. Refuse the ambiguity the
+    # way the renderers refuse (r197/r198); the window flags
+    # (--since/--until) are filters, not selectors, and compose.
+    # Before the --keep rotation, like every other history refusal.
+    truncation = [name for name, picked in (
+        ("--head", getattr(args, "head", None) is not None),
+        ("--tail", getattr(args, "tail", None) is not None),
+        ("--limit", getattr(args, "limit", None) is not None),
+    ) if picked]
+    if len(truncation) > 1:
+        print("CANNOT: %s are mutually exclusive truncation "
+              "selectors; pick one."
+              % ", ".join(truncation), file=sys.stderr)
+        print("  --limit N aliases --tail N; --head takes rows from "
+              "the front and --tail from the end. A host that needs "
+              "both ends runs two invocations.", file=sys.stderr)
+        return 2
     keep_n = getattr(args, "keep", None)
     # r182: read history ONCE up front. The old code called
     # ``read_history()`` three times along the --keep path (a
@@ -5965,11 +5989,8 @@ def mode_history(args):
     # Borrowed from ``head -n N`` / ``tail -n N``: ``--head N`` keeps
     # the first N rows, ``--tail N`` keeps the last N. ``-n N`` /
     # ``--limit N`` aliases ``--tail`` so the older ``-n`` flag
-    # keeps working unchanged. When both ``--head`` and ``--tail``
-    # are present, ``--head`` wins; that matches the shell
-    # convention of the last filter winning, and a host that
-    # wants the full pipeline should set one and the other via
-    # separate invocations.
+    # keeps working unchanged. Mutual exclusivity of the three
+    # selectors is refused up top (r208), before the --keep rotation.
     head_n = getattr(args, "head", None)
     tail_n = args.limit if args.limit is not None else getattr(args, "tail", None)
     if head_n is not None and head_n >= 0:
@@ -6944,6 +6965,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "history-row-id-first-match-exclusive", "since": "r207",
      "summary": "history --row-id and --first-match refuse to compose (exit 2, naming both, before the --keep rotation): two locators answering 'show me one row' disagree about which row — the row-id branch indexed the FULL history so --row-id 2 --first-match printed row 2 of 5 and the first-match slice never applied; --first-match with the renderers stays real composition (slice first, renderer renders the sliced rows)",
+     "default": True},
+    {"id": "history-truncation-selectors-exclusive", "since": "r208",
+     "summary": "history --head/--tail/--limit refuse to pair (exit 2, naming the flags, before any rotation): the if/elif silently made --head beat --tail and --limit beat an explicit --tail (they share one variable, --limit aliasing --tail) — the old comment called it 'the last filter winning' but these are command-line flags, not a shell pipeline, and the baseline pin's own docstring said a host that needs both ends should run two invocations; the window flags stay composable (they are filters)",
      "default": True},
 )
 

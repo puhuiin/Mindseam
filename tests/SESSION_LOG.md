@@ -3758,3 +3758,56 @@ verify_suite 9/9.
   about a flag's relationship to a family, write the comment to
   match the PIN, because the pin is what future probes will
   trust.
+
+### r208 — history's truncation selectors are exclusive
+
+The r208 probe matrix came up clean everywhere else: the
+``info --aliases`` expansion feeds refusals the real flag names
+(correct — the refusal is about flag semantics, not the call
+spelling), note's ``--core-slot`` is a genuine swap (displaced
+entry parks at the head of the parked list), the dedup pair
+collapses to the same result, the WARNING family was already
+stderr (the two stdout "Warning: " lines are info's data faces),
+and note's partial-apply behaviour is a pinned, self-describing
+contract (r177 pins "everything else in this call was
+recorded"; r115's "a declined edit" is the singular refused
+item). The find was history's truncation: ``--head N`` keeps
+the front, ``--tail N`` the back, ``--limit N`` aliases --tail
+via a SHARED variable — and the if/elif let --head silently
+beat --tail, and --limit silently beat an explicit --tail, all
+exit 0. The old comment even claimed "the last filter winning",
+which is the shell-pipeline convention — but these are
+command-line flags, and the baseline pin's own docstring said
+"a host that needs both should split into two invocations".
+Pin intent (the refusal) beat pinned behaviour (the silence),
+the r203 precedent.
+
+r208 refuses any pair of {--head, --tail, --limit} with exit 2
+naming the flags, before the --keep rotation like every other
+history refusal — the first placement was after the rotation
+and the row-count snapshot caught it before commit. The window
+flags are filters, not selectors, and keep composing.
+
+test_r208_truncation_selectors_exclusive.py — 8 tests: the
+three pairs refused (head+tail, limit+tail alias pair,
+limit+head), all three named together, refusal before rotation
+(10 rows survive), all four alone paths byte-identical,
+--tail x --since composition kept, catalog entry. One baseline
+pin advanced: test_history_head_wins_over_tail became
+test_history_head_and_tail_are_refused (r203 precedent: pin
+intent — "split into two invocations" — described the refusal).
+
+Catalog entry history-truncation-selectors-exclusive (since
+r208): r175 count pin 28 -> 29; r200 empty-window bracket
+r208 -> r209.
+
+Suite after r208: 1848 passed, 1 xfailed, 0 failed.
+verify_suite 9/9.
+
+### Gotchas
+- An alias sharing a variable with its target turns a value
+  conflict into a silent one: ``--limit 3 --tail 2`` never even
+  reached a branch — the assignment picked limit and the
+  explicit tail vanished. When a flag aliases another flag,
+  probe the alias pair as its own combination, because the
+  conflict happens at assignment time, not dispatch time.

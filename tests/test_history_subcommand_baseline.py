@@ -385,13 +385,12 @@ class HistorySubcommandTests(unittest.TestCase):
             ["dom: delta", "dom: epsilon"],
         )
 
-    def test_history_head_wins_over_tail(self):
-        # When ``--head`` and ``--tail`` are both present, the
-        # shell-style last-wins rule would be ambiguous, so the
-        # implementation picks ``--head`` because the most
-        # natural pipeline is "look at the start of the log
-        # first". A host that needs both should split into two
-        # invocations.
+    def test_history_head_and_tail_are_refused(self):
+        # r208 advanced this pin: ``--head`` and ``--tail`` used to
+        # resolve silently (head won) while the docstring said a
+        # host that needs both should split into two invocations.
+        # The selectors are now mutually exclusive — the refusal
+        # names both flags, exit 2, stdout empty.
         self._open_ledger()
         for nxt in ("dom: alpha", "dom: beta", "dom: gamma",
                     "dom: delta", "dom: epsilon"):
@@ -399,13 +398,12 @@ class HistorySubcommandTests(unittest.TestCase):
             _invoke(["seam", "--json"], cwd=self.workspace)
         r = _invoke(["history", "--head", "2", "--tail", "3", "--json"],
                     cwd=self.workspace)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        payload = json.loads(r.stdout)
-        self.assertEqual(payload["history_count"], 2)
-        self.assertEqual(
-            [row["next"] for row in payload["rows"]],
-            ["dom: alpha", "dom: beta"],
-        )
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("mutually exclusive truncation selectors",
+                      r.stderr)
+        self.assertIn("--head", r.stderr)
+        self.assertIn("--tail", r.stderr)
+        self.assertEqual(r.stdout, "")
 
     def test_history_count_prints_integer(self):
         # Borrowed from ``wc -l`` / ``git rev-list --count``:
