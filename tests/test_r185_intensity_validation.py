@@ -13,7 +13,7 @@ documented the exact contract nobody enforced.
 
 r185 refuses an unrecognised level with exit 2 to stderr and lists
 the valid ladder, the way ``--tag unknown`` refuses. ``off`` keeps
-its dedicated refusal (exit 2 to stdout, "audit intensity is off")
+its dedicated refusal (exit 2 to stderr, "audit intensity is off"; the stream moved to stderr with the r206 unification)
 because its message names the fix, and ``lite`` / ``full`` behave
 exactly as r156 pinned them.
 
@@ -87,7 +87,7 @@ class IntensityValidationTests(unittest.TestCase):
         # the fix; validation must not swallow it.
         r = _run(["audit", "--intensity", "off"], self.workspace)
         self.assertEqual(r.returncode, 2)
-        self.assertIn("audit intensity is off", r.stdout)
+        self.assertIn("audit intensity is off", r.stderr)
 
     def test_valid_levels_unchanged(self):
         for value, code in (("lite", 0), ("full", 0)):

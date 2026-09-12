@@ -118,7 +118,7 @@ class FromStdinExclusivityTests(unittest.TestCase):
         r = invoke_cli(self.workspace,
                        ["note", "--settled-by", "test suite"])
         self.assertEqual(r.returncode, 2)
-        self.assertIn("requires --open", r.stdout)
+        self.assertIn("requires --open", r.stderr)
         self.assertEqual(self._goal(), ["g"])
 
     def test_feature_in_catalog(self):

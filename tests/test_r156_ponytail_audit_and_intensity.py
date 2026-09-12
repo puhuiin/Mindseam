@@ -218,7 +218,7 @@ class AuditIntensityTests(AuditBase):
         self._wasteful()
         r = _invoke(["audit", "--intensity", "off"], cwd=self.workspace)
         self.assertEqual(r.returncode, 2, r.stderr)
-        self.assertIn("audit intensity is off", r.stdout)
+        self.assertIn("audit intensity is off", r.stderr)
 
     def test_environment_variable_sets_the_level(self):
         self._wasteful()

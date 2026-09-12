@@ -587,8 +587,18 @@ def write_meta(meta):
 
 
 def declined(message, fix):
-    print("NOT RECORDED: " + message)
-    print("  " + fix)
+    # r206: the refusal moves to stderr. The CANNOT family
+    # (audit/info/seam/history refusals since r156, and note's own
+    # r199 --from-stdin refusal) has always written refusals to
+    # stderr with exit 2, but this helper — the older note-edit
+    # refusal path — printed to stdout, so the same command ran two
+    # failure conventions and a host reading stderr saw nothing
+    # while the ledger declined the edit. The NOT RECORDED: voice
+    # (r115's published-voice contract) and the two-line shape are
+    # unchanged; only the stream moves, the way git/kubectl print
+    # failures on stderr and data on stdout.
+    print("NOT RECORDED: " + message, file=sys.stderr)
+    print("  " + fix, file=sys.stderr)
     return 2
 
 
@@ -5466,15 +5476,19 @@ def mode_note(book, args):
             return 0
         problem = write_ledger(book)
         if problem:
-            print("CANNOT: cannot write the ledger — " + problem)
-            print("  No filesystem? The ledger lives in the conversation. Restate the five lines")
-            print("  at each seam. Same discipline, different medium.")
+            print("CANNOT: cannot write the ledger — " + problem,
+                  file=sys.stderr)
+            print("  No filesystem? The ledger lives in the conversation. Restate the five lines",
+                  file=sys.stderr)
+            print("  at each seam. Same discipline, different medium.",
+                  file=sys.stderr)
             return 2
     for message, fix in refused:
         declined(message, fix)
     if refused:
         if changed:
-            print("  (everything else in this call was recorded.)")
+            print("  (everything else in this call was recorded.)",
+                  file=sys.stderr)
         return 2
     if dry_run:
         # No section changed; the plan says so instead of
@@ -6906,6 +6920,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "info-warnings-only-face-exclusive", "since": "r205",
      "summary": "info --warnings-only joined the r200 short-circuit-face set (face pairs refused in the dispatcher) and its text face refuses the payload blocks (exit 2, naming them, via the r202 shared table): the warnings branch printed only the warning lines while --manifest and friends rode the payload build unprinted; the JSON face stays composable — --warnings-only --json prints the FULL payload, the r161 no-suppression pin",
+     "default": True},
+    {"id": "refusals-on-stderr", "since": "r206",
+     "summary": "every refusal prints to stderr: note's declined() helper (NOT RECORDED lines), audit intensity-off, the ledger-unreadable / write-lock / ship-decode CANNOT prints and note's cannot-write path moved from stdout to stderr — one failure convention across the controller (the CANNOT family's stderr rule since r156), so a host reading stderr sees every refusal and stdout stays data-only; exit codes and refusal text are unchanged",
      "default": True},
 )
 
@@ -8704,8 +8721,9 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
               file=sys.stderr)
         return 2
     if level == "off":
-        print("CANNOT: audit intensity is off.")
-        print("  set --intensity lite|full (or MINDSEAM_INTENSITY) to run the audit")
+        print("CANNOT: audit intensity is off.", file=sys.stderr)
+        print("  set --intensity lite|full (or MINDSEAM_INTENSITY) to run the audit",
+              file=sys.stderr)
         return 2
     if tags:
         chosen = [t.strip() for t in tags.split(",") if t.strip()]
@@ -9325,15 +9343,17 @@ def main(argv=None):
         else:
             text, problem = read_outgoing(args.file)
         if problem:
-            print("CANNOT: " + problem + ".")
-            print("  pass a readable file, or - to read stdin")
+            print("CANNOT: " + problem + ".", file=sys.stderr)
+            print("  pass a readable file, or - to read stdin", file=sys.stderr)
             return 2
 
     try:
         book = read_ledger()
     except LedgerReadError as exc:
-        print("CANNOT: ledger was unreadable — %s." % exc)
-        print("  repair or remove .mindseam/WORKSPACE.md before recording more state")
+        print("CANNOT: ledger was unreadable — %s." % exc,
+              file=sys.stderr)
+        print("  repair or remove .mindseam/WORKSPACE.md before recording more state",
+              file=sys.stderr)
         return 2
     if args.cmd == "ship":
         return mode_ship(book, text, strict=getattr(args, "strict", False),

@@ -368,21 +368,21 @@ class EventFieldsRefuseBadInput(MechanismBindingBase):
         self._open()
         result = run_controller(self.workspace, "note", "--extra-steps", "-1")
         self.assertEqual(result.returncode, 2, result.stdout)
-        self.assertIn("--extra-steps cannot be negative.", result.stdout)
+        self.assertIn("--extra-steps cannot be negative.", result.stderr)
         self.assertNotIn("extra_steps", self._meta())
 
     def test_multiline_error_is_refused(self):
         self._open()
         result = run_controller(self.workspace, "note", "--error", "line one\nline two")
         self.assertEqual(result.returncode, 2, result.stdout)
-        self.assertIn("--error must be one line.", result.stdout)
+        self.assertIn("--error must be one line.", result.stderr)
         self.assertNotIn("error", self._meta())
 
     def test_empty_outcome_is_refused(self):
         self._open()
         result = run_controller(self.workspace, "note", "--outcome", "   ")
         self.assertEqual(result.returncode, 2, result.stdout)
-        self.assertIn("--outcome must not be empty.", result.stdout)
+        self.assertIn("--outcome must not be empty.", result.stderr)
         self.assertNotIn("outcome", self._meta())
 
     def test_a_refused_event_field_does_not_cost_an_accepted_edit(self):

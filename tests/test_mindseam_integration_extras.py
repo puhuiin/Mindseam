@@ -195,7 +195,7 @@ class JSpaceIntegrationExtras(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 2)
         # The controller requires --check before allowing --close
-        self.assertIn("--check", result.stdout)
+        self.assertIn("--check", result.stderr)
 
     def test_check_without_coverage_verb_is_refused(self):
         self._open()
@@ -209,7 +209,7 @@ class JSpaceIntegrationExtras(unittest.TestCase):
             "--check", "validated against spec", "--by", "b",
         )
         self.assertEqual(result.returncode, 2)
-        self.assertIn("what the verification covered", result.stdout)
+        self.assertIn("what the verification covered", result.stderr)
 
     def test_check_with_invalid_close_number_is_refused(self):
         self._open()
@@ -219,7 +219,7 @@ class JSpaceIntegrationExtras(unittest.TestCase):
             "--check", "brute force, spec review", "--by", "b",
         )
         self.assertEqual(result.returncode, 2)
-        self.assertIn("99", result.stdout)
+        self.assertIn("99", result.stderr)
 
     # --- Completion-gate behavior -------------------------------------------
 

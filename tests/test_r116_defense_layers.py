@@ -48,7 +48,7 @@ class VerifierLengthTests(unittest.TestCase):
         r = run_controller(ws, "note", "--goal", "g", "--next", "dom: a",
                            "--verifier", "abcd")
         self.assertEqual(r.returncode, 2)
-        self.assertIn("at least 5", r.stdout)
+        self.assertIn("at least 5", r.stderr)
 
     def test_five_character_verifier_is_accepted(self):
         ws = tempfile.mkdtemp()

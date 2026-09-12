@@ -3658,3 +3658,54 @@ verify_suite 9/9.
   inside the branch when --json changes the answer) instead of
   forcing one global rule — and pin the LEGAL composition in the
   same test file that pins the refusal, so neither half drifts.
+
+### r206 — every refusal prints to stderr
+
+The note-flag interaction probe looked clean (close+open,
+settled-by-without-open, out-of-range close all refuse with exit
+2) until the output was dumped in full: every NOT RECORDED line
+was on STDOUT. The ``declined()`` helper — the oldest refusal
+path in the controller — never joined the CANNOT family's stderr
+rule, so ``note --close 9`` exited 2 with an empty stderr while
+``audit --at 99`` named its problem on stderr. Same command, two
+failure conventions; a host reading stderr saw nothing. An AST
+sweep (Constant AND BinOp-print detection — a naive grep
+over-reports multi-line calls and under-reports string
+concatenation) found four bare CANNOT prints on stdout too:
+audit intensity-off, the ledger-unreadable gate, note's
+cannot-write path, and ship's unreadable/undecodable file gate —
+plus five orphan guidance second-lines trailing those refusals
+onto stdout.
+
+r206 moves them all: declined() keeps its r115 NOT RECORDED
+voice and two-line shape byte-for-byte, only the stream changes.
+16 stdout pins across nine test files advanced — the pinned
+contracts were about refusal text, which never changed; one pin
+(ship undecodable, test_mindseam) turned out to be the ship
+refusal reaching stderr through the same fix and stayed. The
+dry-run plan lines ("No changes written." / "No changes would
+be applied.") are DATA, not refusals, and stay on stdout.
+
+test_r206_refusals_on_stderr.py — 11 tests: declined lines
+(close/marker/settled-by), unreadable ledger, ship unreadable
+AND undecodable, intensity off, write-lock held, one CANNOT
+anchor (r201 family), success paths leaving stderr empty, and
+the catalog entry. Every refusal test asserts BOTH the stderr
+message and an EMPTY stdout — the two halves of the contract.
+
+Catalog entry refusals-on-stderr (since r206): r175 count pin
+26 -> 27; r200 empty-window bracket r206 -> r207.
+
+Suite after r206: 1831 passed, 1 xfailed, 0 failed.
+verify_suite 9/9.
+
+### Gotchas
+- Streams are a contract text assertions never encode. Sixteen
+  tests said assertIn("NOT RECORDED", stdout) and all of them
+  passed for a hundred rounds while the rest of the controller
+  standardized on stderr — the pin locked the letter (the text)
+  and missed the channel. When you find one refusal family on
+  the wrong stream, sweep for the OTHERS with an AST walk, not
+  a grep: multi-line print( calls defeat single-line greps in
+  both directions, and the guidance second-lines after a
+  refusal print are a family of their own.

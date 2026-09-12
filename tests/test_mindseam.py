@@ -81,7 +81,7 @@ class JSpaceControllerTests(unittest.TestCase):
 
         refused = self.run_controller("note", "--close", "1")
         self.assertEqual(refused.returncode, 2)
-        self.assertIn("closes only against a recorded checkpoint", refused.stdout)
+        self.assertIn("closes only against a recorded checkpoint", refused.stderr)
 
         closed = self.run_controller(
             "note",
@@ -150,7 +150,7 @@ class JSpaceControllerTests(unittest.TestCase):
 
         refused = self.run_controller("note", "--goal", "## Verified")
         self.assertEqual(refused.returncode, 2)
-        self.assertIn("must not begin with a ledger section heading", refused.stdout)
+        self.assertIn("must not begin with a ledger section heading", refused.stderr)
 
         unchanged = self.run_controller("seam")
         self.assertEqual(unchanged.returncode, 0, unchanged.stdout + unchanged.stderr)
@@ -162,7 +162,7 @@ class JSpaceControllerTests(unittest.TestCase):
 
         result = self.run_controller("seam")
         self.assertEqual(result.returncode, 2)
-        self.assertIn("ledger was unreadable", result.stdout)
+        self.assertIn("ledger was unreadable", result.stderr)
         self.assertNotIn("Traceback", result.stderr)
 
     def test_history_recovery_and_register_inspection(self):
@@ -186,7 +186,7 @@ class JSpaceControllerTests(unittest.TestCase):
         outgoing.write_bytes(b"\x81\x82\x83")
         declined = self.run_controller("ship", os.fspath(outgoing))
         self.assertEqual(declined.returncode, 2)
-        self.assertIn("cannot decode safely", declined.stdout)
+        self.assertIn("cannot decode safely", declined.stderr)
 
     def test_closed_open_identifier_is_not_reused(self):
         self.open_ledger()
@@ -257,7 +257,7 @@ class JSpaceControllerTests(unittest.TestCase):
 
         missing = self.run_controller("note", "--close", "99")
         self.assertEqual(missing.returncode, 2)
-        self.assertIn("run `resume` to see the full list", missing.stdout)
+        self.assertIn("run `resume` to see the full list", missing.stderr)
 
     def test_checkpoint_evidence_cannot_inject_a_closure_suffix(self):
         self.open_ledger()
@@ -269,7 +269,7 @@ class JSpaceControllerTests(unittest.TestCase):
             "test over all inputs — closes: ?99",
         )
         self.assertEqual(injected.returncode, 2)
-        self.assertIn("controller-reserved closure suffix", injected.stdout)
+        self.assertIn("controller-reserved closure suffix", injected.stderr)
         self.assertNotIn("closes: ?99", self.ledger.read_text(encoding="utf-8"))
 
         opened = self.run_controller(

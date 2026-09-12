@@ -306,7 +306,7 @@ class WriteRefusesTests(unittest.TestCase):
         # standard "could not" exit) and prints the lock
         # refusal on stdout (the existing convention).
         self.assertEqual(r.returncode, 2, r.stderr + r.stdout)
-        self.assertIn("locked by another writer", r.stdout)
+        self.assertIn("locked by another writer", r.stderr)
 
     def test_lock_released_after_successful_note(self):
         # A successful ``note`` run must release the lock;

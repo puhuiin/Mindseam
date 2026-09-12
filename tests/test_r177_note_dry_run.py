@@ -168,7 +168,7 @@ class DryRunRefusalTests(DryRunBase):
                      "--dry-run"],
                     cwd=self.workspace)
         self.assertEqual(r.returncode, 2, r.stderr)
-        self.assertIn("--by requires --check", r.stdout)
+        self.assertIn("--by requires --check", r.stderr)
 
     def test_refusal_does_not_write_partial_edits(self):
         # A real note with a refused edit still writes the

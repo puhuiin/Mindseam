@@ -69,7 +69,7 @@ class MarkerNormalisationTests(unittest.TestCase):
         result = run_controller(self.ws, "note", "--next", "dom: b",
                                 "--marker", "   ")
         self.assertEqual(result.returncode, 2)
-        self.assertIn("NOT RECORDED", result.stdout)
+        self.assertIn("NOT RECORDED", result.stderr)
 
     def test_every_free_text_meta_field_is_normalised(self):
         # error and outcome already stripped; pin all three together so

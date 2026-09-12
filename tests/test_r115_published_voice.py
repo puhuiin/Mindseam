@@ -41,7 +41,7 @@ class PublishedVoiceTests(unittest.TestCase):
         ws = tempfile.mkdtemp()
         r = run_controller(ws, "note", "--next", "only next")
         self.assertEqual(r.returncode, 2)
-        self.assertIn("NOT RECORDED:", r.stdout)
+        self.assertIn("NOT RECORDED:", r.stderr)
 
     def test_shifts_line_prints_under_fact_blocks(self):
         ws = tempfile.mkdtemp()

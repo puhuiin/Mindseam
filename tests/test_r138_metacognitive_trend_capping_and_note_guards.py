@@ -15,7 +15,7 @@ import os
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -76,7 +76,7 @@ class MetacognitiveTrendCappingAndNoteTests(unittest.TestCase):
             error=None, outcome=None, extra_steps=None
         )
         buf = io.StringIO()
-        with redirect_stdout(buf):
+        with redirect_stderr(buf):
             code = mindseam.mode_note(self.book, args)
         self.assertEqual(code, 2)
         output = buf.getvalue()
