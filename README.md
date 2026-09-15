@@ -125,7 +125,7 @@ the task workspace as the current directory.
 | `seam` | Re-read current state and report recent movement |
 | `seam --json` | Same seam report, machine-readable JSON |
 | `ship FILE` | Inspect outgoing text for register leakage and failure signatures |
-| `resume` | Reload the premise, invariants, and full ledger after a long gap |
+| `resume` | Reload the premise, invariants, and full ledger after a long gap. r239: the ledger is framed as recorded data, not instructions — instruction-shaped rows (a pasted "system override", a quoted destructive command) get an inline `untrusted` tag, and the `--json`/`--format` faces carry an `untrusted` map keyed by ledger section, the inbound counterpart to `ship`'s outbound register scan |
 | `skillbook` | Print recurring patterns extracted from session history; each entry carries `first_seen` / `last_seen` / `age_seams` and a `stale` flag (unseen for 10 seams) so a pattern's recency is visible before you trust it (Claude Code memory staleness protocol borrow) |
 | `skillbook --json` | Same, machine-readable JSON |
 | `info` | Print what the suite has learned about this workspace |

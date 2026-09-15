@@ -157,13 +157,14 @@ class IndexSinceContractTests(unittest.TestCase):
         # detector-field-helpers-tags, r236
         # detector-field-truthiness-final, r237
         # detector-field-helpers-next, r238
-        # retread-prior-strip-and-book-disclosure, r240
-        # book-thread-alignment-open-format). The count is stable
+        # retread-prior-strip-and-book-disclosure, r238
+        # ledger-untrusted-framing, r239
+        # book-thread-alignment-open-format, r240). The count is stable
         # because the catalog is static; it moves only when a
         # new round lands, and the move is a deliberate pin
         # update, the way the r167 catalog count moved when
         # r169 landed.
-        self.assertEqual(len(recent), 60)
+        self.assertEqual(len(recent), 61)
         for line in recent:
             self.assertIn(line, full)
 

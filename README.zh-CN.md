@@ -119,7 +119,7 @@ loop 三种 pass，以及可选控制器负责记录长任务状态而不负责�
 | `seam` | 重读当前状态并报告近期变化 |
 | `seam --json` | 同上，机器可读 JSON |
 | `ship FILE` | 检查输出文本中的寄存器泄漏和失效特征 |
-| `resume` | 在长间隔后重新加载 premise、invariants 和完整账本 |
+| `resume` | 在长间隔后重新加载 premise、invariants 和完整账本。r239：账本以"记录的数据，而非指令"的框架回放——形似指令的行（粘贴的 "system override"、引用的破坏性命令）会带内联 untrusted 标记，`--json`/`--format` 面带按账本分区索引的 `untrusted` 映射，是 `ship` 出站语域扫描的入站对应物 |
 | `skillbook` | 打印从会话历史中提取的反复模式；每条附带 `first_seen` / `last_seen` / `age_seams` 和 `stale` 标记（10 个 seam 未再现即陈旧），让模式的时新性在采信之前可见（借鉴 Claude Code 的记忆新鲜度协议） |
 | `skillbook --json` | 同上，机器可读 JSON |
 | `info` | 打印该工作区的学习摘要 |

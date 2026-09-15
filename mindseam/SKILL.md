@@ -307,7 +307,7 @@ That keeps `.mindseam/` with the task rather than with the skill.
 <python-command> <skill-root>/scripts/mindseam.py note --error "domain: what broke" --outcome "ok" --extra-steps 2  # record the step's truth
 <python-command> <skill-root>/scripts/mindseam.py ship FILE                                      # register check on anything about to leave
 <python-command> <skill-root>/scripts/mindseam.py ship FILE --strict                              # same check, non-zero exit on completion-gate failures
-<python-command> <skill-root>/scripts/mindseam.py resume                                           # premise, invariants and full ledger, after a gap
+<python-command> <skill-root>/scripts/mindseam.py resume                                           # premise, invariants and full ledger, after a gap; r239: the ledger re-enters the model's own context as data, not instructions — rows that read like directives (a pasted system override, a quoted destructive command) carry an inline untrusted tag, and resume --json/--format carry an "untrusted" map keyed by ledger section
 <python-command> <skill-root>/scripts/mindseam.py skillbook                                       # recurring patterns extracted from history; each entry carries first_seen / last_seen / age_seams and a stale flag (unseen for 10 seams), so a pattern's recency is visible before you trust it (Claude Code memory staleness protocol borrow)
 <python-command> <skill-root>/scripts/mindseam.py skillbook --json                                 # same, machine-readable JSON
 <python-command> <skill-root>/scripts/mindseam.py info                                              # what the suite has learned about this workspace
