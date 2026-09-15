@@ -80,8 +80,8 @@ class HistoryRoundTripTests(unittest.TestCase):
         self._write([healthy(i) for i in range(2)])
         book = {"Goal": ["g"], "Core": [], "Verified": ["✓01 x — verified by: y"],
                 "Open": [], "Next": ["dom: act 9"]}
-        hist, _ = mindseam.append_history(book, meta={"marker": "DONE",
-                                                    "confidence": "strong"})
+        hist, _, _ = mindseam.append_history(book, meta={"marker": "DONE",
+                                                         "confidence": "strong"})
         self.assertEqual(len(hist), 3)
         entry = hist[-1]
         self.assertEqual(entry["marker"], "DONE")

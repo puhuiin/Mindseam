@@ -44,6 +44,27 @@ def functions_overwriting_run():
     return offenders
 
 
+def functions_never_loading_run():
+    """Names of functions that declare ``run`` and never read it.
+
+    The r74 guard only caught the ``run = hist[...]`` overwrite family.
+    A second family simply never touches the parameter — same latent
+    defect (no live caller passes run= today), same disclosure duty.
+    """
+    tree = ast.parse(SOURCE_PATH.read_text(encoding="utf-8"))
+    offenders = []
+    for fn in tree.body:
+        if not isinstance(fn, ast.FunctionDef):
+            continue
+        if not any(a.arg == "run" for a in fn.args.args):
+            continue
+        loaded = {n.id for n in ast.walk(fn)
+                  if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+        if "run" not in loaded:
+            offenders.append(fn.name)
+    return offenders
+
+
 class RunDisclosureTests(unittest.TestCase):
 
     def test_every_ignored_run_is_disclosed(self):
@@ -60,6 +81,21 @@ class RunDisclosureTests(unittest.TestCase):
 
     def test_the_family_is_not_empty(self):
         self.assertGreater(len(functions_overwriting_run()), 5)
+
+    def test_every_never_loaded_run_is_disclosed(self):
+        # r223: the second family — declare run, never read it.
+        offenders = functions_never_loading_run()
+        self.assertGreater(len(offenders), 3, offenders)
+        src = SOURCE_PATH.read_text(encoding="utf-8")
+        tree = ast.parse(src)
+        for name in offenders:
+            fn = next(n for n in tree.body
+                      if isinstance(n, ast.FunctionDef) and n.name == name)
+            doc = ast.get_docstring(fn) or ""
+            self.assertIn(
+                "currently ignored", doc,
+                "%s declares run but never reads it without disclosing it"
+                % name)
 
     def test_disclosed_window_matches_the_actual_slice(self):
         src = SOURCE_PATH.read_text(encoding="utf-8")

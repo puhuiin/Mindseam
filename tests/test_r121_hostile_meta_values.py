@@ -97,7 +97,7 @@ class HostileMetaValueTests(unittest.TestCase):
     def test_append_history_coerces_hand_built_meta(self):
         book = {"Goal": ["g"], "Core": [], "Verified": [],
                 "Open": [], "Next": ["dom: act"]}
-        hist, _ = mindseam.append_history(book, meta=dict(HOSTILE))
+        hist, _, _ = mindseam.append_history(book, meta=dict(HOSTILE))
         entry = hist[-1]
         for key in ("marker", "confidence", "verifier", "error", "outcome"):
             self.assertIsInstance(entry[key], str, key)

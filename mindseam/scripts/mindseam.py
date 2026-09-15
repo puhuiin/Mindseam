@@ -73,6 +73,11 @@ HISTORY_ROW_FIELDS = (
 # is repaired to "" at the boundary rather than carried into that table.
 RISK_LEVELS = ("low", "medium", "high")
 HEAL_REPORT_MAX = 5    # heal lines printed at a seam before the rest are summarised
+# ship's findings list can hold at most one line each for leaked
+# symbols, hot markers, an uncovered claim, a line-repeat loop, and a
+# char-run loop — five. SHIP_FINDINGS_MAX is a safety cap above that
+# maximum, the way a circuit breaker sits above the expected load.
+SHIP_FINDINGS_MAX = 7
 HEAL_HEALTH_FLOOR = 45      # health scores below this earn a heal line
 HEAL_SEVERITY_CEILING = 100 - HEAL_HEALTH_FLOOR   # severity scores above this do
 # Most heal_actions entries carry a 0-100 HEALTH score: higher is better, so the
@@ -193,16 +198,41 @@ WRITE_LOCK_STALE_SECONDS = 300
 def _pid_is_alive(pid):
     """Return True when ``pid`` still names a live process.
 
-    Borrowed from ``kill -0 PID`` / ``psutil.pid_exists``:
-    ``os.kill(pid, 0)`` performs no signal delivery, it only asks
-    the kernel whether the process exists and whether we may signal
-    it. ``PermissionError`` therefore means "alive but owned by
-    someone else"; ``ProcessLookupError`` means dead. Windows,
-    Linux, and macOS all implement the zero-signal probe through
-    Python's ``os.kill``.
+    Borrowed from ``kill -0 PID`` / ``psutil.pid_exists``.
+
+    POSIX: ``os.kill(pid, 0)`` performs no signal delivery, it only
+    asks the kernel whether the process exists and whether we may
+    signal it. ``PermissionError`` therefore means "alive but owned
+    by someone else"; ``ProcessLookupError`` means dead.
+
+    Windows (r211): ``os.kill(pid, 0)`` is NOT a probe. Python
+    passes any signal other than CTRL_C_EVENT / CTRL_BREAK_EVENT to
+    ``TerminateProcess``, so the zero-signal check *kills* the
+    process it names — including the caller, when the write-lock
+    records our own PID and ``info --json`` serializes lock_state.
+    Probe with ``OpenProcess`` + ``GetExitCodeProcess`` instead
+    (STILL_ACTIVE == 259). ERROR_ACCESS_DENIED still means the
+    process exists.
     """
     if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
         return False
+    if os.name == "nt":
+        import ctypes
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        STILL_ACTIVE = 259
+        ERROR_ACCESS_DENIED = 5
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        handle = kernel32.OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid))
+        if not handle:
+            return ctypes.get_last_error() == ERROR_ACCESS_DENIED
+        try:
+            code = ctypes.c_ulong()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return False
+            return code.value == STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -505,6 +535,42 @@ def one(book, key):
     return rows[0] if rows else ""
 
 
+def _row_next(row):
+    """Return a history row's next action as a stripped string.
+
+    r227/r228: ``"   "`` is a non-empty string and a non-action.
+    Every face that asks "is there a next action?" must strip first —
+    history --domains / --grep / --empty and assess_risk already do;
+    the detectors that used truthiness counted blanks as live nexts.
+    """
+    return (row.get("next") or "").strip()
+
+
+def _row_error(row):
+    """Return a history row's error as a stripped string (r229)."""
+    return (row.get("error") or "").strip()
+
+
+def _row_outcome(row):
+    """Return a history row's outcome as a stripped string (r229)."""
+    return (row.get("outcome") or "").strip()
+
+
+def _row_marker(row):
+    """Return a history row's marker as a stripped string (r230)."""
+    return (row.get("marker") or "").strip()
+
+
+def _row_confidence(row):
+    """Return a history row's confidence as a stripped string (r230)."""
+    return (row.get("confidence") or "").strip()
+
+
+def _row_verifier(row):
+    """Return a history row's verifier as a stripped string (r230)."""
+    return (row.get("verifier") or "").strip()
+
+
 def validate_book(book):
     """Return a book tightened to the ledger schema, plus a list of schema findings."""
     findings = []
@@ -583,7 +649,12 @@ def read_meta():
 def write_meta(meta):
     path = os.path.join(os.getcwd(), LEDGER_DIR, "metacognition.json")
     payload = validate_meta_schema(meta)
-    return atomic_write_text(path, json.dumps(payload))
+    # r212: ensure_ascii=False, matching every other ledger write.
+    # The default True escaped CJK marker/verifier/error text, so a
+    # Chinese note and a later ASCII rewrite of the same meta could
+    # not be compared by bytes, and r184's identical-write short-
+    # circuit never fired for semantically unchanged CJK content.
+    return atomic_write_text(path, json.dumps(payload, ensure_ascii=False))
 
 
 def declined(message, fix):
@@ -706,7 +777,7 @@ def read_history():
             changed = True
         repaired.append(fixed)
     if changed:
-        problem = atomic_write_text(HISTORY, json.dumps(repaired))
+        problem = atomic_write_text(HISTORY, json.dumps(repaired, ensure_ascii=False))
         if problem:
             repair_reasons.append("repaired history could not be saved (%s)" % problem)
         else:
@@ -738,18 +809,42 @@ def compact_history(hist):
         # The archive is append-only across compactions: overwriting it
         # with only the newest slice would silently drop every earlier
         # archived entry each time the history crosses HISTORY_MAX again.
+        #
+        # r215: if the kept-write fails after the archive write landed,
+        # roll the archive back and return the *input* hist, not the
+        # kept slice. The old order left the slice in the archive while
+        # HISTORY stayed full (duplicate on the next compaction), and
+        # returning kept would let the caller's subsequent write land
+        # a truncated HISTORY against an empty archive — data loss.
+        # Rollback + full-hist return keeps archive and HISTORY in
+        # agreement: either both compacted, or neither.
+        prev_existing = list(existing)
         problem = atomic_write_text(
-            HISTORY_ARCHIVE, json.dumps(existing + archive))
+            HISTORY_ARCHIVE, json.dumps(existing + archive, ensure_ascii=False))
         if problem:
             reasons.append("history archive could not be saved (%s)" % problem)
-        else:
-            reasons.append("archived %d history entries to %s" % (len(archive), HISTORY_ARCHIVE))
-            changed = True
-            problem = atomic_write_text(HISTORY, json.dumps(kept))
-            if problem:
-                reasons.append("compacted history could not be saved (%s)" % problem)
+            return hist, False, reasons
+        reasons.append("archived %d history entries to %s"
+                       % (len(archive), HISTORY_ARCHIVE))
+        problem = atomic_write_text(
+            HISTORY, json.dumps(kept, ensure_ascii=False))
+        if problem:
+            reasons.append("compacted history could not be saved (%s)" % problem)
+            rollback = atomic_write_text(
+                HISTORY_ARCHIVE,
+                json.dumps(prev_existing, ensure_ascii=False))
+            if rollback:
+                reasons.append(
+                    "history archive rollback also failed (%s); "
+                    "the next compaction may duplicate these entries"
+                    % rollback)
             else:
-                reasons.append("history compacted to %d entries" % len(kept))
+                reasons.append(
+                    "history archive rolled back; on-disk history "
+                    "is unchanged")
+            return hist, False, reasons
+        reasons.append("history compacted to %d entries" % len(kept))
+        changed = True
     return kept, changed, reasons
 
 
@@ -770,13 +865,22 @@ def last_verifier(book):
 def append_history(book, meta=None, hist=None, write=True):
     """Append one seam row; pure when the caller injects hist.
 
+    Returns ``(hist, compact_reasons, write_problem)``. ``write_problem``
+    is ``None`` on success and when ``write=False``; on a failed
+    persistence the returned ``hist`` is re-read from disk so the
+    caller's report matches what actually landed (r218).
+
     The r174 ``--from-stdin`` batch used to pay this function's
     read+write once per line (twice with ``--message``), so an
     interrupted 3-line batch left 2 rows on disk and a batch of N
     cost up to 2N writes. r210 lets the batch run the row math in
     memory (``hist=`` injection, ``write=False``) and land the
-    whole batch with ONE write at the caller. Standalone callers
-    (resume) keep the default behaviour byte for byte.
+    whole batch with ONE write at the caller. r211 extends the
+    injection to resume: the real path already called
+    ``read_history()`` for repair_reasons, then let this function
+    parse the same file a second time — the first list was
+    discarded. Injecting it keeps the single write and drops the
+    duplicate parse.
     """
     if hist is None:
         hist, _, _ = read_history()
@@ -812,10 +916,21 @@ def append_history(book, meta=None, hist=None, write=True):
     entry["risk"] = risk_level
     hist, _, compact_reasons = compact_history(hist)
     if write:
-        problem = atomic_write_text(HISTORY, json.dumps(hist))
+        # r212: ensure_ascii=False, matching mode_seam's batch write
+        # (r210) and history --keep. The default True escaped every
+        # CJK next/msg/error, so a resume after a seam re-escaped the
+        # whole file — bytes flipped between writers, and r184's
+        # identical-write short-circuit never fired for unchanged
+        # non-ASCII rows.
+        problem = atomic_write_text(HISTORY, json.dumps(hist, ensure_ascii=False))
         if problem:
             print("WARNING: recent seam history was not saved — " + problem, file=sys.stderr)
-    return hist, compact_reasons
+            # r218: the caller's report must match disk. Returning the
+            # in-memory hist (with the unsaved row) made resume --json
+            # claim history_count=N+1 while the file still held N.
+            hist, _, _ = read_history()
+            return hist, compact_reasons, problem
+    return hist, compact_reasons, None
 
 
 def observations(hist, meta=None, book=None, run=None, health=None):
@@ -849,7 +964,7 @@ def observations(hist, meta=None, book=None, run=None, health=None):
     marker_shaky_count = 0
     verifier_shaky_count = 0
     for h in run:
-        nexts.append(h.get("next"))
+        nexts.append(_row_next(h))
         _vr = h.get("verified", 0)
         if _vr:
             if first_verified_val is None:
@@ -860,23 +975,27 @@ def observations(hist, meta=None, book=None, run=None, health=None):
         if prev_open is not None and o <= prev_open:
             opens_mono = False
         prev_open = o
-        _m = h.get("marker")
+        # r230: strip — whitespace-only marker/confidence/verifier
+        # are not records. The old truthiness path counted blanks
+        # as tagged steps, so "same marker repeated" and "same
+        # verifier" fired on windows of spaces.
+        _m = _row_marker(h)
         if _m:
             markers.append(_m)
             has_phew = has_phew or _m == "PHEW"
-            if h.get("confidence") == "shaky":
+            if _row_confidence(h) == "shaky":
                 marker_shaky_count += 1
-        _c = h.get("confidence")
+        _c = _row_confidence(h)
         if _c:
             confidences.append(_c)
         if _c == "shaky":
             shaky_confidences.append(_c)
-        _v = h.get("verifier")
+        _v = _row_verifier(h)
         if _v:
             verifiers.append(_v)
             if _c == "shaky":
                 verifier_shaky_count += 1
-        if _vr and not h.get("outcome"):
+        if _vr and not _row_outcome(h):
             inaccessible += 1
     if inaccessible >= STALL_RUN:
         found.append(
@@ -1125,7 +1244,7 @@ def observations(hist, meta=None, book=None, run=None, health=None):
     vcs = verification_coverage_score(hist)
     if vcs < 100:
         found.append("Verification coverage low (%d/100); verification is thin." % vcs)
-    if any((h.get("confidence") or "").strip() for h in run):
+    if any(_row_confidence(h) for h in run):
         # Mirrors the round-14 score-layer gate: without labels the
         # detector collapses to one "unknown" bucket and 0 would punish
         # the absence that confidence_presence already reports.
@@ -1385,6 +1504,10 @@ def convergence_index(hist, run=None):
     zero volatility with nothing recorded is an absent signal, not an
     agreeing one. Without that read an unlabelled, risk-free window scored
     100 off silence alone.
+
+    The optional ``run`` argument is currently ignored; the window is
+    always the trailing STALL_RUN entries of ``hist`` (plus ``hist[-1]``
+    for the point signals).
     """
     if not hist or len(hist) < STALL_RUN:
         return 50
@@ -1398,8 +1521,7 @@ def convergence_index(hist, run=None):
     signals.append(conf_scores.get(conf, 0))
     mm = session_momentum(hist)
     signals.append(mm_scores.get(mm, 0))
-    tagged = any((h.get("confidence") or "").strip()
-                 for h in hist[-STALL_RUN:])
+    tagged = any(_row_confidence(h) for h in hist[-STALL_RUN:])
     if tagged:
         vol = confidence_volatility(hist)
         signals.append(-1 if vol >= 2 else (0 if vol == 1 else 1))
@@ -1427,7 +1549,7 @@ def pattern_persistence(hist, run=None):
         run = hist[-STALL_RUN:]
     def window_issues(seg):
         issues = set()
-        unique_nexts = {h.get("next") for h in seg if h.get("next")}
+        unique_nexts = {_row_next(h) for h in seg if _row_next(h)}
         verifieds = {h.get("verified", 0) for h in seg}
         if len(unique_nexts) <= 1 and unique_nexts:
             issues.add("stall")
@@ -1474,7 +1596,8 @@ def session_fatigue(hist, run=None):
     for h in run:
         v = h.get("verified", 0)
         v_set.add(v)
-        c = h.get("confidence")
+        # r236: strip — whitespace-only confidence is not a tag.
+        c = _row_confidence(h)
         if c_first is None:
             c_first = c
         elif c != c_first:
@@ -1532,7 +1655,7 @@ def drift_velocity(hist, run=None):
     sep_changes = 0
     prev_nxt = None
     for h in run:
-        nxt = h.get("next") or ""
+        nxt = _row_next(h)
         has_nxt = bool(nxt)
         if has_nxt:
             sep_count += 1
@@ -1555,7 +1678,8 @@ def verification_depth(hist, run=None):
         return 0
     if run is None:
         run = hist[-STALL_RUN:]
-    verifiers = {h.get("verifier") for h in run if h.get("verifier")}
+    # r231: strip — whitespace-only verifier is not a name.
+    verifiers = {_row_verifier(h) for h in run if _row_verifier(h)}
     return len(verifiers)
 
 
@@ -1634,7 +1758,7 @@ def cognitive_load_index(hist, run=None, ent=None):
     risk_high = False
     confidence_weak = False
     for h in run:
-        n = h.get("next")
+        n = _row_next(h)
         if n:
             nexts.add(n)
         if h.get("risk") in ("medium", "high"):
@@ -1674,7 +1798,9 @@ def resolution_rate(hist, run=None):
         run = hist[-STALL_RUN:]
     if not run:
         return 0.0
-    resolved = sum(1 for h in run if h.get("outcome") or h.get("verified", 0) > 0)
+    # r232: strip — whitespace-only outcome is not a resolution.
+    resolved = sum(1 for h in run
+                   if _row_outcome(h) or h.get("verified", 0) > 0)
     return resolved / float(len(run))
 
 
@@ -1769,10 +1895,12 @@ def evidence_weight(hist, run=None):
         return 0
     if run is None:
         run = hist[-STALL_RUN:]
-    verifier_set = {h.get("verifier") for h in run if h.get("verifier")}
+    # r231: strip — whitespace-only verifier is not a name.
+    verifier_set = {_row_verifier(h) for h in run if _row_verifier(h)}
     verified_count = sum(1 for h in run if h.get("verified", 0) > 0)
-    outcome_count = sum(1 for h in run if h.get("outcome"))
-    has_error = any(h.get("error") for h in run)
+    # r229: strip — whitespace-only outcome/error are not records.
+    outcome_count = sum(1 for h in run if _row_outcome(h))
+    has_error = any(_row_error(h) for h in run)
     weight = (
         min(len(verifier_set) * 10, 30)
         + min(verified_count * 8, 30)
@@ -1796,7 +1924,8 @@ def confidence_calibration_error(hist, run=None):
     for h in run:
         c = h.get("confidence", "")
         verified = h.get("verified", 0)
-        outcome = h.get("outcome")
+        # r233: strip — whitespace-only outcome is not documentation.
+        outcome = _row_outcome(h)
         if c == "strong" and not verified and not outcome:
             error += 20
         elif c == "strong" and (verified <= 1 or not outcome):
@@ -1848,7 +1977,10 @@ def learning_rate(hist, run=None):
         run = hist[-STALL_RUN:]
     if not run:
         return 0.0
-    evidence = sum(1 for h in run if h.get("verified", 0) > 0 or h.get("outcome") or h.get("error"))
+    # r233: strip — whitespace-only outcome/error are not evidence.
+    evidence = sum(1 for h in run
+                   if h.get("verified", 0) > 0
+                   or _row_outcome(h) or _row_error(h))
     return evidence / float(len(run))
 
 
@@ -1869,7 +2001,9 @@ def tension_resolution(hist, run=None):
     if not run:
         return 0
     has_phew = any(h.get("marker") == "PHEW" for h in run)
-    has_tension = any(h.get("open", 0) > 0 or h.get("error") or h.get("risk") == "high" for h in run)
+    # r233: strip — whitespace-only error is not tension.
+    has_tension = any(h.get("open", 0) > 0 or _row_error(h)
+                      or h.get("risk") == "high" for h in run)
     opens_first = run[0].get("open", 0)
     opens_last = run[-1].get("open", 0)
     stall_free = not detect_stall(hist, run=run)
@@ -1891,6 +2025,9 @@ def error_recovery_speed(hist, run=None):
     For each error entry, count steps until the next entry with verified>0 or
     an outcome. Smaller delays yield higher scores. No errors in history returns
     100; errors with no subsequent verified entry returns low scores.
+
+    The optional ``run`` argument is currently ignored; the window is
+    always the full ``hist``.
     """
     if not hist:
         return 100
@@ -1902,9 +2039,13 @@ def error_recovery_speed(hist, run=None):
     # used to score it the same as a one-step recovery.
     worst_delay = 4.0
     for i in range(len(hist) - 1, -1, -1):
-        if hist[i].get("verified", 0) > 0 or hist[i].get("outcome"):
+        # r229: strip — a whitespace-only outcome is not a recovery
+        # signal, and a whitespace-only error is not an error. The
+        # old truthiness path scored ``error="   "`` as an
+        # unrecovered error (0) and ``outcome="  "`` as a recovery.
+        if hist[i].get("verified", 0) > 0 or _row_outcome(hist[i]):
             next_recovery = i
-        elif hist[i].get("error"):
+        elif _row_error(hist[i]):
             if next_recovery >= len(hist):
                 total_delay += worst_delay
             else:
@@ -1921,6 +2062,9 @@ def outcome_completeness(hist, run=None):
 
     Strict outcome documentation shows closure discipline.  Each entry counts
     when it carries an explicit outcome string.
+
+    The optional ``run`` argument is currently ignored; the window is
+    always the full ``hist``.
     """
     if not hist:
         return 100
@@ -1928,7 +2072,8 @@ def outcome_completeness(hist, run=None):
     total = 0
     for h in hist:
         total += 1
-        if h.get("outcome"):
+        # r229: strip — whitespace-only outcome is not documentation.
+        if _row_outcome(h):
             outcome_count += 1
     if total == 0:
         return 100
@@ -1940,6 +2085,9 @@ def thread_management(hist, run=None):
 
     Counts unique next-action strings in the recent window versus how many
     of those strings appear alongside resolution (verified>0 or outcome).
+
+    The optional ``run`` argument is currently ignored; the window is
+    always the trailing STALL_RUN + 1 entries of ``hist``.
     """
     if not hist or len(hist) < STALL_RUN + 1:
         return 100
@@ -1947,10 +2095,11 @@ def thread_management(hist, run=None):
     threads = set()
     resolved = set()
     for h in recent:
-        n = h.get("next")
+        n = _row_next(h)
         if n:
             threads.add(n)
-            if h.get("verified", 0) > 0 or h.get("outcome"):
+            # r233: strip — whitespace-only outcome is not a resolution.
+            if h.get("verified", 0) > 0 or _row_outcome(h):
                 resolved.add(n)
     if not threads:
         return 100
@@ -1977,7 +2126,7 @@ def goal_alignment_score(hist, book=None, run=None):
     total = 0
     for h in window:
         total += 1
-        nxt = h.get("next")
+        nxt = _row_next(h)
         if nxt and goal_lower in nxt.lower():
             aligned += 1
     return int(aligned * 100 / float(total)) if total else 100
@@ -1998,7 +2147,8 @@ def cognitive_efficiency(hist, run=None):
     total = 0
     for h in run:
         total += 1
-        if h.get("verified", 0) > 0 or h.get("outcome"):
+        # r234: strip — whitespace-only outcome is not a deliverable.
+        if h.get("verified", 0) > 0 or _row_outcome(h):
             deliverables += 1
     return int(deliverables * 100 / float(total)) if total else 100
 
@@ -2020,7 +2170,9 @@ def verification_sincerity(hist, run=None):
     for h in run:
         if h.get("verified", 0) > 0:
             checked += 1
-            if h.get("verifier") or h.get("outcome") or h.get("reason"):
+            # r231: strip — whitespace-only verifier/outcome is not
+            # evidence of sincerity.
+            if _row_verifier(h) or _row_outcome(h) or h.get("reason"):
                 sincere += 1
     if checked == 0:
         return 100
@@ -2036,8 +2188,9 @@ def knowledge_retention(hist):
     """
     if not hist or len(hist) < 6:
         return 100
+    # r232: strip — whitespace-only error is not an error signature.
     error_sigs = [
-        h.get("error", "").strip().lower() for h in hist if h.get("error")
+        _row_error(h).lower() for h in hist if _row_error(h)
     ]
     if not error_sigs:
         return 100
@@ -2066,7 +2219,8 @@ def outcome_reliability(hist, run=None):
     claimed = 0
     reliable = 0
     for h in run:
-        o = h.get("outcome")
+        # r233: strip — whitespace-only outcome is not a claim.
+        o = _row_outcome(h)
         if not o:
             continue
         claimed += 1
@@ -2080,7 +2234,7 @@ def outcome_reliability(hist, run=None):
             if k in lo:
                 is_neg = True
                 break
-        if is_pos and not h.get("error") and h.get("open", 0) == 0 and h.get("verified", 0) > 0:
+        if is_pos and not _row_error(h) and h.get("open", 0) == 0 and h.get("verified", 0) > 0:
             reliable += 1
         elif is_neg:
             reliable += 1
@@ -2102,13 +2256,17 @@ def assumption_diversity(hist, book=None, run=None):
     read as a rich spread (91/100) — praise for a measurement that never
     happened.  A window whose recorded tags collapse to one bucket scores
     0, the uniform profile invariant 4 names.
+
+    The optional ``book`` argument is currently ignored; the measurement
+    is pure over ``hist``'s confidence tags (signature-uniform with the
+    other detectors, r43).
     """
     if not hist or len(hist) < STALL_RUN:
         return 100
     if run is None:
         run = hist[-STALL_RUN:]
     window = run
-    confidences = [c for h in window if (c := (h.get("confidence") or "").strip())]
+    confidences = [c for h in window if (c := _row_confidence(h))]
     counts = {}
     for c in confidences:
         counts[c] = counts.get(c, 0) + 1
@@ -2138,9 +2296,10 @@ def error_diversity(hist):
     text_counts = {}
     total = 0
     for h in window:
-        if h.get("error") or h.get("verified", 0) < 0:
+        # r232: strip — whitespace-only error is not an error event.
+        if _row_error(h) or h.get("verified", 0) < 0:
             total += 1
-            key = " ".join((h.get("pm", ""), h.get("error", ""), h.get("fact", ""))).strip()
+            key = " ".join((h.get("pm", ""), _row_error(h), h.get("fact", ""))).strip()
             text_counts[key] = text_counts.get(key, 0) + 1
     if total == 0:
         return 100
@@ -2167,13 +2326,14 @@ def risk_outcome_correlation(hist, run=None):
     low_err = 0
     for h in run:
         r = (h.get("risk") or "").lower()
+        # r232: strip — whitespace-only error is not an error event.
         if r == "high":
             high_count += 1
-            if h.get("error") or h.get("verified", 0) < 0:
+            if _row_error(h) or h.get("verified", 0) < 0:
                 high_err += 1
         elif r == "low":
             low_count += 1
-            if h.get("error") or h.get("verified", 0) < 0:
+            if _row_error(h) or h.get("verified", 0) < 0:
                 low_err += 1
     if not high_count or not low_count:
         return 100
@@ -2242,6 +2402,9 @@ def meta_stability(hist, run=None):
     Flips between confidence levels every step indicate uncontrolled
     volatility.  Stability = monotone or near-monotone sequence.
     100 = no changes; 0 = alternating every step.
+
+    The optional ``run`` argument is currently ignored; the window is
+    always the full ``hist``.
     """
     if not hist or len(hist) < 4:
         return 100
@@ -2302,6 +2465,9 @@ def reset_efficacy(hist, run=None):
 
     A sincere PHEW is followed by no recurrence of the prior error.
     Fake relief scores 0.
+
+    The optional ``run`` argument is currently ignored; the window is
+    always the full ``hist``.
     """
     if not hist or len(hist) < 2:
         return 100
@@ -2349,7 +2515,7 @@ def output_momentum(hist, run=None):
     unique_nexts = set()
     total_nexts = 0
     for h in run:
-        n = h.get("next")
+        n = _row_next(h)
         if n:
             unique_nexts.add(n)
             total_nexts += 1
@@ -2404,7 +2570,8 @@ def incomplete_verification(hist, run=None):
     for h in run:
         if h.get("verified", 0) > 0:
             total += 1
-            if h.get("outcome"):
+            # r232: strip — whitespace-only outcome is not documentation.
+            if _row_outcome(h):
                 complete += 1
     if total == 0:
         return 100
@@ -2497,7 +2664,7 @@ def step_retry_rate(hist, run=None):
     seen = set()
     total = 0
     for h in run:
-        n = h.get("next")
+        n = _row_next(h)
         if n:
             total += 1
             seen.add(n)
@@ -2514,6 +2681,9 @@ def story_switch_detection(hist, book=None, run=None):
 
     It measures whether the narrative domain stays stable within the short
     window and does not collapse because a new domain suddenly dominates.
+
+    The optional ``run`` argument is currently ignored; the window is
+    always the trailing STALL_RUN entries of ``hist``.
     """
     short, long = STALL_RUN, STALL_RUN * 2
     if not hist or (long >= 6 and len(hist) < long):
@@ -2523,7 +2693,7 @@ def story_switch_detection(hist, book=None, run=None):
     first_dom = None
     all_same = True
     for h in window:
-        dom = (h.get("next") or "").split(":", 1)[0].strip().lower()
+        dom = _row_next(h).split(":", 1)[0].strip().lower()
         if not dom and book:
             dom = (one(book, "Next") or "default").split(":", 1)[0].strip().lower()
         dom = dom or "default"
@@ -2546,7 +2716,7 @@ def story_switch_detection(hist, book=None, run=None):
         long_win = hist[-long:]
         ldom_counts = {}
         for h in long_win:
-            ld = (h.get("next") or "").split(":", 1)[0].strip().lower()
+            ld = _row_next(h).split(":", 1)[0].strip().lower()
             if not ld and book:
                 ld = (one(book, "Next") or "default").split(":", 1)[0].strip().lower()
             ld = ld or "default"
@@ -2573,7 +2743,8 @@ def complexity_emission_ratio(hist, run=None):
     for h in run:
         if h.get("extra_steps", 0) > 0:
             extra += 1
-        if h.get("verified", 0) > 0 or h.get("outcome"):
+        # r233: strip — whitespace-only outcome is not a delivery.
+        if h.get("verified", 0) > 0 or _row_outcome(h):
             delivered += 1
     if extra == 0:
         return 100
@@ -2588,6 +2759,9 @@ def narrative_knot_detector(hist, run=None):
 
     It measures whether the narrative becomes structured or unresolved.
     A low score indicates that the session is retreading older threads in the long-range window.
+
+    The optional ``run`` argument is currently ignored; the window is
+    always the trailing STALL_RUN / STALL_RUN * 2 split of ``hist``.
     """
     short, long = STALL_RUN, STALL_RUN * 2
     if not hist or len(hist) < long:
@@ -2596,8 +2770,9 @@ def narrative_knot_detector(hist, run=None):
     prior = hist[:-short]
     if not prior:
         return 100
-    prior_nexts = {(r.get("next") or "").strip().lower() for r in prior if r.get("next")}
-    short_retread = sum(1 for h in recent if (h.get("next") or "").strip().lower() in prior_nexts)
+    # r238: strip the filter too — whitespace-only next is not a prior.
+    prior_nexts = {_row_next(r).lower() for r in prior if _row_next(r)}
+    short_retread = sum(1 for h in recent if _row_next(h).lower() in prior_nexts)
     if short_retread == 0:
         return 100
     return max(0, int(100 - (short_retread * 100 / float(len(recent)))))
@@ -2641,7 +2816,7 @@ def domain_coverage_score(hist, run=None):
     run = hist[-short:]
     domains = set()
     for h in run:
-        dom = (h.get("next") or "").split(":", 1)[0].strip().lower()
+        dom = _row_next(h).split(":", 1)[0].strip().lower()
         if dom:
             domains.add(dom)
     if not domains:
@@ -2655,6 +2830,9 @@ def verification_temporal_bias(hist, run=None):
 
     Scores low when verification occurs only at the start or only at the end
     of the window, indicating selective rather than thorough verification.
+
+    The optional ``run`` argument is currently ignored; the window is
+    always the trailing STALL_RUN * 2 entries of ``hist``.
     """
     if not hist or len(hist) < STALL_RUN * 2:
         return 100
@@ -2685,7 +2863,7 @@ def ledger_stasis_detector(hist, book):
     matched = 0
     total = 0
     for h in run:
-        n = (h.get("next") or "").strip().lower()
+        n = _row_next(h).lower()
         total += 1
         if n == ledge_next:
             matched += 1
@@ -2710,8 +2888,8 @@ def risk_escalation_response(hist, run=None):
         r2 = (run[i + 1].get("risk") or "").lower()
         if r1 == "low" and r2 == "high":
             esc_count += 1
-            d1 = (run[i].get("next") or "").split(":", 1)[0].strip().lower()
-            d2 = (run[i + 1].get("next") or "").split(":", 1)[0].strip().lower()
+            d1 = _row_next(run[i]).split(":", 1)[0].strip().lower()
+            d2 = _row_next(run[i + 1]).split(":", 1)[0].strip().lower()
             if d1 != d2:
                 adapted += 1
     if esc_count == 0:
@@ -2736,9 +2914,10 @@ def verification_lead_time(hist, run=None):
         prev = run[i - 1]
         curr = run[i]
         prev_verified = prev.get("verified", 0) > 0
-        curr_open = curr.get("marker") in ("OPEN", "") or not curr.get("verified", 0)
+        # r235: strip — whitespace-only marker reads as unrecorded.
+        curr_open = _row_marker(curr) in ("OPEN", "") or not curr.get("verified", 0)
         curr_verified = curr.get("verified", 0) > 0
-        prev_open = prev.get("marker") in ("OPEN", "")
+        prev_open = _row_marker(prev) in ("OPEN", "")
         if prev_verified and curr_open:
             verify_then_act += 1
         elif curr_verified and prev_open:
@@ -2764,7 +2943,8 @@ def verifier_agreement(hist, run=None):
     run = hist[-(STALL_RUN * 2):]
     verifier_data = {}
     for h in run:
-        v = h.get("verifier")
+        # r231: strip — whitespace-only verifier is not a name.
+        v = _row_verifier(h)
         if not v:
             continue
         outcome = h.get("verified", 0)
@@ -2812,7 +2992,8 @@ def confidence_outcome_tracking(hist, run=None):
         c = h.get("confidence", "")
         if not c:
             continue
-        has_err = bool(h.get("error"))
+        # r233: strip — whitespace-only error is not an error.
+        has_err = bool(_row_error(h))
         verified = h.get("verified", 0) > 0
         pairs.append((c, verified, has_err))
     if not pairs:
@@ -2843,9 +3024,10 @@ def thread_abandonment(hist, run=None):
     for i in range(1, len(run)):
         prev = run[i - 1]
         curr = run[i]
-        if prev.get("error") or prev.get("outcome") == "error":
-            pd = (prev.get("next") or "").split(":", 1)[0].strip().lower()
-            cd = (curr.get("next") or "").split(":", 1)[0].strip().lower()
+        # r233: strip — whitespace-only error is not an error thread.
+        if _row_error(prev) or _row_outcome(prev) == "error":
+            pd = _row_next(prev).split(":", 1)[0].strip().lower()
+            cd = _row_next(curr).split(":", 1)[0].strip().lower()
             if pd == cd and (curr.get("extra_steps") or 0) > 0:
                 reentered += 1
             elif pd != cd:
@@ -2868,10 +3050,11 @@ def error_recovery_depth(hist, run=None):
     recoveries = []
     i = 0
     while i < len(run):
-        if run[i].get("error"):
+        # r233: strip — whitespace-only error is not an error event.
+        if _row_error(run[i]):
             depth = 0
             j = i + 1
-            while j < len(run) and run[j].get("error"):
+            while j < len(run) and _row_error(run[j]):
                 depth += 1
                 j += 1
             recoveries.append(depth)
@@ -2915,6 +3098,17 @@ def book_thread_alignment(hist, book, run=None):
     the last hist entry specifically against the most recent Open ledger
     row, not the generic Next plan. Scores low when the live action
     diverges from the live thread.
+
+    r240: the controller writes Open rows as
+    ``?NN question — settled by: test``. The old
+    ``split(":", 1)[0]`` landed on the colon inside ``settled by:``
+    and yielded a domain that could never match a next-action
+    prefix (r193 xfail). Now the question text is extracted
+    (``?NN`` prefix and `` — settled by:`` suffix stripped) and the
+    next-action domain is checked against it.
+
+    The optional ``run`` argument is currently ignored; the window is
+    always the last entry of ``hist``.
     """
     if isinstance(hist, dict):
         hist = [hist]
@@ -2923,13 +3117,24 @@ def book_thread_alignment(hist, book, run=None):
     opens = book.get("Open", [])
     if not opens:
         return 100
-    live_thread = opens[-1].strip().lower()
-    if not live_thread:
+    raw = opens[-1].strip()
+    if not raw:
         return 100
-    live_domain = live_thread.split(":", 1)[0].strip().lower()
+    # Extract the question text from the Open row.
+    question = OPEN_ID_RE.sub("", raw).strip()
+    if " — settled by:" in question:
+        question = question.split(" — settled by:", 1)[0].strip()
+    question = question.lower()
+    if not question:
+        return 100
     last = hist[-1]
-    hd = (last.get("next") or "").split(":", 1)[0].strip().lower()
-    return 100 if hd == live_domain else 0
+    nxt = _row_next(last)
+    hd = nxt.split(":", 1)[0].strip().lower()
+    # Aligned when the next-action domain appears in the question,
+    # or the question appears in the next action text.
+    if hd and (hd in question or question in nxt.lower()):
+        return 100
+    return 0
 
 
 def verifier_independence(hist, run=None):
@@ -2946,7 +3151,8 @@ def verifier_independence(hist, run=None):
     unique_count = 0
     total = 0
     for h in run:
-        v = h.get("verifier")
+        # r231: strip — whitespace-only verifier is not a name.
+        v = _row_verifier(h)
         if v:
             counts[v] = counts.get(v, 0) + 1
             total += 1
@@ -2974,7 +3180,7 @@ def output_stub_ratio(hist, run=None):
     stub_count = 0
     generic = ("todo", "next", "continue", "check", "review")
     for h in run:
-        nxt = (h.get("next") or "").strip()
+        nxt = _row_next(h)
         if not nxt or nxt.lower().startswith(generic) or len(nxt) <= 3:
             stub_count += 1
     ratio = 1.0 - stub_count / float(len(run))
@@ -2994,8 +3200,8 @@ def next_action_redundancy(hist, run=None):
         run = hist[-STALL_RUN:]
     redundant_pairs = 0
     for i in range(1, len(run)):
-        prev = (run[i - 1].get("next") or "").strip().lower()
-        curr = (run[i].get("next") or "").strip().lower()
+        prev = _row_next(run[i - 1]).lower()
+        curr = _row_next(run[i]).lower()
         if prev and curr and prev == curr:
             redundant_pairs += 1
     if not redundant_pairs:
@@ -3073,7 +3279,8 @@ def verification_completion_ratio(hist, run=None):
     attempts = 0
     completions = 0
     for h in run:
-        v = h.get("verifier")
+        # r231: strip — whitespace-only verifier is not an attempt.
+        v = _row_verifier(h)
         if v:
             attempts += 1
             if h.get("verified", 0):
@@ -3095,7 +3302,8 @@ def error_recovery_ratio(hist, run=None):
         return 100
     if run is None:
         run = hist[-STALL_RUN:]
-    error_indices = [i for i, h in enumerate(run) if h.get("error")]
+    # r232: strip — whitespace-only error is not an error event.
+    error_indices = [i for i, h in enumerate(run) if _row_error(h)]
     if not error_indices:
         return 100
     recovered = 0
@@ -3103,7 +3311,7 @@ def error_recovery_ratio(hist, run=None):
     for i in error_indices:
         if i + 1 < len(run):
             recoverable += 1
-            if not run[i + 1].get("error"):
+            if not _row_error(run[i + 1]):
                 recovered += 1
     if not recoverable:
         return 100
@@ -3125,7 +3333,8 @@ def error_silence_ratio(hist, run=None):
     total = 0
     substantive = 0
     for h in run:
-        err = (h.get("error") or "").strip()
+        # r234: route through the shared helper.
+        err = _row_error(h)
         if err:
             total += 1
             if len(err) >= 8:
@@ -3149,7 +3358,8 @@ def verifier_specificity(hist, run=None):
     total = 0
     specific = 0
     for h in run:
-        v = (h.get("verifier") or "").strip()
+        # r235: route through the shared helper.
+        v = _row_verifier(h)
         if v:
             total += 1
             if len(v) >= 8:
@@ -3176,7 +3386,7 @@ def next_action_specificity(hist, run=None):
                     "proceed", "move on", "go on", "keep going")
     specific = 0
     for h in run:
-        nxt = (h.get("next") or "").strip()
+        nxt = _row_next(h)
         if len(nxt) >= 12 and not nxt.lower().startswith(vague_starts):
             specific += 1
     ratio = specific / float(len(run))
@@ -3196,7 +3406,7 @@ def reasoning_depth_ratio(hist, run=None):
     )
     scored = 0
     for h in run:
-        nxt = (h.get("next") or "").strip().lower()
+        nxt = _row_next(h).lower()
         if not nxt:
             continue
         words = nxt.split()
@@ -3217,10 +3427,12 @@ def error_acknowledgment_ratio(hist, run=None):
     error_count = 0
     stopwords = {"that", "with", "from"}
     for h in run:
-        if h.get("error"):
+        # r232: strip — whitespace-only error is not an error event.
+        err = _row_error(h)
+        if err:
             error_count += 1
-            nxt_text = (h.get("next") or "").lower()
-            err_words = set((h.get("error") or "").lower().split())
+            nxt_text = _row_next(h).lower()
+            err_words = set(err.lower().split())
             meaningful = {w for w in err_words if len(w) > 3 and w not in stopwords}
             if meaningful and any(w in nxt_text for w in meaningful):
                 accountable += 1
@@ -3241,7 +3453,10 @@ def verification_coverage_score(hist, run=None):
         if not h.get("verified"):
             continue
         total += 1
-        evidence = (1 if h.get("outcome") else 0) + (1 if h.get("reason") else 0) + (1 if h.get("verifier") else 0)
+        # r231: strip — whitespace-only outcome/verifier is not evidence.
+        evidence = ((1 if _row_outcome(h) else 0)
+                    + (1 if h.get("reason") else 0)
+                    + (1 if _row_verifier(h) else 0))
         if evidence >= 2:
             covered += 1
     if not total:
@@ -3265,7 +3480,8 @@ def marker_transition_diversity(hist, run=None):
         return 100
     if run is None:
         run = hist[-STALL_RUN:]
-    recorded = [(h.get("marker") or "").strip() for h in run]
+    # r235: route through the shared helper.
+    recorded = [_row_marker(h) for h in run]
     recorded = [m for m in recorded if m]
     if len(recorded) < 2:
         return 100
@@ -3284,7 +3500,8 @@ def confidence_presence(hist, run=None):
         run = hist[-STALL_RUN:]
     present = 0
     for h in run:
-        if h.get("confidence"):
+        # r231: strip — whitespace-only confidence is not a tag.
+        if _row_confidence(h):
             present += 1
     ratio = present / float(len(run))
     return max(0, min(100, int(ratio * 100)))
@@ -3304,7 +3521,8 @@ def error_convergence(hist, run=None):
     dom_counts = {}
     total = 0
     for h in run:
-        err = (h.get("error") or "").strip().lower()
+        # r234: route through the shared helper.
+        err = _row_error(h).lower()
         if not err:
             continue
         dom = err.split(":")[0].strip().lower()
@@ -3331,7 +3549,7 @@ def marker_progression(hist, run=None):
         return 100
     if run is None:
         run = hist[-STALL_RUN:]
-    terminal = {"DONE", "PHEW", "CLOSED", "SETTLED", "RESOLVED", "CLOSED"}
+    terminal = {"DONE", "PHEW", "CLOSED", "SETTLED", "RESOLVED"}
     prev_marker = None
     marker_count = 0
     advancement = 0.0
@@ -3365,7 +3583,8 @@ def verification_freshness(hist, run=None):
         run = hist[-STALL_RUN:]
     stale = 0
     for h in run:
-        if not h.get("verifier") and not h.get("verified"):
+        # r231: strip — whitespace-only verifier is not a verifier.
+        if not _row_verifier(h) and not h.get("verified"):
             stale += 1
     if not stale:
         return 100
@@ -3447,7 +3666,11 @@ def _info_check_issues(book, hist, gap_seconds):
             if key not in row:
                 issues.append("history: row %d missing field %r"
                               % (index, key))
-        if not isinstance(row.get("t"), int):
+        if not isinstance(row.get("t"), int) or isinstance(row.get("t"), bool):
+            # r217: bool is a subclass of int, so a corrupted
+            # ``true`` timestamp used to pass this check while
+            # read_history's repair (which rejects bools) would
+            # have replaced it. Align the classifier with the repair.
             issues.append("history: row %d field 't' is not int"
                           % index)
     return issues
@@ -3596,13 +3819,19 @@ def assess_risk(hist):
         marker_values = []
         has_next_flag = False
         for row in hist[-4:]:
-            _c = row.get("confidence")
+            _c = _row_confidence(row)
             if _c:
                 confidence_values.append(_c)
-            _m = row.get("marker")
+            _m = _row_marker(row)
             if _m:
                 marker_values.append(_m)
-            if row.get("next"):
+            if _row_next(row):
+                # r227: whitespace-only next is empty, the way
+                # history --domains / --grep / --empty already
+                # treat it. The old truthiness check let ``"   "``
+                # count as a next action, so assess_risk never
+                # fired "no next actions" on a run of blanks while
+                # the domain miner reported zero domains.
                 has_next_flag = True
         levels = [CONFIDENCE_LEVEL.get(c, -1) for c in confidence_values]
         degrading_trend = (
@@ -3677,7 +3906,7 @@ def detect_stall(hist, run=None):
     next_ref = None
     next_all_same = True
     for h in run:
-        n = h.get("next")
+        n = _row_next(h)
         if n:
             if next_ref is None:
                 next_ref = n
@@ -3735,7 +3964,8 @@ def confidence_volatility(hist, run=None):
     changes = 0
     prev_lv = None
     for h in run:
-        c = h.get("confidence")
+        # r236: strip — whitespace-only confidence is not a tag.
+        c = _row_confidence(h)
         if c:
             lv = CONFIDENCE_LEVEL.get(c, -1)
             if prev_lv is not None and lv != prev_lv:
@@ -3766,7 +3996,8 @@ def confidence_decay_rate(hist, run=None):
     end_val = None
     valid_count = 0
     for h in run:
-        c = h.get("confidence")
+        # r236: strip — whitespace-only confidence is not a tag.
+        c = _row_confidence(h)
         if c:
             lv = CONFIDENCE_LEVEL.get(c, -1)
             if lv >= 0:
@@ -3798,7 +4029,7 @@ def stall_score(hist, decay=None, run=None):
     last_verified = None
     next_set = set()
     for h in run:
-        n = h.get("next")
+        n = _row_next(h)
         if n:
             if first_next is None:
                 first_next = n
@@ -3976,11 +4207,12 @@ def _fuse_run(hist, run=None):
     has_weak_conf = False
     has_verified = False
     for h in run:
-        n = h.get("next")
+        n = _row_next(h)
         if n:
             next_set.add(n)
             real_nexts.append(n)
-        c = h.get("confidence")
+        # r236: strip — whitespace-only confidence is not a tag.
+        c = _row_confidence(h)
         if c:
             lv = CONFIDENCE_LEVEL.get(c, -1)
             if lv >= 0:
@@ -4084,25 +4316,26 @@ def _health_window_facts(hist):
         if in_run:
             if h.get("verified", 0) > 0:
                 verified_in_run = True
-            c = h.get("confidence")
+            # r236: strip — whitespace-only confidence is not a tag.
+            c = _row_confidence(h)
             if c in ("strong", "shaky"):
                 hi_conf_in_run = True
             if c == "strong":
                 strong_conf_in_run = True
-            if (c or "").strip():
+            if c:
                 conf_label_in_run = True
-            if (h.get("verifier") or "").strip():
+            if _row_verifier(h):
                 verifier_in_run = True
-            if (h.get("marker") or "").strip():
+            if _row_marker(h):
                 marker_count += 1
-                if h.get("marker") == "DONE":
+                if _row_marker(h) == "DONE":
                     done_any3 = True
-            if (h.get("extra_steps") or 0) > 0 or h.get("verified", 0) > 0 or h.get("outcome"):
+            if (h.get("extra_steps") or 0) > 0 or h.get("verified", 0) > 0 or _row_outcome(h):
                 effort_or_delivery3 = True
-            _e = (h.get("error") or "").strip()
+            _e = _row_error(h)
             if _e:
                 err_events3x2_count += 1
-            has_n = bool((h.get("next") or "").strip())
+            has_n = bool(_row_next(h))
             if has_n:
                 next_in3_found = True
             if prev_has_next_run and has_n:
@@ -4111,11 +4344,12 @@ def _health_window_facts(hist):
         if h.get("verified", 0) > 0:
             verified_in_win6 = True
         if in_win4:
-            if h.get("error") or h.get("verified", 0) < 0:
+            # r232: strip — whitespace-only error is not an error event.
+            if _row_error(h) or h.get("verified", 0) < 0:
                 err_in_win4_count += 1
-            if (h.get("next") or "").strip():
+            if _row_next(h):
                 next_in_win4_found = True
-        _e_w6 = (h.get("error") or "").strip()
+        _e_w6 = _row_error(h)
         if _e_w6:
             err_in_win6_count += 1
         r = (h.get("risk") or "").lower()
@@ -4123,7 +4357,7 @@ def _health_window_facts(hist):
             risk_high_seen = True
         elif r == "low":
             risk_low_seen = True
-        if (h.get("next") or "").split(":", 1)[0].strip():
+        if _row_next(h).split(":", 1)[0].strip():
             domain_in_win6_found = True
     marker_pair_in_run = marker_count >= 2
     adjacent_next_pair_in_run = adj_next_pair
@@ -4138,14 +4372,15 @@ def _health_window_facts(hist):
         and (b.get("risk") or "").lower() == "high")
     vt6 = len(hist) >= STALL_RUN * 2 and _pair_seen(
         win6, lambda a, b: (a.get("verified", 0) > 0
-                            and (b.get("marker") in ("OPEN", "")
+                            and (_row_marker(b) in ("OPEN", "")
                                  or not b.get("verified", 0)))
-        or (b.get("verified", 0) > 0 and a.get("marker") in ("OPEN", "")))
+        or (b.get("verified", 0) > 0 and _row_marker(a) in ("OPEN", "")))
     va_measured = False
     if len(hist) >= STALL_RUN * 2:
         seen_names = {}
         for h in win6:
-            v = h.get("verifier")
+            # r236: strip — whitespace-only verifier is not a name.
+            v = _row_verifier(h)
             if v:
                 seen_names[v] = seen_names.get(v, 0) + 1
                 if seen_names[v] >= 2:
@@ -4155,9 +4390,10 @@ def _health_window_facts(hist):
     if len(hist) >= STALL_RUN + 1:
         for i in range(1, len(win4)):
             p = win4[i - 1]
-            if p.get("error") or p.get("outcome") == "error":
-                pd = (p.get("next") or "").split(":", 1)[0].strip().lower()
-                cd = (win4[i].get("next") or "").split(":", 1)[0].strip().lower()
+            # r233: strip — whitespace-only error is not an error event.
+            if _row_error(p) or _row_outcome(p) == "error":
+                pd = _row_next(p).split(":", 1)[0].strip().lower()
+                cd = _row_next(win4[i]).split(":", 1)[0].strip().lower()
                 if pd != cd or (pd == cd
                                 and (win4[i].get("extra_steps") or 0) > 0):
                     thread_evt4 = True
@@ -4166,7 +4402,7 @@ def _health_window_facts(hist):
     next_in4 = len(hist) >= STALL_RUN + 1 and next_in_win4_found
     domain_in6 = len(hist) >= STALL_RUN * 2 and domain_in_win6_found
     err_recoverable = any(
-        h.get("error") and h.get("verified", 0) == 0 and not h.get("outcome")
+        _row_error(h) and h.get("verified", 0) == 0 and not _row_outcome(h)
         for h in hist)
     return _WindowFacts(
         adjacent_next_pair_in_run=adjacent_next_pair_in_run,
@@ -4213,10 +4449,11 @@ def session_health_score(hist, book=None, run=None):
     confidence_hits = {"thin": 0, "shaky": 0}
     last_markers = []
     for row in recent:
-        c = row.get("confidence", "")
+        c = _row_confidence(row)
         if c in confidence_hits:
             confidence_hits[c] += 1
-        m = row.get("marker")
+        # r235: route through the shared helper.
+        m = _row_marker(row)
         if m:
             last_markers.append(m)
             if len(last_markers) > 2:
@@ -4891,8 +5128,9 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
     ``--quiet`` and ``--format`` are mutually exclusive renderers
     (r202, exit 2): the face dispatch made the format branch win and
     dropped quiet without a word, the shape r197/r198 refused in the
-    history family. ``--json`` stays the machine face everything
-    rides.
+    history family. ``--quiet`` and ``--json`` refuse the same way
+    (r222): the dispatcher checked json_flag first, so quiet vanished
+    under a full payload. ``--format`` still rides ``--json`` (r170).
     """
     # r202: refuse the renderer clash before the stdin read and any
     # ledger work — a host asking for one-word facts AND a scalar
@@ -4902,6 +5140,19 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
               "renderers; pick one.", file=sys.stderr)
         print("  the seam prints one face per call; --json carries "
               "the full payload either way.", file=sys.stderr)
+        return 2
+    # r222: --quiet and --json had the same silent-drop shape the
+    # r202 pair closed. The dispatcher checked ``json_flag or
+    # format_path`` first, so ``seam --quiet --json`` emitted the
+    # full payload and dropped the one-word-facts request without
+    # a word. Refuse the face pair; --format still rides --json
+    # (r170), the way a host that wants a scalar asks for one.
+    if quiet and json_flag:
+        print("CANNOT: --quiet and --json are mutually exclusive "
+              "faces; pick one.", file=sys.stderr)
+        print("  --quiet prints only the fact lines; --json "
+              "carries the full payload. A host that wants both "
+              "runs two invocations.", file=sys.stderr)
         return 2
     extra_nexts = []
     if from_stdin:
@@ -4937,6 +5188,7 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
     meta = read_meta() or {}
     rows_written = 0
     compact_reasons = []
+    history_write_ok = True
     if not dry_run:
         # r210: the batch runs the row math in memory and lands
         # with ONE history write. The old loop paid a read+write
@@ -4947,22 +5199,44 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
         # Final on-disk bytes are identical: append_history's row
         # math (entry, risk, compaction) runs per line exactly as
         # before, only the persistence moved out of the loop.
+        #
+        # r216: the loop temporarily sets book["Next"] so each
+        # history row records the line it came from. That mutation
+        # used to leak into the JSON face (payload.ledger.next
+        # reported the last stdin line, not the on-disk Next) and
+        # into the ledger-aware detectors that run afterwards
+        # (goal alignment, ledger plan). Restore the original Next
+        # before any report or score is built.
+        original_next = list(book.get("Next") or [])
         nexts_to_record = extra_nexts if extra_nexts else [None]
         for next_value in nexts_to_record:
             if next_value is not None:
                 book["Next"] = [next_value]
-            hist, compact_reasons = append_history(
+            hist, compact_reasons, _ = append_history(
                 book, meta=meta, hist=hist, write=False)
             if message:
                 hist[-1]["msg"] = message
             rows_written += 1
+        book["Next"] = original_next
         problem = atomic_write_text(
             HISTORY, json.dumps(hist, ensure_ascii=False))
         if problem:
             print("WARNING: could not write seam history — "
                   + problem, file=sys.stderr)
-    for key in METACOGNITION_EVENT_KEYS:
-        meta.pop(key, None)
+            # r218: drop the unsaved rows so the report matches disk.
+            hist, _, _ = read_history()
+            rows_written = 0
+            # r219: do not consume the event keys. The rows that
+            # would have carried error/outcome/extra_steps never
+            # landed; clearing meta here would drop those events
+            # forever. Leave them for the next successful seam.
+            history_write_ok = False
+    # r83: event keys are one-shot — written by note, consumed by
+    # the next seam, then cleared. r219 gates the clear on the
+    # history write actually landing.
+    if history_write_ok:
+        for key in METACOGNITION_EVENT_KEYS:
+            meta.pop(key, None)
     state_reasons = repair_reasons + compact_reasons
     # r186: score once, share twice. The health score is a pure
     # function of (hist, book), but the old order ran the full
@@ -4994,7 +5268,13 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
     # same way: the in-memory ``meta`` / ``extract_skillbook(hist)``
     # results still feed the report, they just do not land on disk.
     if not dry_run:
-        write_meta(meta)
+        # r213: surface write failures. write_meta used to discard
+        # atomic_write_text's problem, so a held lock or full disk
+        # left the host believing telemetry landed when it did not.
+        meta_problem = write_meta(meta)
+        if meta_problem:
+            print("WARNING: telemetry was not saved — " + meta_problem,
+                  file=sys.stderr)
         write_skillbook(extract_skillbook(hist))
     if json_flag or format_path is not None:
         payload = _seam_json_payload(book, hist, found, gap)
@@ -5161,7 +5441,15 @@ def mode_resume(book, json_flag=False, format_path=None, dry_run=False):
         hist, compact_reasons = hist, []
         state_reasons = repair_reasons
     else:
-        hist, compact_reasons = append_history(book)
+        # r211: inject the list this function already read. The
+        # old call let append_history parse history.json a second
+        # time — on the real path the first hist was discarded
+        # and only repair_reasons survived, so every resume paid
+        # two full reads of the same file. The injected list is
+        # the post-repair one (read_history persists repairs
+        # before returning), so on-disk bytes after the append
+        # are unchanged.
+        hist, compact_reasons, _ = append_history(book, hist=hist)
         state_reasons = repair_reasons + compact_reasons
     meta = read_meta() or {}
     risk = meta.get("risk")
@@ -5404,6 +5692,13 @@ def mode_note(book, args):
         changed = True
 
     meta = read_meta()
+    # r213: only write meta when a telemetry flag was actually
+    # accepted. The old gate was ``if meta``, so every ``note
+    # --next`` (and every mixed call with only ledger edits) still
+    # opened metacognition.json, took the write lock, and compared
+    # bytes — r184 made the rewrite a no-op, but the lock churn
+    # remained. ``note --next`` should touch WORKSPACE.md alone.
+    meta_dirty = False
     if getattr(args, "marker", None):
         # Detectors compare markers by exact equality ("PHEW", "OPEN"):
         # an untrimmed marker silently missed every settle and phase
@@ -5424,6 +5719,7 @@ def mode_note(book, args):
             markers.append(marker)
             if len(markers) > 5:
                 del markers[:-5]
+            meta_dirty = True
     if getattr(args, "confidence", None):
         if args.confidence not in ("strong", "thin", "shaky"):
             refused.append(
@@ -5439,6 +5735,7 @@ def mode_note(book, args):
             confidences.append(args.confidence)
             if len(confidences) > 5:
                 del confidences[:-5]
+            meta_dirty = True
     if getattr(args, "verifier", None):
         verifier = args.verifier.strip()
         if len(verifier) < 5:
@@ -5455,18 +5752,21 @@ def mode_note(book, args):
             verifiers.append(verifier)
             if len(verifiers) > 5:
                 del verifiers[:-5]
+            meta_dirty = True
     if getattr(args, "error", None) is not None:
         value, problem = clean_scalar(args.error)
         if problem:
             refused.append(("--error %s." % problem, '--error "domain: what broke"'))
         else:
             meta["error"] = value
+            meta_dirty = True
     if getattr(args, "outcome", None) is not None:
         value, problem = clean_scalar(args.outcome)
         if problem:
             refused.append(("--outcome %s." % problem, '--outcome "ok" or "failed: what blocked it"'))
         else:
             meta["outcome"] = value
+            meta_dirty = True
     if getattr(args, "extra_steps", None) is not None:
         if args.extra_steps < 0:
             refused.append(
@@ -5474,9 +5774,13 @@ def mode_note(book, args):
             )
         else:
             meta["extra_steps"] = args.extra_steps
-    if meta and not dry_run:
-        write_meta(meta)
-
+            meta_dirty = True
+    # r215: write the ledger before telemetry. The old order wrote
+    # meta first, so a failed ledger write left --marker recorded
+    # while --next was not — the primary artefact and the telemetry
+    # disagreed. Ledger-first means a ledger failure skips meta
+    # entirely, and a meta failure after a successful ledger write
+    # is a WARNING on an already-true ledger.
     if changed:
         if dry_run:
             # Borrowed from ``terraform plan``: the plan is the
@@ -5488,7 +5792,7 @@ def mode_note(book, args):
             for name in SECTIONS:
                 if original.get(name) != book[name]:
                     print("  ~ %s" % name)
-            if meta:
+            if meta_dirty:
                 print("  ~ meta")
             print("  No changes written. Re-run without --dry-run to apply.")
             for message, fix in refused:
@@ -5504,7 +5808,19 @@ def mode_note(book, args):
                   file=sys.stderr)
             print("  at each seam. Same discipline, different medium.",
                   file=sys.stderr)
+            if meta_dirty:
+                print("  telemetry was not written either; re-run "
+                      "the note once the ledger is writable.",
+                      file=sys.stderr)
             return 2
+    if meta_dirty and not dry_run:
+        # r213: surface the write. The old call discarded
+        # atomic_write_text's problem, so a held lock or full disk
+        # left the host believing --marker landed when it did not.
+        meta_problem = write_meta(meta)
+        if meta_problem:
+            print("WARNING: telemetry was not saved — " + meta_problem,
+                  file=sys.stderr)
     for message, fix in refused:
         declined(message, fix)
     if refused:
@@ -5517,7 +5833,14 @@ def mode_note(book, args):
         # echoing the unchanged ledger, the way
         # ``terraform plan`` reports "No changes."
         print("── mindseam ─ note (dry run)")
-        print("  No changes would be applied.")
+        if meta_dirty:
+            # r213: a telemetry-only note used to print "No changes
+            # would be applied" even though --marker/--confidence
+            # would have landed. The plan now names the meta write.
+            print("  ~ meta")
+            print("  No changes written. Re-run without --dry-run to apply.")
+        else:
+            print("  No changes would be applied.")
         return 0
     print_ledger(book)
     return 0
@@ -5679,13 +6002,16 @@ def mode_ship(book, text, strict=False, json_flag=False, format_path=None):
     found_marker = False
     for row in reversed(hist):
         if not found_conf:
-            confidence = row.get("confidence")
+            # r230: strip — a whitespace-only confidence is not a
+            # tag, so it must not gate delivery or claim a shaky
+            # settle.
+            confidence = _row_confidence(row)
             if confidence:
                 found_conf = True
                 if confidence == "shaky":
                     gate.append("shaky confidence was not settled before delivery")
         if not found_marker:
-            marker = row.get("marker")
+            marker = _row_marker(row)
             if marker:
                 found_marker = True
                 if marker != "PHEW":
@@ -5729,8 +6055,16 @@ def mode_ship(book, text, strict=False, json_flag=False, format_path=None):
         print("clean — the outgoing register holds.")
         return 0
     print("── mindseam ─ ship")
-    for f in findings[:7]:
+    for f in findings[:SHIP_FINDINGS_MAX]:
         print("· " + f)
+    if len(findings) > SHIP_FINDINGS_MAX:
+        # r226: heal summarises its overflow (HEAL_REPORT_MAX); ship
+        # used to drop the extras without a word. The JSON face always
+        # carries the full list; the text face now says how many it
+        # held back, the way a host that needs every finding knows to
+        # switch faces.
+        print("· ... %d more; the JSON face carries the full list."
+              % (len(findings) - SHIP_FINDINGS_MAX))
     if gate:
         print()
         print("Completion-gate observations:")
@@ -5954,6 +6288,57 @@ def mode_history(args):
               "both ends runs two invocations.", file=sys.stderr)
         return 2
     keep_n = getattr(args, "keep", None)
+    # r214: refuse a negative --keep the way audit --since and
+    # note --extra-steps refuse negatives. The old
+    # ``keep_n >= 0`` guard made ``history --keep -1`` a silent
+    # no-op — the host asked to rotate and the controller did
+    # nothing, with exit 0 and an unrotated file.
+    #
+    # r217: the rest of the numeric window flags had the same
+    # silent no-op. ``--head -1`` / ``--tail -2`` / ``--limit -3``
+    # all exited 0 reporting the full history. Refuse them the
+    # same way, before any read, so a host never gets a full
+    # result set it believes was narrowed.
+    for name, value in (
+        ("--keep", keep_n),
+        ("--head", getattr(args, "head", None)),
+        ("--tail", getattr(args, "tail", None)),
+        ("--limit", getattr(args, "limit", None)),
+    ):
+        if value is not None and value < 0:
+            print("CANNOT: %s expects a non-negative count, got %d"
+                  % (name, value), file=sys.stderr)
+            print("  0 is allowed (%s); a negative value is not a "
+                  "window." % name, file=sys.stderr)
+            return 2
+    # r220: --since/--until speak the same three shapes as audit
+    # (r173). The help text has always advertised ``30m``, but
+    # argparse was ``type=int`` so a span died in the parser with
+    # a usage error instead of the CANNOT family. Parse once here
+    # so the window block, the label, and the filter agree.
+    now_ts = int(time.time())
+    since_seconds = getattr(args, "since", None)
+    until_seconds = getattr(args, "until", None)
+    for flag_name, raw in (("--since", since_seconds),
+                           ("--until", until_seconds)):
+        seconds, reason = parse_window_value(raw, now_ts)
+        if reason is not None:
+            print("CANNOT: %s %s." % (flag_name, reason),
+                  file=sys.stderr)
+            print("  accepted: a number of seconds (3600), a span "
+                  "(30s / 45m / 12h / 7d / 2w), or an ISO-8601 date "
+                  "(2026-09-01)", file=sys.stderr)
+            return 2
+        if flag_name == "--since":
+            since_seconds = seconds
+        else:
+            until_seconds = seconds
+    for flag_name, value in (("--since", since_seconds),
+                             ("--until", until_seconds)):
+        if value is not None and value < 0:
+            print("CANNOT: %s expects non-negative seconds, got %r"
+                  % (flag_name, value), file=sys.stderr)
+            return 2
     # r182: read history ONCE up front. The old code called
     # ``read_history()`` three times along the --keep path (a
     # length check, the truncation read, then an unconditional
@@ -5972,9 +6357,20 @@ def mode_history(args):
         problem = atomic_write_text(
             HISTORY, json.dumps(truncated, ensure_ascii=False))
         if problem:
+            # r214: a failed rotation must not present a truncated
+            # view. The old code warned and then did
+            # ``hist = truncated`` anyway, so
+            # ``history --keep 3 --count`` printed 3 while the
+            # file still held 10 rows — the host's next read would
+            # see the un-rotated history. Keep the full list; the
+            # warning already said the file did not move.
             print("WARNING: could not rotate history.json — "
                   + problem, file=sys.stderr)
-        hist = truncated
+            print("  the on-disk history is unchanged; this run "
+                  "reports the full %d rows." % len(hist),
+                  file=sys.stderr)
+        else:
+            hist = truncated
     # Borrowed from ``docker ps --filter name=value`` /
     # ``kubectl get --field-selector status=Running``: keep only the
     # rows whose field equals the given value, one ``key=value`` pair
@@ -6021,18 +6417,18 @@ def mode_history(args):
         hist = hist[:head_n] if hist else []
     elif tail_n is not None and tail_n >= 0:
         hist = hist[-tail_n:] if hist else []
-    since_seconds = getattr(args, "since", None)
-    if since_seconds is not None and since_seconds >= 0:
-        cutoff = int(time.time()) - since_seconds
+    # r220: since_seconds / until_seconds were parsed once at the
+    # top via parse_window_value (seconds, span, or ISO date).
+    if since_seconds is not None:
+        cutoff = now_ts - since_seconds
         hist = [row for row in hist if int(row.get("t") or 0) >= cutoff]
-    until_seconds = getattr(args, "until", None)
-    if until_seconds is not None and until_seconds >= 0:
+    if until_seconds is not None:
         # Borrowed from ``git log --until="2024-01-01"``: the
         # upper bound on the time window. ``--since`` keeps the
         # fresh rows; ``--until`` drops the fresh ones. Together
         # they bracket a window, the way the same flags do on
         # ``docker logs``, ``journalctl`` and ``find -newer``.
-        cutoff = int(time.time()) - until_seconds
+        cutoff = now_ts - until_seconds
         hist = [row for row in hist if int(row.get("t") or 0) <= cutoff]
     grep_text = getattr(args, "grep", None)
     exclude_text = getattr(args, "exclude", None)
@@ -6169,7 +6565,7 @@ def mode_history(args):
         counts = {}
         total = 0
         for row in hist:
-            nxt = (row.get("next") or "").strip()
+            nxt = _row_next(row)
             if not nxt:
                 continue
             domain = nxt.split(":", 1)[0].strip().lower() or "(none)"
@@ -6262,7 +6658,7 @@ def mode_history(args):
             if use_msg:
                 key = (row.get("msg") or "").strip()
             else:
-                key = (row.get("next") or "").strip()
+                key = _row_next(row)
             if key in seen:
                 continue
             seen.add(key)
@@ -6300,7 +6696,7 @@ def mode_history(args):
         # the text path prints one row index per line, the way
         # ``git log --grep='^$'`` does.
         hist = [row for row in hist
-                if not (row.get("next") or "").strip()]
+                if not _row_next(row)]
         if args.json:
             print(json.dumps({
                 "history_count": len(hist),
@@ -6973,7 +7369,7 @@ _FEATURE_CATALOG = (
      "summary": "info --explain joined the r200 short-circuit-face set (face-vs-face and renderer clashes refused in the dispatcher) and the explain branch itself refuses the remaining payload flags (exit 2, naming them): it answers from the static catalog and builds no payload, so --manifest/--mtime/--health/... alongside it were silently dropped",
      "default": True},
     {"id": "seam-quiet-format-exclusive", "since": "r202",
-     "summary": "seam --quiet and --format refuse to compose (exit 2 before the stdin read and any ledger work): the face dispatch made the format branch win and dropped quiet without a word — the r197/r198 history renderer family arriving on seam; --json stays the machine face everything rides",
+     "summary": "seam --quiet and --format refuse to compose (exit 2 before the stdin read and any ledger work): the face dispatch made the format branch win and dropped quiet without a word — the r197/r198 history renderer family arriving on seam; r222 later closed --quiet/--json the same way",
      "default": True},
     {"id": "seam-from-stdin-dry-run-tense", "since": "r203",
      "summary": "seam --from-stdin --dry-run warns 'N next actions WOULD BE recorded', not 'recorded': the append loop is gated on not dry_run (r183), so the past-tense warning sat in the same warnings list as 'dry-run: history.json was not updated' and contradicted it — the count is the same fact, the completion is not",
@@ -6995,6 +7391,96 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "seam-from-stdin-single-write", "since": "r210",
      "summary": "seam --from-stdin lands the whole batch with ONE history write: append_history grew hist=/write= injection parameters so the row math (entry, risk, compaction) still runs per line in memory, but the old loop's read+write per line (two with --message) is gone — a 3-line batch cost up to 6 writes and an interrupted batch left a partial commit, the opposite of the kubectl apply -f - transaction the flag borrows; final on-disk bytes are unchanged",
+     "default": True},
+    {"id": "resume-hist-injection", "since": "r211",
+     "summary": "mode_resume injects the history it already read into append_history (hist=): the real path called read_history() for repair_reasons, then let append_history parse the same file a second time and discarded the first list — every resume paid two full reads of history.json; the injected list is the post-repair one, so on-disk bytes after the append are unchanged and dry-run still reads once and writes nothing",
+     "default": True},
+    {"id": "windows-pid-probe", "since": "r211",
+     "summary": "_pid_is_alive no longer calls os.kill(pid, 0) on Windows: Python routes any signal other than CTRL_C_EVENT/CTRL_BREAK_EVENT to TerminateProcess, so the 'is this lock holder alive?' probe killed the process it named — including the caller when the write.lock recorded our own PID and info --json serialized lock_state mid-dumps; Windows now probes via OpenProcess + GetExitCodeProcess (STILL_ACTIVE), POSIX keeps the zero-signal kill",
+     "default": True},
+    {"id": "history-ensure-ascii-false", "since": "r212",
+     "summary": "every history/meta JSON write uses ensure_ascii=False: append_history, read_history's repair save, compact_history's archive+kept, and write_meta still used the default True (escaped CJK as \\uXXXX) while mode_seam's r210 batch and history --keep already wrote raw UTF-8 — a resume after a seam re-escaped the whole file, bytes flipped between writers, and r184's identical-write short-circuit never fired for unchanged non-ASCII rows",
+     "default": True},
+    {"id": "note-meta-dirty-and-warn", "since": "r213",
+     "summary": "note only writes metacognition.json when a telemetry flag was accepted (meta_dirty), so note --next touches WORKSPACE.md alone instead of also taking the meta write lock; write_meta's return value is no longer discarded in note and seam (WARNING: telemetry was not saved), write_skillbook surfaces atomic_write_text failures too, and note --dry-run names a would-be meta write instead of claiming 'No changes would be applied' on a telemetry-only call",
+     "default": True},
+    {"id": "history-keep-write-honesty", "since": "r214",
+     "summary": "history --keep no longer presents a truncated view when the rotation write fails (the old code warned then did hist=truncated anyway, so --keep 3 --count printed 3 while the file still held 10 rows) and refuses a negative --keep with exit 2 instead of silently no-oping under the keep_n >= 0 guard",
+     "default": True},
+    {"id": "compact-archive-retry-and-note-order", "since": "r215",
+     "summary": "compact_history rolls the archive back when the kept-write fails after the archive write landed (the old order left the slice in the archive while HISTORY stayed full, so the next compaction duplicated those rows), and mode_note writes the ledger before telemetry so a failed ledger write no longer leaves --marker recorded while --next was not",
+     "default": True},
+    {"id": "seam-from-stdin-restore-next", "since": "r216",
+     "summary": "seam --from-stdin restores book['Next'] after the batch: the loop temporarily set Next so each history row recorded its line, but the mutation leaked into the JSON face (payload.ledger.next reported the last stdin line while the on-disk Next was unchanged) and into the ledger-aware detectors that run afterwards (goal alignment, ledger plan)",
+     "default": True},
+    {"id": "history-negative-window-refusal", "since": "r217",
+     "summary": "history --head/--tail/--limit/--since/--until refuse a negative value with exit 2 (the keep_n >= 0 family): all five used to silent-no-op under the >= 0 guards and report the full history with exit 0, the same class of lie r214 closed for --keep; info --check also rejects a bool timestamp the way read_history's repair does",
+     "default": True},
+    {"id": "append-write-failure-disk-truth", "since": "r218",
+     "summary": "append_history returns (hist, compact_reasons, write_problem) and re-reads disk when the write fails, so resume --json no longer claims history_count=N+1 while the file still holds N; mode_seam's batch write failure likewise re-reads and zeroes rows_written",
+     "default": True},
+    {"id": "seam-event-keys-need-history-write", "since": "r219",
+     "summary": "seam only clears METACOGNITION_EVENT_KEYS (error/outcome/extra_steps) when the history write lands: a failed write used to drop the events from meta anyway, so the rows that would have carried them never landed and the next seam could not consume them either — one-shot events were lost twice",
+     "default": True},
+    {"id": "history-window-grammar", "since": "r220",
+     "summary": "history --since/--until accept the r173 three-shape grammar (seconds, span 30m/12h/7d, ISO-8601 date) via parse_window_value, the same as audit: the help text has always advertised 'like docker logs --since 30m' but argparse was type=int so a span died in the parser with a usage error instead of the CANNOT family",
+     "default": True},
+    {"id": "history-window-grammar-docs", "since": "r221",
+     "summary": "SKILL.md / README.md / README.zh-CN.md document the r220 history --since/--until span grammar (the r221 follow-on to the r220 parser fix): the help text advertised 30m but the three user-facing docs still showed only bare seconds for history, the same class of doc-drift r69 pins for flags",
+     "default": True},
+    {"id": "seam-quiet-json-exclusive", "since": "r222",
+     "summary": "seam --quiet and --json refuse to compose (exit 2, naming both, before any ledger work): the dispatcher checked json_flag first so --quiet --json emitted the full payload and dropped the one-word-facts request without a word — the r202 quiet+format pair arriving on the json face; --format still rides --json (r170)",
+     "default": True},
+    {"id": "run-ignored-disclosure-complete", "since": "r223",
+     "summary": "ten detectors that declare run and never read it (convergence_index, error_recovery_speed, outcome_completeness, thread_management, meta_stability, reset_efficacy, story_switch_detection, narrative_knot_detector, verification_temporal_bias, book_thread_alignment) now disclose 'currently ignored' the way the r74 overwrite family does; the r74 guard gained a second scanner for the never-loaded case",
+     "default": True},
+    {"id": "discover-domain-lowercase", "since": "r224",
+     "summary": "discover lowercases the next-action domain prefix the way history --domains already did: Build / build / BUILD used to count as three domains in discover (and could win suggested_next as three separate 1-visit entries) while history --domains merged them into one 3-visit domain",
+     "default": True},
+    {"id": "skillbook-hard-domain-lowercase", "since": "r225",
+     "summary": "extract_skillbook lowercases the hard-pattern domain the way discover (r224) and history --domains do: Build / build used to mine as two hard patterns, each missing SKILLBOOK_MIN_RECURRENCE alone",
+     "default": True},
+    {"id": "ship-findings-max-constant", "since": "r226",
+     "summary": "ship's text-face findings cap is the named SHIP_FINDINGS_MAX constant (7) instead of a magic [:7], and an overflow line names the held-back count the way heal names HEAL_REPORT_MAX — the cap sits above the five finding sources ship can emit, so the notice is a safety contract rather than a live path",
+     "default": True},
+    {"id": "assess-risk-whitespace-next", "since": "r227",
+     "summary": "assess_risk's 'no next actions' check strips whitespace the way history --domains / --grep / --empty already do: a run of whitespace-only next values used to count as having next actions (truthy string) so the high-risk reason never fired, while the domain miner reported zero domains",
+     "default": True},
+    {"id": "detector-whitespace-next", "since": "r228",
+     "summary": "the detectors that count unique/real nexts (pattern_persistence, drift_velocity, cognitive_load_index, thread_management, action diversity, output redundancy, detect_stall, stall_score, _fuse_run, goal_alignment, observations) strip via _row_next the way assess_risk (r227) and the history faces do: whitespace-only next used to count as a live next, so stall/diversity/redundancy measured blanks as actions",
+     "default": True},
+    {"id": "detector-whitespace-error-outcome", "since": "r229",
+     "summary": "_row_error / _row_outcome strip whitespace-only error and outcome the way _row_next (r228) strips next: error_recovery_speed scored error=\"   \" as an unrecovered error (0) while empty scored 100, outcome_completeness scored outcome=\"  \" as perfect documentation while empty scored 0 — evidence_weight joins the strip family",
+     "default": True},
+    {"id": "detector-whitespace-marker-conf-ver", "since": "r230",
+     "summary": "_row_marker / _row_confidence / _row_verifier strip whitespace-only tags the way _row_next/error/outcome do: observations, assess_risk, and ship's gate counted blanks as tagged steps, so 'same marker repeated' / 'same verifier' / shaky-confidence delivery gates fired on windows of spaces",
+     "default": True},
+    {"id": "detector-whitespace-verifier-evidence", "since": "r231",
+     "summary": "the remaining verifier-set and evidence detectors (verification_depth, evidence_weight, verification_sincerity, verification_coverage, confidence_presence, verification_freshness, verifier_agreement, verifier_independence, verifier_specificity) strip via _row_verifier/_row_confidence/_row_outcome: whitespace-only verifier used to count as a unique name and as evidence of sincerity, and whitespace confidence counted as a tagged step",
+     "default": True},
+    {"id": "detector-whitespace-error-outcome-final", "since": "r232",
+     "summary": "the remaining error/outcome truthiness sites (resolution_rate, knowledge_retention, risk-error correlation, verification_completion, error_recovery_depth, error_focus, fusion err windows) strip via _row_error/_row_outcome: whitespace-only error/outcome still counted as events after r229 fixed the first three detectors",
+     "default": True},
+    {"id": "detector-whitespace-error-outcome-sweep", "since": "r233",
+     "summary": "the last error/outcome truthiness sites (confidence_calibration_error, evidence_ratio, tension_resolution, thread_management resolution, outcome_reliability, lean reasoning delivery, confidence_verification_alignment, thread_abandonment, error_recovery_depth, fusion err_recoverable/thread_evt4) strip via _row_error/_row_outcome — the r229/r232 family closed across every remaining detector",
+     "default": True},
+    {"id": "detector-field-helpers-unified", "since": "r234",
+     "summary": "cognitive_efficiency's deliverable check strips whitespace outcome, and the remaining inline (get(\"error\") or \"\").strip() call sites (error_silence, error_convergence, extract_skillbook, fusion flags) route through the shared _row_* helpers so every free-text field read goes through one normalisation",
+     "default": True},
+    {"id": "detector-field-helpers-tags", "since": "r235",
+     "summary": "the remaining inline marker/confidence/verifier strips (assumption_diversity gate, convergence tagged check, assumption_diversity window, verify-then-act OPEN, verifier_specificity, marker_transition_diversity, fusion last_markers) route through _row_marker/_row_confidence/_row_verifier — every free-text history field now goes through one helper",
+     "default": True},
+    {"id": "detector-field-truthiness-final", "since": "r236",
+     "summary": "the last confidence/marker/verifier truthiness sites (convergence c_first, confidence_volatility, confidence_decay_rate, fusion c/win6 verifier/vt6 marker) strip via _row_confidence/_row_marker/_row_verifier — whitespace-only tags no longer count as tagged steps anywhere in the detector layer",
+     "default": True},
+    {"id": "detector-field-helpers-next", "since": "r237",
+     "summary": "the 25 remaining inline (get(\"next\") or \"\").strip() call sites route through _row_next — every free-text history field (next, error, outcome, marker, confidence, verifier) now goes through one helper, with a source-scan guard against hand-rolled strips",
+     "default": True},
+    {"id": "retread-prior-strip-and-book-disclosure", "since": "r238",
+     "summary": "narrative_knot_detector's prior_nexts set comprehension strips the filter (whitespace-only prior is not a prior), and assumption_diversity discloses its unused book parameter the way the r223 run-ignored family does — the last truthiness filter and the last undisclosed unused param",
+     "default": True},
+    {"id": "book-thread-alignment-open-format", "since": "r240",
+     "summary": "book_thread_alignment extracts the question text from the Open row (?NN prefix and ' — settled by:' suffix stripped) and checks the next-action domain against it: the old split(\":\", 1)[0] landed on the colon inside 'settled by:' and the detector could never fire on any ledger the controller writes (r193 xfail removed)",
      "default": True},
 )
 
@@ -7905,27 +8391,33 @@ def extract_skillbook(hist):
     """
     counts = {}
     for index, h in enumerate(hist, 1):
-        err = (h.get("error") or "").strip()
+        # r234: route through the shared helpers.
+        err = _row_error(h)
         if err:
             entry = counts.setdefault(
                 ("error", err),
                 {"count": 0, "utility": 0, "first": index, "last": index})
             entry["count"] += 1
             entry["last"] = index
-            outcome = (h.get("outcome") or "").strip().lower()
+            outcome = _row_outcome(h).lower()
             if outcome.startswith("ok"):
                 entry["utility"] += 1
             elif outcome:
                 entry["utility"] -= 1
-        nxt = (h.get("next") or "").strip()
-        domain = nxt.split(":", 1)[0].strip() if ":" in nxt else ""
+        nxt = _row_next(h)
+        # r225: lowercase the hard-pattern domain the way discover
+        # (r224) and history --domains do. The old code kept the raw
+        # prefix, so ``Build`` / ``build`` mined as two hard patterns
+        # and each missed SKILLBOOK_MIN_RECURRENCE alone.
+        domain = nxt.split(":", 1)[0].strip().lower() if ":" in nxt else ""
         if domain and (h.get("extra_steps") or 0) > 0:
             entry = counts.setdefault(
                 ("hard", domain),
                 {"count": 0, "utility": 0, "first": index, "last": index})
             entry["count"] += 1
             entry["last"] = index
-            outcome = (h.get("outcome") or "").strip().lower()
+            # r234: route through the shared helper.
+            outcome = _row_outcome(h).lower()
             if outcome.startswith("ok"):
                 entry["utility"] += 1
             elif outcome:
@@ -7963,8 +8455,15 @@ def write_skillbook(entries):
     problem = ensure_dir()
     if problem:
         print("WARNING: skillbook was not saved — " + problem, file=sys.stderr)
-        return
-    atomic_write_text(SKILLBOOK, json.dumps(entries, ensure_ascii=False, indent=2))
+        return problem
+    # r213: surface the write itself. The old helper returned after
+    # ensure_dir and then discarded atomic_write_text's problem, so a
+    # full disk or a held lock vanished without a word.
+    problem = atomic_write_text(
+        SKILLBOOK, json.dumps(entries, ensure_ascii=False, indent=2))
+    if problem:
+        print("WARNING: skillbook was not saved — " + problem, file=sys.stderr)
+    return problem
 
 
 def mode_skillbook(json_flag=False, format_path=None):
@@ -8021,10 +8520,15 @@ def mode_discover(json_flag=False, format_path=None):
     hist = read_history()[0]
     visits = {}
     for h in hist:
-        nxt = (h.get("next") or "").strip()
+        nxt = _row_next(h)
         if not nxt or ":" not in nxt:
             continue
-        domain = nxt.split(":", 1)[0].strip()
+        # r224: lowercase the domain the way ``history --domains``
+        # does. The old code kept the raw prefix, so ``Build`` /
+        # ``build`` / ``BUILD`` counted as three domains (probe:
+        # discover listed 3 entries for 3 casings of one domain;
+        # history --domains already merged them into one).
+        domain = nxt.split(":", 1)[0].strip().lower()
         if domain:
             visits[domain] = visits.get(domain, 0) + 1
     ranked = [
@@ -8054,12 +8558,6 @@ def mode_discover(json_flag=False, format_path=None):
     return 0
 
 
-# Borrowed from DietrichGebert/ponytail (MIT): the read-only audit that
-# emits tagged one-line findings ranked biggest first and closes with
-# "Lean already. Ship." when there is nothing to cut. Ponytail audits
-# code for over-engineering; the seam audit applies the same shape to
-# the ledger — the artefact this controller actually keeps. Report
-# only: audit never writes, and findings never gate unless --strict.
 # Borrowed from DietrichGebert/ponytail (MIT): the read-only audit that
 # emits tagged one-line findings ranked biggest first and closes with
 # "Lean already. Ship." when there is nothing to cut. Ponytail audits
@@ -8274,7 +8772,7 @@ def audit_findings(book, hist):
              })
 
     blank_rows = [i for i, h in enumerate(hist, 1)
-                  if not (h.get("next") or "").strip()]
+                  if not _row_next(h)]
     if blank_rows:
         emit("shrink",
              "%d history row%s carry a blank next action"
@@ -8305,7 +8803,7 @@ def audit_findings(book, hist):
         recent_rows = list(range(len(hist) - len(recent) + 1, len(hist) + 1))
         stale_local = [i for i, h in enumerate(recent)
                        if not (h.get("goal") or "").strip()
-                       and (h.get("next") or "").strip()]
+                       and _row_next(h)]
         if len(stale_local) == len(recent):
             emit("goal-stale",
                  "Goal has not been re-anchored in the last %d seams"
@@ -8334,7 +8832,7 @@ def audit_findings(book, hist):
         recent_rows = list(range(len(hist) - len(recent) + 1, len(hist) + 1))
         counts = {}
         for offset, h in enumerate(recent):
-            nxt = (h.get("next") or "").strip()
+            nxt = _row_next(h)
             if nxt:
                 counts.setdefault(nxt, []).append(recent_rows[offset])
         repeats = [(n, idxs) for n, idxs in counts.items() if len(idxs) >= 3]
@@ -9187,14 +9685,14 @@ def main(argv=None):
         help="emit machine-readable output for the discoverability layer")
     hist_p.add_argument("--reverse", action="store_true",
         help="show oldest first (like git log --reverse), default is newest first")
-    hist_p.add_argument("--since", dest="since", type=int, default=None,
-        help="keep only rows from the last N seconds (like docker logs --since 30m)")
+    hist_p.add_argument("--since", dest="since", default=None,
+        help="keep only rows from the last N seconds, a span (30s / 45m / 12h / 7d / 2w), or an ISO-8601 date (like docker logs --since 30m / git log --since); r173 grammar shared with audit")
     hist_p.add_argument("--grep", dest="grep", default=None,
         help="keep only rows whose next action contains TEXT (like git log --grep)")
     hist_p.add_argument("--exclude", dest="exclude", default=None,
         help="drop rows whose next action or msg contains TEXT (like git log --invert-grep)")
-    hist_p.add_argument("--until", dest="until", type=int, default=None,
-        help="drop rows newer than N seconds ago (like git log --until, the upper bound on --since)")
+    hist_p.add_argument("--until", dest="until", default=None,
+        help="drop rows newer than N seconds / a span / an ISO-8601 date ago (like git log --until, the upper bound on --since)")
     hist_p.add_argument("--keep", dest="keep", type=int, default=None,
         help="discard rows older than the last N and persist the slimmed history (like logrotate --keep, docker system prune)")
     hist_p.add_argument("--dedup", dest="dedup", action="store_true",

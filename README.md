@@ -158,6 +158,7 @@ the task workspace as the current directory.
 | `audit --tag core-drift,next-stall` | Only the listed tags; unknown tags refuse with exit 2 (like `gh pr list --label`). Tag set: `delete`, `stdlib`, `yagni`, `shrink`, `goal-stale`, `next-stall`, `core-drift`. Evidence rides through the projection |
 | `audit --since 3600` | Only the last hour of history feeds the facet tags; ledger surface tags keep operating on the full book (like `journalctl --since`) |
 | `audit --since 30m` / `--since 7d` / `--since 2026-09-01` | r173: `--since` / `--until` accept a span (`30s`/`45m`/`12h`/`7d`/`2w`), an ISO-8601 date (`2026-09-01`, `2026-09-01T10:30:00`; a trailing `Z` pins UTC), or bare seconds (`3600`). Unreadable values and future dates are refused with exit 2 (like `git log --since` / `docker logs --since`) |
+| `history --since 30m` / `--until 7d` | r220: the same three-shape window grammar as audit (`30s`/`45m`/`12h`/`7d`/`2w`, ISO-8601 date, or bare seconds). The help text has always advertised `docker logs --since 30m`; argparse used to be `type=int` so a span died in the parser |
 | `audit --at 5` | Audit as of the 1-based row 5 in history: slices `hist[:5]` so the audit reflects everything that had happened by seam 5 (like `git log -1` / `gh pr view N`). The JSON `gate` field is `clean` / `finding` / `gated`. r188: exclusive with `--since`/`--until` — a combined call is refused with exit 2 because the at-branch slices and never applied the window |
 | `audit --baseline baseline.json` | Gate only on findings *new* relative to the baseline; baselined findings move to `baselined_findings` and are marked `[baselined]` in text. `net` and `--strict` see only the fresh set (like `eslint --baseline`) |
 | `audit --baseline-write baseline.json` | Record the current (unprojected) findings to a JSON file the next run can use as `--baseline` (like `eslint --output-file`). The write happens before the read, so `--baseline-write X --baseline X` records and gates in one shot. r201: exclusive with `--since`/`--until`/`--at` — a combined call is refused with exit 2, because the sliced run fingerprints different findings and a windowed write would silently under-gate every later full audit |
@@ -212,6 +213,7 @@ the task workspace as the current directory.
 <python-command> <skill-root>/scripts/mindseam.py history --empty
 <python-command> <skill-root>/scripts/mindseam.py history --quiet
 <python-command> <skill-root>/scripts/mindseam.py history --since 3600
+<python-command> <skill-root>/scripts/mindseam.py history --since 30m --until 7d
 <python-command> <skill-root>/scripts/mindseam.py history --reverse
 <python-command> <skill-root>/scripts/mindseam.py history --json
 <python-command> <skill-root>/scripts/mindseam.py discover

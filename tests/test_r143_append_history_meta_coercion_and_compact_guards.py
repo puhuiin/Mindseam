@@ -53,7 +53,7 @@ class AppendHistoryMetaCoercionTests(unittest.TestCase):
             "outcome": "failed: bad parse",
             "extra_steps": 2,
         }
-        hist, _ = mindseam.append_history(self.book, meta=meta)
+        hist, _, _ = mindseam.append_history(self.book, meta=meta)
         self.assertEqual(len(hist), 1)
         entry = hist[0]
         self.assertEqual(entry["marker"], "OPEN")
@@ -71,7 +71,7 @@ class AppendHistoryMetaCoercionTests(unittest.TestCase):
             "outcome": {"status": "ok"},  # non-string
             "extra_steps": -5,  # negative
         }
-        hist, _ = mindseam.append_history(self.book, meta=corrupted_meta)
+        hist, _, _ = mindseam.append_history(self.book, meta=corrupted_meta)
         entry = hist[0]
         self.assertEqual(entry["marker"], "")
         self.assertEqual(entry["confidence"], "")

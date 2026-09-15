@@ -144,8 +144,10 @@ class SixRendererExclusivityTests(unittest.TestCase):
         # Facts still print under quiet; the marker must not.
         self.assertNotIn("dry-run: history.json was not updated",
                          r.stdout)
-        r = _invoke(["seam", "--quiet", "--dry-run", "--json"],
-                    self.workspace)
+        # r222: --quiet and --json refuse to compose, so the
+        # scripting-host face is --dry-run --json alone.
+        r = _invoke(["seam", "--dry-run", "--json"], self.workspace)
+        self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("dry-run: history.json was not updated", r.stdout)
 
 

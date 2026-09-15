@@ -3909,3 +3909,1074 @@ verify_suite 9/9, run bare, exit 0 (the r209 rule held).
   the count, the crash-window follows for free. When a loop
   writes a whole-file JSON per item, ask what a kill -9 at item
   k leaves behind before asking how fast it is.
+
+### r211 — resume injects hist; Windows no longer kills the lock holder
+
+Two findings, one host-correctness theme: the controller either
+paid for a read it already had, or actively damaged the host it
+was probing.
+
+**Resume double-read (r182/r210 family).** mode_resume always
+called ``read_history()`` first — the real path needs
+``repair_reasons``, the dry-run path needs the list itself — then,
+when ``dry_run`` was false, called ``append_history(book)`` with
+no ``hist=``. append_history therefore parsed history.json a
+second time and threw the first list away. Every real resume paid
+two full reads of the same file; r210's injection parameters
+existed but resume did not use them (the r210 comment "standalone
+callers keep the default" meant "do not change resume during the
+batch fix", not "resume should forever re-parse"). r211 passes
+the already-read (already-repaired) list in. On-disk bytes after
+the append are unchanged: the injected list is the post-repair
+one, because ``read_history`` persists repairs before returning.
+IO probe: RESUME real was ``read_history=2``, now ``read_history=1``;
+dry-run still 1 read / 0 writes.
+
+**Windows pid probe was TerminateProcess (critical).**
+``_pid_is_alive`` used ``os.kill(pid, 0)`` as a zero-signal
+existence check, citing kill -0 / psutil.pid_exists. On Windows
+that is not a probe: Python routes any signal other than
+CTRL_C_EVENT / CTRL_BREAK_EVENT to ``TerminateProcess``, so the
+check *killed* the process it named — including the caller, when
+the write.lock recorded the controller's own PID and ``info
+--json`` serialized lock_state. Full-suite runs died with
+KeyboardInterrupt mid-``json.dumps`` at ``holder_pid`` after
+exactly 563 passes (the first lock_state self-PID case). Windows
+now probes via ``OpenProcess`` + ``GetExitCodeProcess``
+(STILL_ACTIVE==259; ERROR_ACCESS_DENIED still means alive).
+POSIX keeps the zero-signal kill.
+
+Also removed a duplicated ponytail attribution comment block
+above ``AUDIT_TAGS`` (same eight lines twice).
+
+test_r211_resume_hist_injection.py — 12 tests: resume read-count
+(1), append contract (one row, full field shape), dry-run
+unchanged, JSON face history_count, repaired-history injection
+(hostile confidence/risk not resurrected), empty history; Windows
+self-PID probe survives repeated calls, invalid/absurd PIDs, and
+end-to-end ``_write_lock_info`` with our own PID still alive;
+two catalog entries.
+
+Catalog entries resume-hist-injection + windows-pid-probe (since
+r211): r175 count pin 30 -> 32; r200 empty-window bracket r211 ->
+r212.
+
+Suite after r211: 1869 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0; unittest discover Ran 1870
+tests OK (expected failures=1). The full suite now completes on
+Windows — it could not before this round.
+
+### Gotchas
+- ``os.kill(pid, 0)`` is a portable idiom that is not portable.
+  On Windows every non-CTRL signal is TerminateProcess, so the
+  "does this PID exist?" probe deletes the process it names. If
+  a lock records your own PID and a later read path asks "is the
+  holder alive?", you have written a self-destruct. Probe with
+  OpenProcess on NT; keep kill -0 on POSIX.
+- A comment that freezes a caller ("standalone callers keep the
+  default") freezes a *decision about one fix*, not a law. r210
+  correctly refused to touch resume mid-batch; r211 correctly
+  extended the same injection one round later. Re-read those
+  comments as dated choices, not contracts.
+
+### r212 — every history/meta JSON write keeps raw UTF-8
+
+mode_seam's r210 batch and ``history --keep`` already wrote
+history with ``ensure_ascii=False``. Four other writers still
+used the default ``True``, which escapes every non-ASCII code
+point as ``\\uXXXX``:
+
+- ``append_history`` (resume, and every non-batch seam write)
+- ``read_history``'s repair save
+- ``compact_history``'s archive and kept slices
+- ``write_meta``
+
+A Chinese next-action therefore landed as raw UTF-8 under
+``seam``, then was re-escaped on the next ``resume`` — the file's
+bytes flipped between writers for the same semantic content, and
+r184's identical-write short-circuit never fired for unchanged
+non-ASCII rows because the two encodings are different bytes.
+``info --changed`` / ``info --content-hash`` would also report a
+change on a pure encoding flip.
+
+r212 unifies every disk write on ``ensure_ascii=False``, the way
+skillbook and the audit baseline already did. A one-time migration
+is automatic: the first post-r212 write of an old escaped file
+re-emits it as raw UTF-8 (json.loads already decoded the escapes,
+so the semantic content is unchanged).
+
+Probe before the fix: after resume ``escaped=True``; after seam
+``raw_cjk=True``; after the next resume ``escaped=True`` again.
+After the fix every writer reports ``raw_cjk=True`` and
+``escaped=False``.
+
+test_r212_history_ensure_ascii_false.py — 8 tests: resume keeps
+raw CJK, seam keeps raw CJK, resume-after-seam does not re-escape
+(pre-existing rows stay raw), from-stdin then resume stays raw,
+write_meta keeps a Chinese verifier raw, repair save keeps a CJK
+neighbour raw, identical CJK write is still r184-idempotent,
+catalog entry.
+
+Catalog entry history-ensure-ascii-false (since r212): r175 count
+pin 32 -> 33; r200 empty-window bracket r212 -> r213.
+
+Suite after r212: 1877 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- ``json.dumps``'s default ``ensure_ascii=True`` is a silent
+  encoding switch. Two writers of the same artefact that disagree
+  on it do not disagree about *content* — json.loads cannot tell
+  them apart — they disagree about *bytes*, which is exactly what
+  r184's idempotency and every mtime/hash change detector observe.
+  Pin the flag at every write site of an artefact, not once.
+
+### r213 — note writes meta only when telemetry changed; write failures speak
+
+Two defects, one acknowledgement theme.
+
+**Ledger-only note still took the meta write lock.** ``mode_note``
+gated the meta write on ``if meta`` — truthy as soon as any prior
+telemetry existed. Every ``note --next`` therefore opened
+``metacognition.json``, acquired the advisory lock, and compared
+bytes even though no telemetry flag was on the command line. r184
+made the rewrite a content no-op; the lock churn remained. A
+``meta_dirty`` flag is now set only when a marker / confidence /
+verifier / error / outcome / extra-steps edit is accepted, and the
+write runs only then. Probe: ``note --next`` went from
+write_meta=1 + write_ledger=1 to write_meta=0 + write_ledger=1.
+
+**write_meta failures were silent.** Both ``mode_note`` and
+``mode_seam`` discarded ``write_meta``'s return value, and
+``write_skillbook`` discarded ``atomic_write_text``'s problem after
+the ``ensure_dir`` check. A held lock or a full disk left the host
+believing ``--marker`` landed when it did not — the opposite of the
+history-write WARNING family. Probe: a failing write_meta on
+``note --marker`` exited 0 with empty stderr. Both call sites now
+print ``WARNING: telemetry was not saved — …`` (stderr), and
+``write_skillbook`` returns and warns on its own write failure.
+
+**Telemetry-only dry-run lied.** ``note --marker OPEN --dry-run``
+printed "No changes would be applied" even though the meta write
+would have landed. The plan now names ``~ meta``.
+
+test_r213_note_meta_dirty_and_warn.py — 10 tests: next-only skips
+meta write, marker writes meta not ledger, mixed writes both,
+invalid marker writes neither; note/seam warn on write_meta
+failure, write_skillbook returns the problem, dry-run names meta
+on a telemetry-only call and still says No changes when nothing
+would move; catalog entry.
+
+Catalog entry note-meta-dirty-and-warn (since r213): r175 count
+pin 33 -> 34; r200 empty-window bracket r213 -> r214.
+
+Suite after r213: 1887 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- ``if meta`` is not ``if a telemetry flag was accepted``. A
+  truthy residual dict is not a request to rewrite the file; it
+  is a reason to take the lock for nothing. Gate side effects on
+  *this call's* dirty flags, not on the presence of prior state.
+- A discarded return value is a discarded alarm. Every
+  ``atomic_write_text`` call site that used to ignore the problem
+  string was one disk-full away from lying about persistence.
+  The history path has warned for a long time; the telemetry and
+  skillbook paths did not.
+
+### r214 — history --keep tells the truth about rotation
+
+Two defects on the destructive rotation path.
+
+**Failed write still presented a truncated view.** The old code
+warned "could not rotate history.json" and then did
+``hist = truncated`` anyway, so ``history --keep 3 --count``
+printed 3 while the file still held 10 rows. A host that trusted
+the count would see the un-rotated history on the next read —
+and the keep path's entire purpose is persistence, so a failed
+write must not fake the result. Probe: failing atomic_write_text
+on ``--keep 3 --count`` printed ``3`` on stdout while disk held
+10. r214 keeps the full list when the write fails and says so
+(``the on-disk history is unchanged; this run reports the full
+N rows``). Successful rotation is unchanged.
+
+**Negative --keep was a silent no-op.** The ``keep_n >= 0``
+guard skipped the rotation without a word; ``history --keep -1``
+exited 0 on an unrotated file. Every other negative-count flag
+(audit --since, note --extra-steps) refuses with exit 2.
+r214 refuses with ``CANNOT: --keep expects a non-negative row
+count`` before any read or write.
+
+test_r214_history_keep_write_honesty.py — 6 tests: failed keep
+reports full count, failed keep JSON carries full rows,
+successful keep still truncates, negative keep refused with the
+file untouched, zero keep still empties, catalog entry.
+
+Catalog entry history-keep-write-honesty (since r214): r175
+count pin 34 -> 35; r200 empty-window bracket r214 -> r215.
+
+Suite after r214: 1893 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- A WARNING that contradicts the very next stdout line is worse
+  than no warning. ``--keep`` used to say "could not rotate" and
+  then report the rotated count. When a write fails, the
+  in-memory view must stay with the on-disk truth, or the host
+  is invited to believe the operation it was just told failed.
+
+### r215 — compact archive rollback; note writes the ledger first
+
+Two defects on the multi-write paths.
+
+**compact_history left a half-done archive when kept-write failed.**
+The function writes the archive first, then the kept HISTORY slice.
+When the kept write failed, the archive already held the slice while
+HISTORY stayed full — the next compaction re-sent the same rows and
+duplicated them. A first-cut suffix-equality skip was rejected:
+r56's second compaction legitimately re-archives a row still present
+in a different history, and the skip broke that pin.
+
+The landed fix rolls the archive back to its previous content when
+the kept write fails, and returns the *input* hist rather than the
+kept slice. Returning kept after a failed kept-write would let the
+caller's subsequent write land a truncated HISTORY against an empty
+archive — data loss, which the first probe of this round caught
+(history length 2 instead of 5). Rollback + full-hist return keeps
+archive and HISTORY in agreement: either both compacted, or neither.
+
+**mode_note wrote telemetry before the ledger.** A mixed
+``note --next X --marker DONE`` landed --marker first; if the ledger
+write then failed, telemetry said DONE while Next never moved.
+r215 writes the ledger first: a ledger failure skips meta entirely
+(and says so on stderr), and a meta failure after a successful
+ledger write is a WARNING on an already-true ledger.
+
+test_r215_compact_archive_retry_and_note_order.py — 8 tests: archive
+rolled back on kept-write failure with full hist still on disk,
+retry after rollback archives once, successful compact still
+archives once; mixed note writes ledger then meta, ledger failure
+skips meta, meta failure after ledger ok warns, meta-only still
+writes meta; catalog entry.
+
+Catalog entry compact-archive-retry-and-note-order (since r215):
+r175 count pin 35 -> 36; r200 empty-window bracket r215 -> r216.
+
+Suite after r215: 1901 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- Multi-write sequences need a stated failure order. "Write A then
+  B" without "what happens to A when B fails" is how you get an
+  archive that remembers rows HISTORY still holds. Rollback is the
+  cheap half of a transaction; returning the pre-slice input is the
+  other half — return the truncated slice and the caller will
+  happily persist your mistake.
+
+### r216 — seam --from-stdin restores the ledger Next
+
+The from-stdin batch loop temporarily sets ``book["Next"]`` so each
+history row records the line it came from. That mutation leaked past
+the loop into everything that ran afterwards:
+
+- the JSON face reported ``payload.ledger.next`` as the *last stdin
+  line* while the on-disk Next was unchanged (probe: disk
+  ``ledger-next``, payload ``line-b``);
+- the ledger-aware detectors that score after the append (goal
+  alignment, ledger plan) compared recent next-actions against the
+  mutated Next instead of the real one.
+
+The text face printed the ledger *before* the loop, so it looked
+correct — only the machine face and the post-append scores were
+lying. r216 saves the original Next before the loop and restores it
+before any report or score is built. History rows still record each
+line.
+
+test_r216_seam_from_stdin_restore_next.py — 6 tests: JSON next is
+the ledger next not the last line, history rows still record each
+line, on-disk WORKSPACE.md unchanged, clean seam JSON next still
+ledger next, single-line stdin also restores, catalog entry.
+
+Catalog entry seam-from-stdin-restore-next (since r216): r175 count
+pin 36 -> 37; r200 empty-window bracket r216 -> r217.
+
+Suite after r216: 1907 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- A temporary mutation of a shared input is a report waiting to
+  happen. The loop needed a per-row Next; it did not need to leave
+  that Next on the book for the JSON payload and the ledger-aware
+  detectors that run next. Save-and-restore around the loop, the
+  way a context manager would, and the mutation stops being a
+  side channel.
+
+### r217 — history numeric window flags refuse negatives
+
+r214 closed the silent no-op for ``--keep -1``. The rest of the
+numeric window flags had the same ``value >= 0`` guard and the same
+lie: probe showed ``--head -1`` / ``--tail -2`` / ``--limit -3`` /
+``--since -10`` / ``--until -10`` all exited 0 reporting the full
+history. A host that asked for a narrowed window got every row and
+an exit code that said the call worked.
+
+r217 refuses every negative value in that family with exit 2 before
+any history read, matching audit --since and note --extra-steps.
+Zero stays legal (``--head 0`` empties, ``--keep 0`` empties).
+
+Also: ``info --check`` now rejects a bool timestamp the way
+``read_history``'s repair does. bool is a subclass of int, so a
+corrupted ``true`` used to pass the classifier while the repair
+would have replaced it.
+
+test_r217_history_negative_window_refusal.py — 11 tests: each of
+the five flags refuses with exit 2 and an untouched file, --keep
+still refuses, --head 0 still empties, --tail 2 still works;
+bool-timestamp check flags, real-int check clean; catalog entry.
+
+Catalog entry history-negative-window-refusal (since r217): r175
+count pin 37 -> 38; r200 empty-window bracket r217 -> r218.
+
+Suite after r217: 1918 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- ``x >= 0`` is not a validation; it is a silent drop. Every
+  numeric CLI flag that narrows a result set must either apply
+  the value or refuse it — a no-op with exit 0 is the host
+  believing a filter ran. r214 fixed one flag; the family was
+  still open.
+- ``isinstance(True, int)`` is True in Python. A classifier that
+  only checks ``int`` will wave through a bool that the repair
+  path (which also rejects bools) would have fixed. Keep the
+  two in lockstep.
+
+### r218 — a failed history write reports disk truth
+
+r214 closed the keep-path lie (failed rotation still presented a
+truncated view). The append path had the same class of bug.
+``append_history`` warned "recent seam history was not saved" and
+then returned the in-memory hist *with* the unsaved row, so
+``resume --json`` claimed ``history_count: 4`` while the file still
+held 3 (probe). ``mode_seam``'s batch write had the same shape —
+the report and ``rows_written`` counted lines that never landed.
+
+r218 makes ``append_history`` return
+``(hist, compact_reasons, write_problem)``; on a failed write it
+re-reads history from disk so the caller's report matches what
+actually landed. ``mode_seam`` does the same after its own batch
+write and zeroes ``rows_written``.
+
+Also removed a duplicate ``CLOSED`` in ``marker_progression``'s
+terminal set (harmless set literal, but noise).
+
+test_r218_append_write_failure_disk_truth.py — 7 tests: append
+returns write_problem and a disk-matching hist, resume --json
+history_count matches disk on failure, seam --json ditto, from-stdin
+batch drops unsaved rows, successful append still reports the new
+count, write=False returns None problem, catalog entry.
+
+Existing append_history call sites (r82/r121/r143/r215) updated to
+the 3-tuple.
+
+Catalog entry append-write-failure-disk-truth (since r218): r175
+count pin 38 -> 39; r200 empty-window bracket r218 -> r219.
+
+Suite after r218: 1925 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- A WARNING next to a contradictory payload is the keep-path
+  disease wearing an append-path coat. If the write said "not
+  saved", every count the command reports must be the on-disk
+  count. Re-read after a failed write is the cheap way to stop
+  lying without threading a write-problem through every face.
+
+### r219 — seam only consumes event keys when history lands
+
+``METACOGNITION_EVENT_KEYS`` (error / outcome / extra_steps) are
+one-shot: ``note`` writes them into metacognition.json, the next
+seam copies them into the history row, then clears them (r83).
+
+When the seam's history write failed, r218 re-read disk so the
+report matched — but the event keys were still popped and written
+back. The rows that would have carried the events never landed,
+and the events themselves were gone from meta, so the next seam
+could not consume them either. One-shot events were lost twice.
+
+r219 gates the clear on ``history_write_ok``: a failed history
+write leaves the events in meta for the next successful seam.
+Probe after the fix: failed seam leaves ``error``/``outcome``
+intact in metacognition.json.
+
+test_r219_seam_event_keys_history_write.py — 5 tests: failed
+history write keeps event keys, successful write clears them and
+the row carries the values, failed-then-retry lands the events on
+the second seam, dry-run neither writes meta nor clears events,
+catalog entry.
+
+Catalog entry seam-event-keys-need-history-write (since r219):
+r175 count pin 39 -> 40; r200 empty-window bracket r219 -> r220.
+
+Suite after r219: 1930 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- One-shot state is only safe to clear on the success path. If
+  the consume step is "copy into X, then forget", and X's write
+  can fail, the forget must ride the write's success — otherwise
+  a disk-full loses the event twice: once from X, once from the
+  store that still held it.
+
+### r220 — history --since/--until share audit's window grammar
+
+The help text has always said "like docker logs --since 30m", but
+argparse was ``type=int`` so a span died in the parser with a usage
+error. ``audit --since 30m`` worked (r173). Probe:
+``history --since 30m`` → argparse usage, ``audit --since 30m`` →
+exit 0.
+
+r220 points history at the same ``parse_window_value``: seconds,
+span (30s/45m/12h/7d/2w), or ISO-8601 date. Unreadable values
+refuse with the CANNOT family (exit 2), the same as audit. Bare
+seconds keep working so existing hosts are unaffected. The
+negative-window refusal (r217) still fires on parsed values.
+
+test_r220_history_window_grammar.py — 8 tests: span --since and
+--until accepted, bare seconds still work, span+until compose,
+unreadable refused, negative still refused, JSON carries parsed
+seconds, catalog entry.
+
+Catalog entry history-window-grammar (since r220): r175 count pin
+40 -> 41; r200 empty-window bracket r220 -> r221.
+
+Suite after r220: 1938 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- Help text that advertises a grammar the parser does not accept
+  is a user-facing lie. When one subcommand grows a richer window
+  language (r173 audit), the sibling that shares the flag names
+  must grow it too — or the help must stop advertising it.
+
+### r221 — the three user-facing docs carry the history window grammar
+
+r220 pointed ``history --since/--until`` at ``parse_window_value``.
+The help text and SKILL.md still only showed bare seconds for
+history, while audit's span grammar was documented in all three
+docs. r69 pins flag *presence*; r221 pins the *grammar* the help
+and the docs advertise, so a reader of SKILL.md or either README
+can type ``history --since 30m`` and have it work.
+
+SKILL.md gains a ``history --since 30m --until 7d`` example next
+to the bare-seconds line. README.md and README.zh-CN.md gain a
+table row and a command-block example, matching the audit r173
+pattern.
+
+test_r221_history_window_grammar_docs.py — 4 tests: each of the
+three docs names ``history --since 30m`` and r220; catalog entry.
+
+Catalog entry history-window-grammar-docs (since r221): r175 count
+pin 41 -> 42; r200 empty-window bracket r221 -> r222.
+
+Suite after r221: 1942 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- A parser fix that is not documented is a tree falling in the
+  forest. r220 made ``30m`` work; until SKILL.md and both READMEs
+  said so, a host reading the entry file still had no reason to
+  try it. Land the docs in the same round as the grammar, or the
+  next round.
+
+### r222 — seam --quiet and --json refuse to compose
+
+r202 closed ``seam --quiet --format``: the format branch won and
+dropped quiet without a word. ``--quiet`` + ``--json`` had the
+same shape — the dispatcher checked ``json_flag or format_path``
+first, so ``seam --quiet --json`` emitted the full payload and the
+one-word-facts request vanished (probe: rc=0, stdout starts with
+``{``). r202 even *pinned* that as intentional ("json is the
+machine face everything rides"); r222 reverses that pin: a host
+that asked for fact lines did not get them, and silence is not a
+face contract.
+
+r222 refuses the pair with exit 2 before any ledger work, naming
+both flags. ``--format`` still rides ``--json`` (r170).
+``--quiet --dry-run`` stays pinned empty (r198 design).
+
+test_r222_seam_quiet_json_exclusive.py — 6 tests: quiet+json
+refused with history untouched, quiet alone works, json alone
+works, quiet+format still refused, json+format still composes,
+catalog entry. Updated pins: r202's quiet+json compose test,
+seam_quiet_baseline's compose test, r198's quiet+dry-run+json
+call now uses --dry-run --json alone.
+
+Catalog entry seam-quiet-json-exclusive (since r222): r175 count
+pin 42 -> 43; r200 empty-window bracket r222 -> r223.
+
+Suite after r222: 1948 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- "JSON is the machine face everything rides" is not a licence to
+  drop a second face request. Riding means the payload carries the
+  data; it does not mean a host that asked for fact lines should
+  silently receive a 200-line object. When two faces disagree,
+  refuse — the r202 doctrine — even if an earlier pin said the
+  winner was fine.
+
+### r223 — run-ignored disclosure is complete
+
+The r74 guard scanned for a top-level ``run = hist[...]`` Assign.
+A second family declares ``run`` and never reads it — same latent
+defect (no live caller passes run= today), same disclosure duty.
+An AST probe named ten detectors: convergence_index,
+error_recovery_speed, outcome_completeness, thread_management,
+meta_stability, reset_efficacy, story_switch_detection,
+narrative_knot_detector, verification_temporal_bias,
+book_thread_alignment.
+
+Each now carries "The optional ``run`` argument is currently
+ignored; the window is always …" naming the slice it actually
+takes. The r74 guard gained ``functions_never_loading_run`` so
+the family cannot grow a new member silently.
+
+Also: mode_seam's docstring and the seam-quiet-format catalog
+summary no longer claim "--json stays the machine face everything
+rides" (r222 closed that pair).
+
+test_r223_run_ignored_disclosure_complete.py — 2 tests: catalog
+entry; all ten functions disclose. r74 gains
+test_every_never_loaded_run_is_disclosed.
+
+Catalog entry run-ignored-disclosure-complete (since r223): r175
+count pin 43 -> 44; r200 empty-window bracket r223 -> r224.
+
+Suite after r223: 1951 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- A guard that only matches one syntactic shape of a defect will
+  miss the other. r74 caught ``run = hist[-N:]``; it did not
+  catch "parameter never touched". When you add a scanner for a
+  family, ask what the family's *other* spelling looks like.
+
+### r224 — discover lowercases domains like history --domains
+
+Probe: three next-actions with domain prefixes ``Build`` / ``build``
+/ ``BUILD`` produced
+
+    discover:          3 entries, one visit each
+    history --domains: 1 entry, count 3, share 1.0
+
+Discover treated casing as a domain identity, so ``suggested_next``
+could name ``BUILD`` while ``history --domains`` said ``build``.
+The two faces answering "which domain has the session been in?"
+disagreed on the answer.
+
+r224 lowercases the prefix in discover, matching the history face.
+Probe after the fix: both report ``build``, 3 visits.
+
+test_r224_discover_domain_lowercase.py — 4 tests: discover merges
+casings, discover matches history --domains name-for-name and
+visit-for-visit, single casing still works, catalog entry.
+
+Catalog entry discover-domain-lowercase (since r224): r175 count
+pin 44 -> 45; r200 empty-window bracket r224 -> r225.
+
+Suite after r224: 1955 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- Two faces that answer the same question must normalise the same
+  way. ``history --domains`` lowercased; ``discover`` did not —
+  and a host that cross-checked the two got three domains from one
+  and one domain from the other. When you add a normalisation on
+  one face, grep the sibling that shares the field.
+
+### r225 — skillbook hard domains lowercase like discover
+
+r224 made discover lowercase the next-action domain.
+``extract_skillbook`` still kept the raw prefix for ``hard``
+patterns, so ``Build`` and ``build`` mined as two entries — each
+below SKILLBOOK_MIN_RECURRENCE (2) alone, so neither shipped.
+The same casing split that made discover list three domains also
+starved the skillbook of a real recurring pattern.
+
+r225 lowercases the hard-pattern domain. Probe shape: two
+extra-step rows with mixed-case domains now produce one hard
+pattern with count 2.
+
+test_r225_skillbook_hard_domain_lowercase.py — 4 tests: mixed-case
+hard domains merge, skillbook --json shows the merged pattern,
+single casing still works, catalog entry.
+
+Catalog entry skillbook-hard-domain-lowercase (since r225): r175
+count pin 45 -> 46; r200 empty-window bracket r225 -> r226.
+
+Suite after r225: 1959 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- A recurrence threshold plus a case-sensitive key is a silent
+  filter. Two casings of one domain each count 1, neither crosses
+  the bar of 2, and the skillbook reports "no high-utility
+  patterns" while the session has been in that domain twice.
+  Normalise before you count.
+
+### r226 — ship's findings cap is a named constant
+
+The text face printed ``findings[:7]`` — a magic number next to
+heal's named ``HEAL_REPORT_MAX``. A probe of the five finding
+sources ship can emit (leaked symbols, hot markers, uncovered
+claim, line-repeat, char-run) showed the list can never exceed
+five, so the cap is a safety contract rather than a live path.
+
+r226 names it ``SHIP_FINDINGS_MAX`` and adds an overflow line in
+the same shape heal uses, so a future finding source that pushes
+past the cap cannot silently truncate. The comment records that
+the cap sits above the current maximum.
+
+test_r226_ship_findings_max_constant.py — 4 tests: the constant
+is 7 and above HEAL_REPORT_MAX, the source uses the constant not
+a magic slice, the overflow notice matches the heal shape,
+catalog entry.
+
+Catalog entry ship-findings-max-constant (since r226): r175 count
+pin 46 -> 47; r200 empty-window bracket r226 -> r227.
+
+Suite after r226: 1963 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- A cap that can never fire is still worth naming. The day a
+  sixth finding source lands, ``findings[:7]`` will truncate
+  silently and the text face will disagree with the JSON face
+  again. Name the constant, write the overflow line, and pin
+  both — the safety contract is the point.
+
+### r227 — assess_risk strips whitespace-only next
+
+Probe before the fix:
+
+    empty next (""), 4 rows          -> high, "no next actions"
+    whitespace next ("   "), 4 rows  -> medium, no "no next" reason
+
+``row.get("next")`` is truthy for ``"   "``, so assess_risk counted
+blanks as next actions. The same history reported zero domains
+under ``history --domains`` (which already strips). One face said
+the session had a next action; the other said it had no domains.
+
+r227 strips in the ``has_next_flag`` check. Probe after the fix:
+both empty and whitespace-only next fire "no next actions".
+
+test_r227_assess_risk_whitespace_next.py — 6 tests: empty next
+still fires, whitespace next fires, tab/newline fires, real next
+suppresses, mixed real+whitespace still has next, catalog entry.
+
+Catalog entry assess-risk-whitespace-next (since r227): r175 count
+pin 47 -> 48; r200 empty-window bracket r227 -> r228.
+
+Suite after r227: 1969 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- Truthiness is not emptiness. ``"   "`` is a non-empty string and
+  a non-action. Every face that asks "is there a next action?"
+  must strip first — the domain miner already did; the risk
+  assessor did not, and the two faces disagreed on the same
+  history.
+
+### r228 — detectors strip whitespace-only next
+
+r227 fixed assess_risk. An AST/grep sweep found the same
+truthiness shape in the detectors that count unique / real nexts:
+pattern_persistence, drift_velocity, cognitive_load_index,
+thread_management, action diversity, output redundancy,
+detect_stall, stall_score, _fuse_run, goal_alignment, and the
+observations nexts list. ``"   "`` counted as a live next, so
+stall said "has not changed", diversity scored the blank as a
+unique action, and redundancy counted blanks as repeats.
+
+r228 routes them through a shared ``_row_next`` helper. Probe
+after the fix: all-blank nexts score output_momentum 100 (no
+repeats) instead of 33 (one repeated action); detect_stall does
+not fire "has not changed".
+
+test_r228_detector_whitespace_next.py — 9 tests: _row_next
+strips, detect_stall ignores blanks / still sees real next,
+pattern_persistence blanks are not a stall pattern,
+thread_management blanks are not threads, action diversity blanks
+do not count, output_momentum blanks are 100 and a real repeat is
+33, stall_score accepts blank windows, catalog entry.
+
+Catalog entry detector-whitespace-next (since r228): r175 count
+pin 48 -> 49; r200 empty-window bracket r228 -> r229.
+
+Suite after r228: 1978 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- When you fix a normalisation on one face, sweep the detectors
+  that share the field. r227 fixed the risk assessor; the next
+  round still found ten more truthiness sites. A helper
+  (``_row_next``) plus a grep for ``get("next")`` is the cheap
+  way to close the family instead of one site at a time.
+
+### r229 — detectors strip whitespace-only error/outcome
+
+r228 added ``_row_next``. The same truthiness shape sat on error
+and outcome. Probe before the fix:
+
+    error="   ", 4 rows  -> error_recovery_speed 0  (unrecovered)
+    error="",    4 rows  -> error_recovery_speed 100 (no errors)
+    outcome="  ", 4 rows -> outcome_completeness 100 (all documented)
+    outcome="",  4 rows  -> outcome_completeness 0  (none documented)
+
+A blank error scored as the worst recovery; a blank outcome scored
+as perfect documentation. r229 adds ``_row_error`` / ``_row_outcome``
+and routes error_recovery_speed, outcome_completeness, and
+evidence_weight through them. Probe after the fix: both blanks
+score 100 / 0 like their empty counterparts.
+
+test_r229_detector_whitespace_error_outcome.py — 7 tests: helpers
+strip, error_recovery ignores blanks / still sees real error,
+outcome_completeness ignores blanks / still sees real outcome,
+evidence_weight treats blank error like no error, catalog entry.
+
+Catalog entry detector-whitespace-error-outcome (since r229):
+r175 count pin 49 -> 50; r200 empty-window bracket r229 -> r230.
+
+Suite after r229: 1985 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- The same defect class keeps wearing a new field name. next →
+  error → outcome. When you add ``_row_next``, ask which other
+  free-text history fields the detectors test with truthiness,
+  and close them in the same sweep — or the next round will.
+
+### r230 — detectors strip whitespace-only marker/confidence/verifier
+
+The r228/r229 strip family reaches the tag fields. A window of
+``marker="   "`` / ``confidence="  "`` / ``verifier="  "`` used to
+count as tagged steps:
+
+- observations reported "the same marker has been recorded" on a
+  window of spaces;
+- assess_risk saw a stuck confidence on blanks;
+- ship's gate treated a blank confidence as a real tag that needed
+  settling before delivery.
+
+r230 adds ``_row_marker`` / ``_row_confidence`` / ``_row_verifier``
+and routes the observations loop, assess_risk, and ship's gate
+through them.
+
+test_r230_detector_whitespace_marker_conf_ver.py — 7 tests:
+helpers strip, observations ignores / still sees real marker,
+assess_risk ignores whitespace / still sees stuck thin, ship gate
+ignores whitespace confidence, catalog entry.
+
+Catalog entry detector-whitespace-marker-conf-ver (since r230):
+r175 count pin 50 -> 51; r200 empty-window bracket r230 -> r231.
+
+Suite after r230: 1992 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- Free-text history fields are a family, not a list. When the
+  first strip helper lands, grep every ``get("<field>")`` the
+  detectors test for truthiness and close the rest in the same
+  sweep — next, error, outcome, marker, confidence, verifier.
+  Stopping after one field just reschedules the work.
+
+### r231 — remaining verifier-set and evidence detectors strip
+
+r230 fixed observations / assess_risk / ship. The verifier-set and
+evidence detectors still used truthiness: a whitespace-only verifier
+counted as a unique name (verification_depth, verifier_independence),
+as evidence of sincerity (verification_sincerity, coverage), and as
+"has a verifier" (freshness). Whitespace confidence counted as a
+tagged step (confidence_presence).
+
+r231 routes them through the r229/r230 helpers. Probe shape: a
+window of ``verifier="   "`` used to score verification_depth 1
+(a unique name) and verification_freshness 100 (has a verifier);
+after the fix both read as unmeasured / stale.
+
+test_r231_detector_whitespace_verifier_evidence.py — 8 tests:
+verification_depth ignores blanks / counts real, evidence_weight
+treats blank verifier like none, confidence_presence ignores /
+sees real, freshness treats blank verifier as stale / real as
+fresh, catalog entry.
+
+Catalog entry detector-whitespace-verifier-evidence (since r231):
+r175 count pin 51 -> 52; r200 empty-window bracket r231 -> r232.
+
+Suite after r231: 2000 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0. The 2,000-test milestone.
+
+### Gotchas
+- When a strip family has one round left, name the remaining
+  detectors in the catalog summary so the next reader knows
+  what "the rest" meant. r230 named observations/assess_risk/
+  ship; r231 named the verifier-set and evidence family — and
+  the suite crossed 2,000 tests on the way.
+
+### r232 — the remaining error/outcome truthiness sites strip
+
+r229 fixed error_recovery_speed, outcome_completeness, and
+evidence_weight. A grep of ``get("error")`` / ``get("outcome")``
+still found truthiness in resolution_rate, knowledge_retention,
+risk-error correlation, incomplete_verification,
+error_recovery_depth, error_focus, and the fusion err windows —
+whitespace-only error/outcome still counted as events.
+
+r232 routes them through ``_row_error`` / ``_row_outcome``.
+Probe shape: ``outcome="  "`` on verified rows used to score
+incomplete_verification 100 (all documented); after the fix it
+scores 0 like an empty outcome.
+
+test_r232_detector_whitespace_error_outcome_final.py — 7 tests:
+resolution_rate ignores blanks / sees real, knowledge_retention
+ignores blanks, incomplete_verification ignores blanks / sees
+real, error_focus ignores blanks, catalog entry.
+
+Catalog entry detector-whitespace-error-outcome-final (since
+r232): r175 count pin 52 -> 53; r200 empty-window bracket r232
+-> r233.
+
+Suite after r232: 2007 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- A family closed in one round is not closed. r229 named three
+  detectors; a grep of the same field found seven more. When you
+  land a strip helper, grep the field across the whole file —
+  not just the detectors you remembered.
+
+### r233 — the last error/outcome truthiness sites strip
+
+r229 and r232 each closed part of the family. A final grep of
+``get("error")`` / ``get("outcome")`` found truthiness still live
+in confidence_calibration_error, evidence_production_rate,
+tension_resolution, thread_management resolution,
+outcome_reliability, lean-reasoning delivery,
+confidence_verification_alignment, thread_abandonment,
+error_recovery_depth, and the fusion err_recoverable /
+thread_evt4 paths.
+
+r233 routes them through ``_row_error`` / ``_row_outcome``. A
+grep of the two fields now returns only the helpers themselves
+and ``.strip()`` call sites — the family is closed.
+
+test_r233_detector_whitespace_error_outcome_sweep.py — 7 tests:
+evidence rate ignores blanks / sees real, tension_resolution
+blanks do not add tension beyond a real-error window,
+thread_management blanks equal empty outcome, error_recovery_depth
+ignores blanks, thread_abandonment ignores blanks, catalog entry.
+
+Catalog entry detector-whitespace-error-outcome-sweep (since
+r233): r175 count pin 53 -> 54; r200 empty-window bracket r233
+-> r234.
+
+Suite after r233: 2014 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- Grep the field, not the detector list. r229 named three
+  functions; r232 named seven more; r233 found the last ten.
+  The catalog summary of each round named what it thought was
+  left — and each round was wrong about that. A field-wide grep
+  is the only honest completeness check.
+
+### r234 — field helpers unified across every free-text read
+
+r233 closed the truthiness family. This round (1) fixes the last
+``if h.get("outcome")`` in cognitive_efficiency (whitespace
+outcome counted as a deliverable), and (2) routes the remaining
+inline ``(get("error") or "").strip()`` call sites through the
+shared ``_row_*`` helpers so every free-text field read goes
+through one normalisation.
+
+A source-scan guard now pins the absence of hand-rolled strips:
+``get("error")`` / ``get("outcome")`` may appear only inside the
+helpers themselves.
+
+test_r234_detector_field_helpers_unified.py — 5 tests:
+cognitive_efficiency ignores blanks / sees real, no inline
+error/outcome strip remains, catalog entry.
+
+Catalog entry detector-field-helpers-unified (since r234): r175
+count pin 54 -> 55; r200 empty-window bracket r234 -> r235.
+
+Suite after r234: 2019 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- Closing a behaviour family is not the same as closing the
+  style family. r233 stopped the truthiness bugs; the inline
+  strips still worked but duplicated the helpers. Unify the
+  call sites and pin the absence — the next reader then has one
+  place to change, not forty.
+
+### r235 — tag-field helpers unified across every free-text read
+
+r234 unified error/outcome. This round routes the remaining inline
+marker/confidence/verifier strips through ``_row_marker`` /
+``_row_confidence`` / ``_row_verifier``: assumption_diversity gate,
+convergence tagged check, assumption_diversity window,
+verify-then-act OPEN, verifier_specificity,
+marker_transition_diversity, and fusion last_markers.
+
+verify-then-act's ``marker in ("OPEN", "")`` now strips first, so a
+whitespace-only marker reads as unrecorded (OPEN/empty) the same
+way an empty marker does. Exact-equality uses (``== "PHEW"``,
+``in ("thin", "shaky")``) are unchanged — whitespace never matches
+those literals either way.
+
+A source-scan guard pins the absence of hand-rolled ``.strip()``
+on the three tag fields. Every free-text history field now goes
+through one helper.
+
+test_r235_detector_field_helpers_tags.py — 5 tests: no inline
+marker/confidence/verifier strip remains, whitespace marker reads
+as unrecorded, catalog entry.
+
+Catalog entry detector-field-helpers-tags (since r235): r175 count
+pin 55 -> 56; r200 empty-window bracket r235 -> r236.
+
+Suite after r235: 2024 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- A source-scan guard must exclude the helper it is protecting.
+  The first cut flagged ``return (row.get("marker") or "").strip()``
+  inside ``_row_marker`` itself. Exempt the helper's own return
+  line, or the guard fails on the code it exists to enforce.
+
+### r236 — the last confidence/marker/verifier truthiness sites
+
+r235 unified the inline strips. This round fixes the remaining
+truthiness reads that skipped the strip entirely: convergence
+c_first, confidence_volatility, confidence_decay_rate, and the
+fusion c / win6-verifier / vt6-marker sites. Whitespace-only tags
+no longer count as tagged steps anywhere in the detector layer.
+
+test_r236_detector_field_truthiness_final.py — 5 tests:
+confidence_volatility ignores blanks / sees changes,
+confidence_decay_rate ignores blanks, a source-scan guard for
+bare ``c = h.get("confidence"); if c:`` truthiness, catalog entry.
+
+Catalog entry detector-field-truthiness-final (since r236): r175
+count pin 56 -> 57; r200 empty-window bracket r236 -> r237.
+
+Suite after r236: 2029 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- After the style sweep (r234/r235), a final truthiness grep can
+  still find sites that never stripped at all. Style unification
+  and behaviour fixes are two passes over the same field — land
+  both, or the blanks keep counting.
+
+### r237 — next-field helpers unified across every free-text read
+
+r234/r235/r236 unified error/outcome and marker/confidence/verifier.
+This round routes the 25 remaining inline ``(get("next") or "").strip()``
+call sites through ``_row_next`` so every free-text history field
+(next, error, outcome, marker, confidence, verifier) goes through
+one helper.
+
+A scripted sweep hit a recursion trap: the replacement pattern
+matched the helper's own return statement, so ``_row_next`` began
+calling itself. The full suite caught it immediately
+(RecursionError on detect_stall); the helper body was restored to
+the original strip. Lesson: when bulk-replacing a call pattern,
+exclude the helper that defines it.
+
+test_r237_detector_field_helpers_next.py — 5 tests: no inline
+next strip remains, _row_next strips, detect_stall and
+loop_detection still work after the unify, catalog entry.
+
+Catalog entry detector-field-helpers-next (since r237): r175 count
+pin 57 -> 58; r200 empty-window bracket r237 -> r238.
+
+Suite after r237: 2034 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- A bulk replace that matches the helper's own body turns the
+  helper into a recursive no-op. Exclude the definition line from
+  the pattern, or run the suite before committing the sweep —
+  the RecursionError surfaces on the first detector that calls it.
+
+### r238 — retread prior strip and assumption_diversity book disclosure
+
+Two small closures on the r227-r237 family:
+
+1. narrative_knot_detector's ``prior_nexts`` set comprehension
+   filtered on ``r.get("next")`` truthiness while mapping through
+   ``_row_next`` — a whitespace-only prior counted as a prior.
+   r238 strips the filter. (First cut tested the wrong function;
+   the prior_nexts lives in narrative_knot_detector, not
+   story_switch_detection.)
+
+2. assumption_diversity declares ``book`` and never reads it. The
+   r43 finding treated that as signature-uniform; r223 taught the
+   disclosure pattern for unused params. This round adds
+   "currently ignored".
+
+test_r238_retread_prior_strip_and_book.py — 5 tests: whitespace
+prior is not a prior, real retread still scores low,
+assumption_diversity discloses book, no truthiness next filter
+remains, catalog entry.
+
+Catalog entry retread-prior-strip-and-book-disclosure (since
+r238): r175 count pin 58 -> 59; r200 empty-window bracket r238
+-> r239.
+
+Suite after r238: 2039 passed, 1 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- A set comprehension that maps through a helper but filters on
+  truthiness still lets blanks in. ``{f(r) for r in rs if r.get(k)}``
+  must become ``{f(r) for r in rs if f(r)}`` — or the filter
+  undoes the normalisation the map just applied.
+
+### r240 — book_thread_alignment repaired; the last xfail removed
+
+r193 pinned a detector-vs-writer format divergence: the controller
+writes Open rows as ``?NN question — settled by: test`` while
+``book_thread_alignment`` compared ``split(":", 1)[0]`` of that
+string — landing on the colon inside ``settled by:`` — against a
+next-action domain. The detector could never fire on any ledger
+the controller produces. The xfail test stated the behaviour the
+docstring promises and waited for someone to repair the detector.
+
+r240 repairs it: the question text is extracted (``?NN`` prefix
+and `` — settled by:`` suffix stripped) and the next-action domain
+is checked against it — domain-in-question or question-in-action.
+The expectedFailure marker is removed; the assertions are real
+guards. The suite crosses from ``1 xfailed`` to ``0 xfailed`` for
+the first time.
+
+test_r193 updated: the repaired assertion now uses a domain that
+actually appears in the question (``cache``), plus a new divergence
+guard (``deploy`` scores 0).
+
+Catalog entry book-thread-alignment-open-format (since r240):
+r175 count pin 59 -> 60; r200 empty-window bracket r240 -> r241.
+
+Suite after r240: 2041 passed, 0 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- An xfail is a promise to fix it. r193 wrote "when someone
+  repairs the detector it will start passing unexpectedly, which
+  is the signal to delete the marker." Seven rounds of whitespace
+  and IO work later, the repair was a three-line extraction of the
+  question text. The xfail was the right way to pin it — and
+  removing it is the right way to close it.

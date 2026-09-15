@@ -1,31 +1,16 @@
 # -*- coding: utf-8 -*-
-"""Round 193 guards: a detector whose tests and writer disagree on the format.
+"""Round 193/240 guards: book_thread_alignment vs the Open row format.
 
-``book_thread_alignment`` compares the last action's domain prefix against
-the most recent ``Open`` ledger row. Its eleven unit tests in
-``test_r38_detectors.py`` feed it rows shaped ``"alpha:task1"`` — a
-hand-written ``domain: text`` form.
+r193 pinned the divergence: the controller writes Open rows as
+``?NN question — settled by: test`` while the detector compared
+``split(":", 1)[0]`` of that string — landing on the colon inside
+``settled by:`` — against a next-action domain. The detector could
+never fire on any ledger the controller produces.
 
-The controller never writes that form. ``note --open`` appends
-
-    "?%02d %s — settled by: %s" % (num, args.open, settle)
-
-so a real row reads ``?01 which cache policy — settled by: a benchmark``.
-The detector takes ``split(":", 1)[0]`` of that, which lands on the colon
-inside ``settled by:`` and yields ``"?01 which cache policy — settled by"``.
-That can never equal a next-action domain, so the detector returns 0 for
-every ledger the controller can produce, whatever the session does.
-
-It is not dead in the statistical sense — it returns 100 whenever there is
-no Open row to compare against — which is exactly why a corpus of random
-sessions does not settle it, and why the unit tests stayed green. The
-divergence is only visible when a real ledger meets the real detector, so
-that is what this round pins.
-
-The first test states the behaviour the docstring promises and is marked
-as an expected failure. When someone repairs the detector it will start
-passing unexpectedly, which is the signal to delete the marker and keep
-the assertion as a real guard.
+r240 repaired the detector: it now extracts the question text
+(``?NN`` prefix and `` — settled by:`` suffix stripped) and checks
+the next-action domain against it. The expectedFailure marker is
+removed; the assertions below are real guards.
 """
 
 import json
@@ -94,15 +79,22 @@ class BookThreadAlignmentDivergenceTests(unittest.TestCase):
             self.assertNotEqual(row.strip(), "build")
             self.assertNotIn(row.split(":", 1)[0].strip(), ("build", "review"))
 
-    @unittest.expectedFailure
     def test_alignment_fires_on_a_ledger_the_writer_produced(self):
         # What the docstring promises: a live action tracking the live
-        # thread scores 100. It does not, on any domain, for any ledger
-        # the controller writes.
+        # thread scores 100. r240 repaired the detector — it now
+        # extracts the question text from the Open row and checks the
+        # next-action domain against it, so this assertion is a real
+        # guard (the expectedFailure marker is removed).
         self._open_question()
         book = mindseam.read_ledger()
         self.assertEqual(
-            mindseam.book_thread_alignment(_history("build"), book), 100)
+            mindseam.book_thread_alignment(_history("cache"), book), 100)
+
+    def test_alignment_is_zero_when_domain_diverges(self):
+        self._open_question()
+        book = mindseam.read_ledger()
+        self.assertEqual(
+            mindseam.book_thread_alignment(_history("deploy"), book), 0)
 
     def test_it_is_pinned_to_zero_across_every_domain(self):
         # The observed fact this round is filed against: not "sometimes

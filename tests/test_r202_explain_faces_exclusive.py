@@ -21,9 +21,10 @@ flags refuse inside mode_info.
 ``seam --quiet --format``: the format branch wins and quiet is
 dropped without a word — the r197/r198 renderer-pair doctrine
 arriving on seam's two non-JSON renderers, refused before the
-stdin read and before any history append. ``--json`` stays the
-machine face everything rides, so ``seam --quiet --json`` keeps
-printing the payload.
+stdin read and before any history append. ``--json`` was left as
+the machine face everything rides (``seam --quiet --json`` printed
+the payload); r222 closed that pair too — see
+test_r222_seam_quiet_json_exclusive.py.
 """
 
 import json
@@ -239,13 +240,13 @@ class SeamQuietFormatExclusiveTests(_WorkspaceCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertTrue(r.stdout.strip().isdigit())
 
-    def test_quiet_rides_json_unchanged(self):
-        # The r198 doctrine: --json is the machine face everything
-        # rides. Pinning that seam --quiet --json still prints the
-        # payload (quiet adds nothing to suppress under JSON).
+    def test_quiet_json_refused_by_r222(self):
+        # r202 pinned quiet+json as "json wins" (r198 doctrine).
+        # r222 reversed that: the pair silently dropped quiet the
+        # same way quiet+format did, so it now refuses with exit 2.
         r = _invoke(["seam", "--quiet", "--json"], self.workspace)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("trend", json.loads(r.stdout))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("mutually exclusive", r.stderr)
 
     def test_catalog_entries(self):
         ids = {e["id"] for e in mindseam._FEATURE_CATALOG}

@@ -118,39 +118,16 @@ class SeamQuietFlagTests(unittest.TestCase):
         self.assertEqual(len(json.loads(history.read_text(
             encoding="utf-8"))), 1)
 
-    def test_quiet_and_json_compose(self):
-        # ``--quiet`` and ``--json`` are independent flags: ``--quiet``
-        # trims the human-readable prose and ``--json`` switches to
-        # machine-readable output. The two flags together must
-        # still produce a valid JSON payload that the host can
-        # consume. The history file does grow between two
-        # successive ``seam`` calls — that is the baseline contract
-        # for either flag — so the JSON ``history_count`` will
-        # differ; we strip it before comparing.
+    def test_quiet_and_json_refused_by_r222(self):
+        # r222: --quiet and --json are exclusive faces. The old
+        # compose contract let the dispatcher drop quiet without a
+        # word (the r202 quiet+format shape arriving on the json
+        # face). Refuse before any ledger work.
         self._open_ledger()
-        verbose = _invoke(["seam", "--json"], cwd=self.workspace)
-        self.assertEqual(verbose.returncode, 0, verbose.stderr)
         quiet = _invoke(["seam", "--quiet", "--json"],
                          cwd=self.workspace)
-        self.assertEqual(quiet.returncode, 0, quiet.stderr)
-        import json
-        verbose_payload = json.loads(verbose.stdout)
-        quiet_payload = json.loads(quiet.stdout)
-        # Same key set: the JSON contract is the same with or
-        # without ``--quiet``.
-        self.assertEqual(set(verbose_payload.keys()),
-                         set(quiet_payload.keys()))
-        # And every section except the history count is
-        # identical: ``--quiet`` is a presentation flag, not a
-        # logic flag.
-        for key in verbose_payload:
-            if key in ("history_count", "trend"):
-                # history_count grows by one row per seam, and the
-                # trend accumulates a risk entry per seam; two
-                # consecutive seams legitimately differ there.
-                continue
-            self.assertEqual(verbose_payload[key], quiet_payload[key],
-                             "mismatch in key %r" % key)
+        self.assertEqual(quiet.returncode, 2)
+        self.assertIn("mutually exclusive", quiet.stderr)
 
 
 if __name__ == "__main__":

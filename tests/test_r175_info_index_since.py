@@ -129,12 +129,41 @@ class IndexSinceContractTests(unittest.TestCase):
         # refusals-on-stderr, r207
         # history-row-id-first-match-exclusive, r208
         # history-truncation-selectors-exclusive, r210
-        # seam-from-stdin-single-write). The count is stable
+        # seam-from-stdin-single-write, r211
+        # resume-hist-injection + windows-pid-probe, r212
+        # history-ensure-ascii-false, r213
+        # note-meta-dirty-and-warn, r214
+        # history-keep-write-honesty, r215
+        # compact-archive-retry-and-note-order, r216
+        # seam-from-stdin-restore-next, r217
+        # history-negative-window-refusal, r218
+        # append-write-failure-disk-truth, r219
+        # seam-event-keys-need-history-write, r220
+        # history-window-grammar, r221
+        # history-window-grammar-docs, r222
+        # seam-quiet-json-exclusive, r223
+        # run-ignored-disclosure-complete, r224
+        # discover-domain-lowercase, r225
+        # skillbook-hard-domain-lowercase, r226
+        # ship-findings-max-constant, r227
+        # assess-risk-whitespace-next, r228
+        # detector-whitespace-next, r229
+        # detector-whitespace-error-outcome, r230
+        # detector-whitespace-marker-conf-ver, r231
+        # detector-whitespace-verifier-evidence, r232
+        # detector-whitespace-error-outcome-final, r233
+        # detector-whitespace-error-outcome-sweep, r234
+        # detector-field-helpers-unified, r235
+        # detector-field-helpers-tags, r236
+        # detector-field-truthiness-final, r237
+        # detector-field-helpers-next, r238
+        # retread-prior-strip-and-book-disclosure, r240
+        # book-thread-alignment-open-format). The count is stable
         # because the catalog is static; it moves only when a
         # new round lands, and the move is a deliberate pin
         # update, the way the r167 catalog count moved when
         # r169 landed.
-        self.assertEqual(len(recent), 30)
+        self.assertEqual(len(recent), 60)
         for line in recent:
             self.assertIn(line, full)
 
