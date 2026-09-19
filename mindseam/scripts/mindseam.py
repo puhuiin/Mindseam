@@ -3743,6 +3743,37 @@ def ensure_dir():
 
 # -------------------------------------------------------------------------- modes
 
+# r241: every decision payload carries the versioned inputs that
+# produced it. Borrowed from Jev's calibration rule ("pin a versioned
+# model ID when thresholds depend on model behavior, and log the
+# version returned, not the alias"): a threshold is only meaningful
+# next to the rev of the code that chose it, so a host that recorded
+# ``grade: C`` last week can tell whether the scale moved or the
+# ledger did. The values are read at call time, not frozen at import,
+# so a test host can pin the rev it is asserting against.
+PROVENANCE_ID = "mindseam"
+
+def model_provenance():
+    """Return the versioned decision-inputs block for machine faces.
+
+    ``rev`` is the controller version, ``grade_scale`` the audit cut
+    points in force, ``health_bands`` the health letters, and
+    ``thresholds`` the named constants a reader would otherwise have
+    to grep for to interpret a score.
+    """
+    return {
+        "id": PROVENANCE_ID,
+        "rev": __version__,
+        "grade_scale": [[t, g] for t, g in AUDIT_GRADE_CUTS],
+        "health_bands": [[t, g] for t, g in HEALTH_BANDS],
+        "thresholds": {
+            "skillbook_min_recurrence": SKILLBOOK_MIN_RECURRENCE,
+            "skillbook_stale_seams": SKILLBOOK_STALE_SEAMS,
+            "stall_run": STALL_RUN,
+            "resume_gap": RESUME_GAP,
+        },
+    }
+
 # r239: the ledger is model-authored text that re-enters the model's
 # own context through resume / seam, so it is a self-injection channel.
 # ECC's Memory Vault names the rule we were missing — recorded context
@@ -5055,16 +5086,21 @@ def session_health_score(hist, book=None, run=None):
     return _HealthResult(score, reasons, vol_changes, decay, st_score, compound, risk_esc, has_stall)
 
 
+# r241: the health letters become a published, inspectable scale
+# instead of an if-ladder buried in the function, so the same cut
+# points can be reported in ``model_provenance`` and calibrated
+# against real sessions (Jev's "version state schemas, thresholds,
+# and policy code together").
+HEALTH_BANDS = ((90, "A"), (75, "B"), (60, "C"), (40, "D"))
+
 def grade(score):
-    """Return letter grade from numeric score."""
-    if score >= 90:
-        return "A"
-    if score >= 75:
-        return "B"
-    if score >= 60:
-        return "C"
-    if score >= 40:
-        return "D"
+    """Return letter grade from numeric score (descending bands).
+
+    The last band is the fallback, so F covers everything below 40.
+    """
+    for threshold, letter in HEALTH_BANDS:
+        if score >= threshold:
+            return letter
     return "F"
 
 
@@ -5366,6 +5402,7 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
             "grade": grade(health_score),
             "factors": list(health_reasons or []),
         }
+        payload["model"] = model_provenance()
         payload["remediation"] = remediation_suggestions(found, health_score, book=book)
         actions = heal_actions(hist, book=book) if len(hist) >= STALL_RUN else []
         payload["heal"] = list(actions[:HEAL_REPORT_MAX])
@@ -5576,6 +5613,7 @@ def mode_resume(book, json_flag=False, format_path=None, dry_run=False):
                     "factors": list(score_reasons or []),
                 },
             },
+            "model": model_provenance(),
         }
         if format_path is not None:
             print(_format_paths(payload, format_path))
@@ -7565,11 +7603,14 @@ _FEATURE_CATALOG = (
     {"id": "retread-prior-strip-and-book-disclosure", "since": "r238",
      "summary": "narrative_knot_detector's prior_nexts set comprehension strips the filter (whitespace-only prior is not a prior), and assumption_diversity discloses its unused book parameter the way the r223 run-ignored family does — the last truthiness filter and the last undisclosed unused param",
      "default": True},
-    {"id": "book-thread-alignment-open-format", "since": "r240",
-     "summary": "book_thread_alignment extracts the question text from the Open row (?NN prefix and ' — settled by:' suffix stripped) and checks the next-action domain against it: the old split(\":\", 1)[0] landed on the colon inside 'settled by:' and the detector could never fire on any ledger the controller writes (r193 xfail removed)",
-     "default": True},
     {"id": "ledger-untrusted-framing", "since": "r239",
      "summary": "the ledger is model-authored text that re-enters the model's own context through resume/seam, so it is a self-injection channel: print_ledger/print_full_ledger mark rows matching instruction-shaped patterns (system override, ignore previous, disregard the ledger, you-must-run, destructive command, role tags) with an inline [untrusted: ...] tag, print_reentry states the data-not-instructions rule for the whole block, and resume --json/--format carry an \"untrusted\" map keyed by ledger section — the inbound counterpart to ship's outbound register scan (ECC Memory Vault's 'unreviewed context, not executable policy' borrow); unflagged rows are byte-identical",
+     "default": True},
+{"id": "book-thread-alignment-open-format", "since": "r240",
+     "summary": "book_thread_alignment extracts the question text from the Open row (?NN prefix and ' — settled by:' suffix stripped) and checks the next-action domain against it: the old split(\":\", 1)[0] landed on the colon inside 'settled by:' and the detector could never fire on any ledger the controller writes (r193 xfail removed)",
+     "default": True},
+{"id": "decision-provenance", "since": "r241",
+     "summary": "audit/seam/resume machine faces carry a \"model\" block naming the versioned decision inputs that produced the score: PROVENANCE_ID, the controller rev, the audit grade cut points, the health-band ladder (now an inspectable HEALTH_BANDS constant instead of a buried if-ladder) and the named thresholds — Jev's calibration rule ('pin a versioned model ID when thresholds depend on behavior, and log the version returned, not the alias'), so a host that recorded a grade can tell whether the scale moved or the ledger did",
      "default": True},
 )
 
@@ -9565,6 +9606,7 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
             "lean": not fresh_findings,
             "gate": gate,
             "grade": grade,
+            "model": model_provenance(),
             "net": net,
             "baselined": baselined_count,
             "intensity": level,

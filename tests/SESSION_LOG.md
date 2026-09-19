@@ -5014,6 +5014,73 @@ verify_suite 9/9, run bare, exit 0.
   r193 test in place), but a round that ADDS a test file must take
   the next free number or every intervening round becomes a gap.
 
+### r241 — decision payloads carry their versioned inputs
+
+The Jev / TypeSafe survey (2026-09-19) reviewed a decision model
+and its ecosystem rather than an agent harness, and almost none of
+it transfers: Jev is a hosted API, Mindseam is a local
+deterministic controller, and "keep control flow and side effects
+in code" is already the r156 doctrine. One rule does transfer
+without a network dependency — Jev's calibration guidance:
+*"pin a versioned model ID when thresholds depend on model
+behavior, and log the version returned in each response, not only
+the alias sent in the request."*
+
+Mindseam publishes cut points that a host reads as verdicts: the
+audit grade scale (r180) and the health letters (r156-era). Until
+now no payload said which rev produced them, so a host that
+recorded ``grade: C`` last week could not tell whether the scale
+moved or the ledger did.
+
+r241 makes the decision inputs inspectable:
+
+- ``model_provenance()`` returns id / rev / grade_scale /
+  health_bands / named thresholds, read at CALL time so a host (or
+  a test) can pin the rev it asserts against.
+- ``HEALTH_BANDS`` lifts the health letter ladder out of
+  ``grade()`` into a published constant, the shape
+  ``AUDIT_GRADE_CUTS`` already had. ``grade()`` returns the same
+  letters for every score; the band edges are pinned one by one.
+- ``audit``, ``seam`` and ``resume`` all carry a ``model`` block on
+  their ``--json`` / ``--format`` faces.
+
+test_r241_decision_provenance.py — 12 tests: the block is
+JSON-round-trippable, names id and rev, matches the live scales
+(the published grade_scale must equal the one ``audit_grade``
+uses, or the block lies about its own policy), reads at call time,
+plus the band-edge table and the three payloads rendering
+``model.id`` through ``--format``.
+
+**Round-number repair.** Adding this round surfaced a hole: r240
+had a SESSION_LOG entry and had shipped its repair, but as an edit
+inside ``test_r193_book_thread_alignment_divergence.py`` — it never
+had a test file of its own, and the r112 guard requires gap-free
+test-file numbering. So r240 gets the file it should have had
+(``test_r240_book_thread_alignment_repaired.py``, holding the
+repaired-behaviour guards and asserting the expectedFailure
+decorator is gone by walking DECORATORS, not prose — both files
+quote the marker's name while explaining its removal), r193 keeps
+the pure divergence pins, and this round is r241.
+
+Catalog entry decision-provenance (since r241): r175 count pin
+62 -> 63; r200 empty-window bracket r241 -> r242.
+
+Suite after r241: 2072 passed, 0 xfailed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- A round can be real, logged, and still leave no test file: r240
+  repaired a detector and modified the r193 test in place, which
+  reads as "r193 owns this" to the numbering guard while the
+  SESSION_LOG says otherwise. When a round changes behaviour, give
+  it its own file; when one already slipped through, the honest
+  repair is to file the guards under the round that made them true,
+  not to renumber the round out of existence.
+- A source-scanning test must scan what it means: asserting
+  ``assertNotIn("expectedFailure", read_text())`` failed on files
+  whose DOCSTRINGS explain that the marker was removed. Walk the
+  AST for the decorators and assert on those.
+
 ### r240 — book_thread_alignment repaired; the last xfail removed
 
 r193 pinned a detector-vs-writer format divergence: the controller

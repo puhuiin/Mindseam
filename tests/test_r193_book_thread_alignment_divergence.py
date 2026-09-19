@@ -79,39 +79,6 @@ class BookThreadAlignmentDivergenceTests(unittest.TestCase):
             self.assertNotEqual(row.strip(), "build")
             self.assertNotIn(row.split(":", 1)[0].strip(), ("build", "review"))
 
-    def test_alignment_fires_on_a_ledger_the_writer_produced(self):
-        # What the docstring promises: a live action tracking the live
-        # thread scores 100. r240 repaired the detector — it now
-        # extracts the question text from the Open row and checks the
-        # next-action domain against it, so this assertion is a real
-        # guard (the expectedFailure marker is removed).
-        self._open_question()
-        book = mindseam.read_ledger()
-        self.assertEqual(
-            mindseam.book_thread_alignment(_history("cache"), book), 100)
-
-    def test_alignment_is_zero_when_domain_diverges(self):
-        self._open_question()
-        book = mindseam.read_ledger()
-        self.assertEqual(
-            mindseam.book_thread_alignment(_history("deploy"), book), 0)
-
-    def test_it_is_pinned_to_zero_across_every_domain(self):
-        # The observed fact this round is filed against: not "sometimes
-        # wrong" but "cannot fire", whatever the session does.
-        self._open_question()
-        book = mindseam.read_ledger()
-        scores = {domain: mindseam.book_thread_alignment(_history(domain), book)
-                  for domain in ("build", "review", "test", "docs", "deploy")}
-        self.assertEqual(set(scores.values()), {0}, scores)
-
-    def test_the_shape_its_own_tests_use_still_scores_100(self):
-        # Confirms the mismatch is the format and not the comparison: the
-        # hand-written shape the r38 tests use passes untouched.
-        book = {"Open": ["build: which cache policy"]}
-        self.assertEqual(
-            mindseam.book_thread_alignment(_history("build"), book), 100)
-
 
 if __name__ == "__main__":
     unittest.main()
