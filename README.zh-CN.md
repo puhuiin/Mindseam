@@ -131,6 +131,7 @@ loop 三种 pass，以及可选控制器负责记录长任务状态而不负责�
 | `info --health` | 附带 `health` 块，把 `lock_state` + `audit_summary.lean` + `warnings` + `long_gap` 收口为单个 `ok` / `degraded` / `unhealthy` 状态加 `reasons` 列表（类似 `kubectl get componentstatus` / `systemctl is-system-running`） |
 | `info --health` velocity | r181：health 块附带 `velocity` 块——在最近 5 个 seam 边界重算评分并归类为 `improving` / `stable` / `degrading`（借鉴 gsd-core 的 STATE.md Trend 词）；短于 3-seam 测量下限的前缀会被跳过，否则中性的 100 分默认值会伪造下降 |
 | `info --health` untrusted | r242：此次收口开始读账本自身的文本——只要有一行读起来像指令，就追加一个 `untrusted_ledger` 原因（severity hard，越界的章节名和模式名作为列表字段给出，而不是塞进 detail 字符串里让人去解析），状态枚举不可能再回答 `ok`。同一份扫描同时喂给 resume 机器面的 `untrusted` map（该 map 现在也覆盖 Verified），并且这个块终于有了文本形态 |
+| `info --health` untrusted 扫描 | r243：扫描改为匹配"读者看到的东西"，因为一个硬门禁的两端都只是它自身的质量——全角 `ＳＹＳＴＥＭ ＯＶＥＲＲＩＤＥ` 和藏在 `system override` 里的零宽分隔符过去会穿透整个模式族却仍然读起来像指令（一个不可见字符有两种身份：既能在词内部藏住一个字母，也能顶替两个词之间的空格，所以两种读法都要匹配）；同时 `override` 现在要求指令自身的形态——祈使句用的标点、行尾、或它命令的那个动词——因为"document the system override field"是围绕一个真的叫 system override 的功能的普通工作，过去却会被判成 `unhealthy` |
 | `info --text` | 强制纯文本输出，即使同时传了 `--json`（类似 `gh` 的 text 形态 / `kubectl -o wide`） |
 | `info --content-hash` | 附带 `content_hash` 块，给每个 ledger 工件一个短 SHA-1，让 host 在 mtime 不靠谱时也能检测内容变化（类似 `git rev-parse --short` / `sha1sum`） |
 | `info --changed` | 附带 `changed` 块，列出相对上次 info 调用哪些 ledger 工件变化了；上次的哈希持久化在 `.mindseam/info-state.json`，每次调用覆盖（类似 `git status` 的 porcelain 输出） |

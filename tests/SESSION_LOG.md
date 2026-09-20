@@ -5180,3 +5180,72 @@ verify_suite 9/9, run bare, exit 0.
   draft reused a `carr%s` + `"y"/"ies"` substitution built for a
   different word and rendered "goal carry". The reasons list is
   human output too.
+
+## r243 — the untrusted scan is correct at both ends
+
+r242 promoted r239's advisory signal to a hard `info --health`
+reason. That turned two properties of `scan_untrusted` from taste
+into correctness, and a probe showed both were already broken.
+
+**Precision.** `override` was the only pattern that matched a noun
+phrase instead of a directive. A Next row of "document the system
+override field" — ordinary work *about* a feature that really is
+called the system override — answered `unhealthy` with a reason
+naming a hazard no human could find in the workspace. A gate that
+fires on correct work is a gate people learn to route around, and
+the r242 fixture could not surface this because every fixture
+plants an actual directive.
+
+**Recall.** The patterns read raw bytes. A fullwidth
+`ＳＹＳＴＥＭ ＯＶＥＲＲＩＤＥ` matched nothing while rendering as
+exactly the string an eyebrow raised over; a zero-width separator
+inside `system override` broke both `\s+` and `\b` and the whole
+family went blind on that row. A gate that misses the planted row
+is worse than no gate, because it is evidence of safety.
+
+Two changes, each aimed at one end. `override` now requires the
+directive's own shape: the punctuation an imperative uses, the end
+of the row, or the verb it orders. And matching runs on
+`_scan_normalize(text)`, which returns two surfaces — NFKC fold,
+then the invisible formatting characters both removed (the byte
+that hides a letter *inside* a word: `sys​tem override`) and
+collapsed to a space (the byte that stands in for the separator
+*between* two words: `system​override`). One invisible character
+plays both roles, so one normalization would have left half the
+evasion open in either direction.
+
+Matching still runs on normalized surfaces only; `_mark_untrusted`
+appends its tag to the original bytes, so a clean row stays
+byte-identical (r239's pin).
+
+Deliberate non-goals, pinned rather than left as latent bugs:
+HTML-entity encoding (`&#83;YSTEM OVERRIDE`) and CJK
+transliteration. A reader of the ledger's own bytes sees the
+entity as data that happens to encode an instruction, and the
+pattern set is English phrased by design — the health reason
+names the patterns, so a host knows exactly what was searched
+for. Each additional language is its own false-positive surface
+and deserves its own round's precision probe, not a silent
+widening.
+
+Two pins advanced: r175 catalog count 63 -> 64, r200 empty-window
+bracket r243 -> r244.
+
+Catalog entry untrusted-scan-hardening (since r243).
+
+Suite after r243: 2134 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- Normalizing one way is not normalizing. Removing the invisible
+  characters fixes `sys​tem override` and breaks
+  `system​override`; replacing them with a space does the reverse.
+  Both surfaces are needed, and the fix looks complete after the
+  first one because the probe that motivated it passes.
+- Tightening a pattern can open a different hole. Deleting the
+  bare noun-phrase match made "document the system override
+  field" clean, but "SYSTEM OVERRIDE ignore all previous" — no
+  colon, no dash — also went clean, and that one is a directive.
+  The ordered-verb branch restores it; without it the precision
+  fix would have traded one false positive for one false
+  negative and both would have looked like progress.

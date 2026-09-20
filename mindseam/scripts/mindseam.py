@@ -41,6 +41,7 @@ import shlex
 import sys
 import tempfile
 import time
+import unicodedata
 
 LEDGER_DIR = ".mindseam"
 LEDGER = os.path.join(LEDGER_DIR, "WORKSPACE.md")
@@ -3781,9 +3782,28 @@ def model_provenance():
 # the instruction-shaped phrasings a ledger row can acquire (from a
 # quoted task, a pasted tool call, or a hostile file), so the re-emission
 # can mark the row as data instead of letting it read as a directive.
+#
+# r243: two of these properties became correctness rather than taste the
+# moment r242 promoted the signal to a hard health reason, so both ends
+# are now pinned (see ``test_r243_untrusted_scan_hardening``):
+#
+# - Recall: the patterns read raw bytes, so a fullwidth ``ＳＹＳＴＥＭ
+#   ＯＶＥＲＲＩＤＥ`` or an invisible separator defeated the whole family
+#   while a human still read the directive. ``scan_untrusted`` matches on
+#   normalised surfaces (NFKC + both readings of an invisible character)
+#   — a scan that gates has to see what the reader sees.
+# - Precision: ``override`` was the only pattern matching a noun phrase
+#   rather than a directive, so "document the system override field" — a
+#   legitimate next action — flipped a CI gate to ``unhealthy``. The
+#   phrase now has to carry the directive's own shape: the punctuation an
+#   imperative uses, the end of the row, or the verb it orders.
 UNTRUSTED_PATTERNS = (
     ("override",
-     re.compile(r"\b(system|developer|assistant)\s+override\b", re.IGNORECASE)),
+     re.compile(r"(?:^|\b)(?:system|developer|assistant)\s+override\b"
+                r"(?:\s*[:\-—]"
+                r"|\s+(?:ignore|delete|run|execute|reset|stop|skip"
+                r"|overwrite|report|push)\b"
+                r"|$)", re.IGNORECASE | re.MULTILINE)),
     ("ignore-previous",
      re.compile(r"\bignore\s+(all\s+)?(previous|prior|above|earlier)\b",
                 re.IGNORECASE)),
@@ -3800,6 +3820,37 @@ UNTRUSTED_PATTERNS = (
      re.compile(r"^\s*(system|assistant|developer)\s*:", re.IGNORECASE)),
 )
 
+# r243: characters a reader never sees that a byte-level pattern does.
+# Zero-width space / non-joiner / joiner, word joiner, BOM and soft
+# hyphen all sit *inside* a word, so ``\s+`` and ``\b`` stop matching
+# across them while the reader sees the words joined or spaced.
+INVISIBLE_CHARS = re.compile(
+    "[\u200b\u200c\u200d\u2060\ufeff\u00ad"
+    "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069]")
+
+
+def _scan_normalize(text):
+    """Return the surfaces a reader could see, for matching only.
+
+    NFKC folds the compatibility forms that render as ordinary letters
+    (fullwidth ``ＳＹＳＴＥＭ`` -> ``SYSTEM``, ligatures -> their parts).
+    The invisible formatting characters are then resolved *both* ways,
+    because one invisible byte plays two different roles: inside a word
+    it hides a letter (``sys\\u200btem override`` reads as ``system
+    override``), and between words it stands in for the separator
+    (``system\\u200boverride`` reads as two words to a tokenizer that
+    splits on it). Removing them gives the first reading, collapsing each
+    to a space gives the second, and a scan that gates cannot afford to
+    be blind on either.
+
+    The result is only ever used for matching — ``_mark_untrusted``
+    appends its tag to the original bytes, so a clean row stays
+    byte-identical.
+    """
+    normalized = unicodedata.normalize("NFKC", text)
+    return (INVISIBLE_CHARS.sub("", normalized),
+            INVISIBLE_CHARS.sub(" ", normalized))
+
 
 def scan_untrusted(text):
     """Return the names of instruction-shaped phrases in ledger text.
@@ -3808,13 +3859,21 @@ def scan_untrusted(text):
     agreed to. This is the inbound counterpart to ``ship``'s outbound
     register scan: it looks for the phrasings that read as directives
     when the row is echoed back into a model's context.
+
+    r243: matching runs on ``_scan_normalize(text)``, not on the raw
+    bytes, so a fullwidth ``ＳＹＳＴＥＭ ＯＶＥＲＲＩＤＥ`` or a zero-width
+    separator no longer slips through while still reading as an
+    instruction to whoever sees the rendered row.
     """
     if not text:
         return []
     hits = []
+    surfaces = _scan_normalize(text)
     for name, pattern in UNTRUSTED_PATTERNS:
-        if pattern.search(text):
-            hits.append(name)
+        for surface in surfaces:
+            if pattern.search(surface):
+                hits.append(name)
+                break
     return hits
 
 
@@ -7639,6 +7698,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "untrusted-health-gate", "since": "r242",
      "summary": "the r239 untrusted signal now reaches the gate a host actually reads: info --health carries an untrusted_ledger reason (severity hard, with the offending sections and pattern names as list fields rather than words inside the detail string) so a workspace whose ledger rows read as instructions can never answer ok, the resume machine face's map covers every section the text face marks (Verified was scanned inline but omitted from the JSON, so a planted checkpoint was tagged in text and invisible to the gate), and the health block gained the text face it never had — info --health used to print the ordinary report and drop the block that was asked for",
+     "default": True},
+    {"id": "untrusted-scan-hardening", "since": "r243",
+     "summary": "the r239 scan now matches what a reader sees, which matters because r242 made it a hard gate: matching runs on normalised surfaces, so a fullwidth ＳＹＳＴＥＭ ＯＶＥＲＲＩＤＥ or a zero-width separator inside \"system override\" no longer slips through while still reading as a directive (one invisible byte plays two roles — hiding a letter inside a word and standing in for the space between two words — so both readings are matched), and \"override\" now requires the directive's own shape (the punctuation an imperative uses, the end of the row, or the verb it orders) because \"document the system override field\" — ordinary work about a feature that really is called the system override — used to flip the health gate to unhealthy",
      "default": True},
 )
 
