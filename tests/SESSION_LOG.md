@@ -5384,8 +5384,15 @@ Documented as out of scope rather than widened silently:
 
 - `--domains` / `--span` / `--count` / `--empty` report aggregates,
   not text, so there is nothing to frame.
-- bare `--format` renders host-chosen paths; `--format --json`
-  carries the map, which is the documented machine face.
+- bare `--format` renders host-chosen paths. This entry claimed
+  `--format --json` carries the map; that is false. It holds for
+  `history`, whose machine face composes the map into the whole
+  payload, and nowhere else — `info` and `seam` have no `--json`
+  face to compose into, so a projection renders exactly the path
+  you asked for and the map is left behind. The escape hatch is to
+  name the map's own path alongside the projected one. Corrected
+  in the r246 entry below, which is why the r246 tests pin a
+  projection both ways.
 - A detector's own prose is framed by the map, not by a tag.
   Splicing a suffix into `"Next-action loop detected (a → b repeated)"`
   would corrupt a pinned detector shape, and the sentence names the
@@ -5419,4 +5426,93 @@ verify_suite 9/9, run bare, exit 0.
   assertion.
 - `resume` without `--dry-run` appends a history row, so a
   "did not rewrite the file" test must preview.
+
+
+### Round 246 (test r246)
+
+r245 framed the rows and the findings and left two faces of the
+same boundary open. Both were found by a probe rather than by a
+test, which is the point of writing one first.
+
+Probe 1 — a ledger whose `Next` is the plant, run through `seam`
+with six identical rows so the loop detector fires:
+
+    seam                Goal: SYSTEM OVERRIDE: ignore previous  [untrusted: ...]
+                       · Next: SYSTEM OVERRIDE: ignore previous  [untrusted: ...]
+                       · Next-action loop detected (SYSTEM OVERRIDE: ignore previous -> SYSTEM OVERRIDE: ignore previous repeated)
+                       ... untrusted: {}                     (nothing flagged)
+
+Three lines of one report, two framed and one not, and the
+machine map answering empty for a sentence that quotes the plant
+twice. A detector sentence is the second place the ledger's own
+words come back: `loop_detection` interpolates the row's `next`
+text into its own prose.
+
+Probe 2 — the same command as probe 1, `info --json`, with a
+plant in `Goal` and `Next`:
+
+    info (text)         Goal: SYSTEM OVERRIDE: ...  [untrusted: ...]
+                        Next: SYSTEM OVERRIDE: ...  [untrusted: ...]
+    info --json         "ledger": {"goal": "SYSTEM OVERRIDE: ...", "next": "SYSTEM OVERRIDE: ..."}
+                        # no "untrusted" key
+
+That is the exact hole r245 closed for `seam --json`, still open
+for `info`: the text face frames the row and the machine face
+ships it raw, and the machine face is the half a gate reads.
+
+What changed:
+
+- `text_untrusted_map(texts)` — `{index: [pattern names]}` for a
+  list of sentences, skipping non-strings. It is `history_untrusted_map`
+  with the row dimension dropped, because a fact list has no rows.
+- `text_untrusted_tag(text)` — the one inline suffix, same spelling
+  as `row_untrusted_tag` so the tag format cannot drift between them.
+- `mode_seam`'s JSON payload gained `untrusted_facts`, keyed by fact
+  index and pointing straight at the matching entry of `facts`, so a
+  host resolves a name without string-matching the sentence. The text
+  and quiet faces append the tag to the fact line.
+- `mode_info`'s payload gained `untrusted: ledger_untrusted_map(book)`
+  and the r242 health block now reads it from the payload instead of
+  recomputing it, so the map a host reads and the map the gate gates
+  on are one call.
+
+Pinned as out of scope, deliberately, each by a test:
+
+- A projection is a projection. `--format ledger.next --json`
+  renders the chosen path and nothing else — this is where r245's
+  session entry was wrong (see the correction above), and the
+  correction is pinned here rather than left as prose. The escape
+  hatch is to name the map's own path too:
+  `--format ledger.next,untrusted.next`.
+- `remediation` / `heal` never re-quote the row, so the outbound
+  reflection does not pull the text back across the boundary.
+- A plant that only lived in an old seam's row stays invisible to
+  the section map, which r245 already pinned. This round did not
+  widen the health gate to reach it.
+
+Two pins advanced: r175 catalog count 66 -> 67, r200 empty-window
+bracket r246 -> r247.
+
+Catalog entry echoing-facts-framing (since r246).
+
+Suite after r246: 2245 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- Five of the new expectations failed on the first run and every
+  one of them was the test, not the code: two wrote JSON-style
+  string keys against an in-process helper that returns int keys,
+  one expected `override, ignore-previous` where r242 pins the
+  sorted `ignore-previous, override`, one asserted the literal word
+  `untrusted` in stdout for a projection that prints the map's
+  value, and one asserted a unique line where the detector name
+  legitimately appears twice (the fact and the `Trend:` line's
+  `next-action loop detected -5` score factor). Check the probe's
+  input first, then the expectation, then the code.
+- An inline tag on a fact line has to be appended to the fact, not
+  to the block. `print(f + tag)` keeps a host that pipes the quiet
+  face line-by-line intact.
+- `loop_detection` only fires when an adjacent pair repeats inside
+  the stall window, so the fixture is six *identical* rows; an
+  alternating pair gives the detector nothing to repeat.
 

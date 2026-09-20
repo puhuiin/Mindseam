@@ -4048,6 +4048,46 @@ def untrusted_tag_column(columns):
     return None
 
 
+def text_untrusted_map(texts):
+    """Return ``{index: [pattern names]}`` for flagged strings.
+
+    r246: a detector sentence is the second place the ledger's own words
+    come back. ``loop_detection`` prints ``"Next-action loop detected
+    (SYSTEM OVERRIDE: ... → SYSTEM OVERRIDE: ... repeated)"`` — the
+    planted row, quoted verbatim, in the middle of a conclusion the host
+    is invited to act on. The section map cannot carry it (a fact names
+    no section) and ``row_untrusted_tag`` cannot either (a fact is not a
+    row), so the framing gets the shape the fact list already has: an
+    index into the list the JSON face emits as ``facts``, so
+    ``untrusted_facts[3]`` points at ``facts[3]`` whichever renderer
+    asked. Absence still means clean, so a face with no echoing fact
+    stays byte-identical.
+    """
+    untrusted = {}
+    for index, text in enumerate(texts):
+        if not isinstance(text, str):
+            continue
+        names = scan_untrusted(text)
+        if names:
+            untrusted[index] = names
+    return untrusted
+
+
+def text_untrusted_tag(text):
+    """Return the inline ``[untrusted: ...]`` suffix for one string.
+
+    The text-face half of ``text_untrusted_map``: one sentence, the same
+    tag ``_mark_untrusted`` appends, and ``""`` for anything that trips
+    nothing.
+    """
+    if not isinstance(text, str):
+        return ""
+    names = scan_untrusted(text)
+    if not names:
+        return ""
+    return "  [untrusted: %s]" % ", ".join(names)
+
+
 def _untrusted_in_text(value, found=None):
     """Collect pattern names from any string inside a JSON-shaped value.
 
@@ -5640,6 +5680,15 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
         write_skillbook(extract_skillbook(hist))
     if json_flag or format_path is not None:
         payload = _seam_json_payload(book, hist, found, gap)
+        # r246: the r239 framing now covers the fact list too. A detector
+        # sentence is the one place the ledger's own words come back
+        # inside a conclusion — "Next-action loop detected (SYSTEM
+        # OVERRIDE: ... → ... repeated)" quotes the planted row verbatim
+        # and invites the host to break the cycle. The section map above
+        # cannot carry it (a fact names no section) and a fact is not a
+        # row, so it gets the shape the fact list already has: an index
+        # into ``facts``, absent when nothing echoed.
+        payload["untrusted_facts"] = text_untrusted_map(found)
         # r204: the machine marker the warnings string has always
         # stood in for. resume's plan face carries "dry_run":
         # bool(dry_run) (r178); seam — the first member of the
@@ -5690,8 +5739,11 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
     if quiet:
+        # r246: a fact that echoes a row carries the same inline tag the
+        # row gets everywhere else, so the quiet listing cannot be the
+        # one renderer that hands a planted directive out unframed.
         for f in found:
-            print(f)
+            print(f + text_untrusted_tag(f))
         return 0
     if state_reasons:
         print()
@@ -5701,7 +5753,7 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
     if found:
         print()
         for f in found:
-            print("· " + f)
+            print("· " + f + text_untrusted_tag(f))
         print()
         print("You would not have noticed that; I keep the record, so here it is.")
         print("If that is depth, carry on. If it is a stall, the moves open to you are:")
@@ -7910,6 +7962,9 @@ _FEATURE_CATALOG = (
     {"id": "ledger-readers-untrusted-framing", "since": "r245",
      "summary": "the r239 framing now rides every face that echoes a ledger row, which is where the injected text actually gets read: history's table, --quiet, --csv, --fields, --row-id and --json, audit's finding lines and JSON findings, and info's text face all carried the row or finding verbatim with no [untrusted] marker and no machine-readable map, so a host printing history or reading audit --json was handed SYSTEM OVERRIDE: ignore previous as ordinary output while resume's map and seam's inline tag — the only two faces framed — made the same workspace look safe. Text faces append the same inline tag resume and seam use; machine faces gain an untrusted key whose presence is the signal and whose absence leaves clean rows byte-identical, because the framing is a property of what is echoed and not of the reader that asked. A detector's own prose is framed by the map rather than a tag, since splicing a suffix into a sentence would corrupt the pinned detector shape, and the aggregate selectors (--domains, --span, --count, --empty) are documented as out of scope because they report counts rather than echoing text",
      "default": True},
+    {"id": "echoing-facts-framing", "since": "r246",
+     "summary": "r245 framed the ledger rows and the findings, but a fact sentence is the second place the ledger's own words come back: seam's \"Next-action loop detected (NEXT → NEXT repeated)\" quotes both ends of a planted next verbatim, so the same run that printed \"Goal: ... [untrusted: ...]\" handed the reader the instruction unframed one line later and its untrusted_facts map answered {}. info --json shipped ledger.goal and ledger.next raw while its text face framed the same two lines, the resume gap r245 closed for seam and left open here. text_untrusted_map / text_untrusted_tag scan the fact list once; seam's three faces gain the map and the inline tag, and info's machine face gains the same untrusted key resume and seam carry so the three reports cannot disagree. A projection is still a projection (--format ledger.next --json renders the chosen path, and --format ledger.next,untrusted.next is the escape hatch), remediation/heal never re-quote, and a history-only plant stays invisible to the section map",
+     "default": True},
 )
 
 
@@ -8298,6 +8353,16 @@ def mode_info(book, json_flag=False, warnings_only=False,
             "tags_clean": sum(1 for c in manifest_map.values() if not c),
             "by_tag": manifest_map,
         }
+    # r246: the machine face of the report whose own text face frames the
+    # same two lines. ``info`` prints ``Goal:`` and ``Next:`` through
+    # ``_mark_untrusted`` (r245), but ``info --json`` emitted
+    # ``ledger.goal`` / ``ledger.next`` raw — one command disagreeing with
+    # itself about a planted row, with the unframed half being the one a
+    # gate reads. r245 closed exactly this for ``seam --json`` and left
+    # ``info`` open, because the round's probe listed ``info`` only as a
+    # text face. Same helper and same shape as resume / seam, so the three
+    # reports cannot answer differently.
+    payload["untrusted"] = ledger_untrusted_map(book)
     # r164: lock state is independent of audit; we always
     # compute it so a host that asks ``info --json`` sees
     # whether the ledger is currently being written by
@@ -8408,8 +8473,10 @@ def mode_info(book, json_flag=False, warnings_only=False,
         # is the only part of this block a host that never parses the
         # reasons list reads, and this has to reach it. The map comes
         # from the same helper the resume machine face uses, so the
-        # two cannot disagree about what is planted.
-        untrusted = ledger_untrusted_map(book)
+        # two cannot disagree about what is planted. r246: the health
+        # block reuses the map the payload already carries rather than
+        # scanning the ledger a second time.
+        untrusted = payload["untrusted"]
         if untrusted:
             sections = sorted(untrusted)
             patterns = sorted({name for names in untrusted.values()
