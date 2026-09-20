@@ -3830,6 +3830,40 @@ def _mark_untrusted(text):
     return text + "  [untrusted: %s]" % ", ".join(hits)
 
 
+def ledger_untrusted_map(book):
+    """Return ``{section: [pattern names]}`` for the ledger's own rows.
+
+    r242: the r239 signal had two holes that this one function closes.
+    ``print_full_ledger`` marks goal, core, verified, open and next, but
+    the resume machine face carried only goal / core / open / next — a
+    planted ``Verified`` row was tagged in the text face and invisible
+    in the JSON one, so a gate reading the map never learned about it.
+    And ``info --health`` read no ledger text at all, so a workspace
+    whose Goal said ``SYSTEM OVERRIDE`` reported ``ok``. Both consumers
+    now build the map here, from the same section list the text face
+    marks: one scan, one answer, no way for the two faces to disagree.
+
+    A section that trips nothing is absent, so a host can treat a key's
+    presence as the signal (the r239 pin); a clean ledger yields ``{}``.
+    """
+    untrusted = {}
+    for section, rows in (
+        ("goal", [one(book, "Goal") or ""]),
+        ("core", list(book.get("Core") or [])),
+        ("verified", list(book.get("Verified") or [])),
+        ("open", list(book.get("Open") or [])),
+        ("next", [one(book, "Next") or ""]),
+    ):
+        hits = []
+        for row in rows:
+            for name in scan_untrusted(row):
+                if name not in hits:
+                    hits.append(name)
+        if hits:
+            untrusted[section] = hits
+    return untrusted
+
+
 def print_ledger(book):
     print("Goal:     " + _mark_untrusted(one(book, "Goal") or "(not set)"))
     core = book["Core"] or ["(empty)"]
@@ -5573,20 +5607,11 @@ def mode_resume(book, json_flag=False, format_path=None, dry_run=False):
         # reading the machine face gets the same flags the text face
         # prints inline, keyed by ledger section, so a gate can act on
         # them instead of pattern-matching the marked text.
-        untrusted = {}
-        for section, rows in (
-            ("goal", [one(book, "Goal") or ""]),
-            ("core", list(book.get("Core", []))),
-            ("open", list(book.get("Open", []))),
-            ("next", [one(book, "Next") or ""]),
-        ):
-            hits = []
-            for row in rows:
-                for name in scan_untrusted(row):
-                    if name not in hits:
-                        hits.append(name)
-            if hits:
-                untrusted[section] = hits
+        # r242: the map moved to ``ledger_untrusted_map`` so the
+        # sections match the ones ``print_full_ledger`` marks — the
+        # inline loop here stopped at ``core``/``open`` and never looked
+        # at ``Verified``.
+        untrusted = ledger_untrusted_map(book)
         payload = {
             "ledger": {
                 "goal": one(book, "Goal") or None,
@@ -7612,6 +7637,9 @@ _FEATURE_CATALOG = (
 {"id": "decision-provenance", "since": "r241",
      "summary": "audit/seam/resume machine faces carry a \"model\" block naming the versioned decision inputs that produced the score: PROVENANCE_ID, the controller rev, the audit grade cut points, the health-band ladder (now an inspectable HEALTH_BANDS constant instead of a buried if-ladder) and the named thresholds — Jev's calibration rule ('pin a versioned model ID when thresholds depend on behavior, and log the version returned, not the alias'), so a host that recorded a grade can tell whether the scale moved or the ledger did",
      "default": True},
+    {"id": "untrusted-health-gate", "since": "r242",
+     "summary": "the r239 untrusted signal now reaches the gate a host actually reads: info --health carries an untrusted_ledger reason (severity hard, with the offending sections and pattern names as list fields rather than words inside the detail string) so a workspace whose ledger rows read as instructions can never answer ok, the resume machine face's map covers every section the text face marks (Verified was scanned inline but omitted from the JSON, so a planted checkpoint was tagged in text and invisible to the gate), and the health block gained the text face it never had — info --health used to print the ordinary report and drop the block that was asked for",
+     "default": True},
 )
 
 
@@ -8101,6 +8129,31 @@ def mode_info(book, json_flag=False, warnings_only=False,
                             % (len(payload["warnings"]),
                                "" if len(payload["warnings"]) == 1 else "s")),
             })
+        # r242: the trust boundary is a health condition. A ledger row
+        # that reads as an instruction is the one failure here that is
+        # not about tidiness: the text re-enters the model's context on
+        # every resume, so "ok" on a workspace carrying one is the
+        # answer a host must never be given. Severity is hard for the
+        # same reason a fresh audit finding is hard — the status enum
+        # is the only part of this block a host that never parses the
+        # reasons list reads, and this has to reach it. The map comes
+        # from the same helper the resume machine face uses, so the
+        # two cannot disagree about what is planted.
+        untrusted = ledger_untrusted_map(book)
+        if untrusted:
+            sections = sorted(untrusted)
+            patterns = sorted({name for names in untrusted.values()
+                                for name in names})
+            reasons.append({
+                "kind": "untrusted_ledger",
+                "severity": "hard",
+                "detail": ("%s %s instruction-shaped text: %s"
+                            % (", ".join(sections),
+                               "carries" if len(sections) == 1 else "carry",
+                               ", ".join(patterns))),
+                "sections": sections,
+                "patterns": patterns,
+            })
         # Status enum: any hard reason = unhealthy, any
         # degraded = degraded, else ok. The names match
         # the borrowed taxonomy.
@@ -8422,6 +8475,21 @@ def mode_info(book, json_flag=False, warnings_only=False,
               % (summary["net"],
                  "" if summary["net"] == 1 else "s",
                  top, summary["top_tag_count"]))
+    if health and "health" in payload:
+        # r242: the health block had no text face at all, so
+        # ``info --health`` printed the ordinary report and never the
+        # answer that was asked for — the same silent-drop shape as
+        # r202/r205, one layer lower because here the flag was simply
+        # never rendered. A section now rides the report the way
+        # ``--mtime`` / ``--content-hash`` / ``--changed`` do: one
+        # status word, then one line per reason so a human reads the
+        # same thing the JSON face gates on.
+        block = payload["health"]
+        print()
+        print("Health: %s" % block["status"])
+        for reason in block["reasons"]:
+            print("  - %s (%s): %s"
+                  % (reason["kind"], reason["severity"], reason["detail"]))
     if mtime and "workspace_files" in payload:
         # The text face of --mtime is a small section, the
         # way ``df -h`` reports under ``ls -lh``: one line
@@ -9780,7 +9848,7 @@ def main(argv=None):
     info_p.add_argument("--mtime", dest="mtime", action="store_true",
         help="emit a workspace_files block listing each ledger artefact (WORKSPACE.md, history.json, metacognition.json, skillbook.md) with mtime, size, and presence, so a host can see which file was written last (like find -printf with T mtime, size, path / stat --format='mtime, size, name')")
     info_p.add_argument("--health", dest="health", action="store_true",
-        help="emit a health block rolling up lock_state + workspace_id + audit_summary.lean + warnings + last_seam.long_gap into a single status enum (ok / degraded / unhealthy) with a list of reasons (like kubectl get componentstatus / systemctl is-system-running)")
+        help="emit a health block rolling up lock_state + workspace_id + audit_summary.lean + warnings + last_seam.long_gap + untrusted_ledger into a single status enum (ok / degraded / unhealthy) with a list of reasons (like kubectl get componentstatus / systemctl is-system-running)")
     info_p.add_argument("--text", dest="text_only", action="store_true",
         help="force a plain-text report even if --json is also set; the r156 default is text when no face is requested (like the text face of `gh` / `kubectl -o wide`)")
     info_p.add_argument("--content-hash", dest="content_hash", action="store_true",

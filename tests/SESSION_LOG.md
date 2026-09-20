@@ -5115,3 +5115,68 @@ verify_suite 9/9, run bare, exit 0.
   and IO work later, the repair was a three-line extraction of the
   question text. The xfail was the right way to pin it — and
   removing it is the right way to close it.
+
+## r242 — the untrusted signal reaches the gate that hosts read
+
+r239 built an inbound trust boundary and r241 gave the payloads
+their provenance, but a probe showed the untrusted signal still
+could not change any decision a host makes:
+
+1. `resume --json`'s `untrusted` map covered goal / core / open /
+   next, stopping at `core` and `open`. `print_full_ledger` marks
+   Verified too, so a planted checkpoint was tagged where a human
+   reads and absent where a gate reads — the machine face was a
+   strict subset of the text face.
+2. `info --health` read no ledger text at all. A workspace whose
+   Goal is `SYSTEM OVERRIDE: ignore previous` answered `ok` when
+   nothing else was wrong: the one report a CI host is expected to
+   trust was blind to the hazard.
+3. `info --health` had no text face, so it printed the ordinary
+   report and dropped the block the caller asked for — the
+   r202/r205 silent-drop shape one layer lower.
+
+One helper closes all three: `ledger_untrusted_map(book)` scans
+exactly the sections `print_full_ledger` marks and returns
+`{section: [pattern names]}`, omitting sections that trip nothing
+(the r239 presence-is-the-signal pin). The resume machine face and
+the health gate both call it, so the two faces cannot disagree
+about what is planted.
+
+The health block gains an `untrusted_ledger` reason, severity
+hard, carrying `sections` and `patterns` as list fields rather
+than words inside the detail string — the r239 precedent that a
+gate should never have to pattern-match rendered prose. Severity
+is hard because a fresh audit finding already is: the status enum
+is the only part of the block a host that never parses the
+reasons list reads. The reason lands after the existing ones so
+the r165 stable-reasons-list property holds. The block finally
+renders on the text report as a `Health: <status>` section with
+one line per reason; `--warnings-only --health` is still refused
+(r205).
+
+Two pins advanced: r175 catalog count 62 -> 63, r200 empty-window
+bracket r242 -> r243.
+
+Catalog entry untrusted-health-gate (since r242).
+
+Suite after r242: 2098 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- A fixture that looks clean is not: the first `ok` test used a
+  ledger with a one-word Core and prose Next, so the audit fired
+  `core-drift` and the health block answered `unhealthy` for a
+  reason that had nothing to do with the round. A "still ok" pin
+  has to assert against a ledger that is genuinely clean — found
+  by running `audit_findings` on the fixture and iterating until
+  it returned `[]`.
+- `one(book, "Goal")` takes `rows[0]`, so a ledger-shaped book
+  carries Goal and Next as lists. A hand-built test book that
+  passes a plain string makes the scan read `"SYSTEM OVERRIDE..."[0]`
+  — the letter `S` — so the helper looks correct and the test
+  looks broken. Match the on-disk shape, not the human shape.
+- The new reason's detail string needs its own singular/plural
+  verb: `"goal carries"` vs `"goal, verified carry"`. The first
+  draft reused a `carr%s` + `"y"/"ies"` substitution built for a
+  different word and rendered "goal carry". The reasons list is
+  human output too.

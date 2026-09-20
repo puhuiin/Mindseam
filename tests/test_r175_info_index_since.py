@@ -160,12 +160,13 @@ class IndexSinceContractTests(unittest.TestCase):
         # retread-prior-strip-and-book-disclosure, r238
         # ledger-untrusted-framing, r239
         # book-thread-alignment-open-format, r240
-        # decision-provenance, r241). The count is stable
+        # decision-provenance, r241
+        # untrusted-health-gate, r242). The count is stable
         # because the catalog is static; it moves only when a
         # new round lands, and the move is a deliberate pin
         # update, the way the r167 catalog count moved when
         # r169 landed.
-        self.assertEqual(len(recent), 62)
+        self.assertEqual(len(recent), 63)
         for line in recent:
             self.assertIn(line, full)
 
