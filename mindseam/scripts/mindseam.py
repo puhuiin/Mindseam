@@ -3877,6 +3877,34 @@ def scan_untrusted(text):
     return hits
 
 
+def text_contains_any(text, needles, fold_case=False):
+    """Report which of ``needles`` appear in the text as a reader sees it.
+
+    r244: the outbound half of the same boundary. ``ship``'s register
+    checks read raw bytes, so ``GRRR`` with a zero-width byte inside, a
+    fullwidth ``ＰＨＥＷ``, or ``？！`` instead of ``?!`` all left the
+    workspace reporting ``clean`` while the document still rendered the
+    leaked token to whoever printed it — the mirror of the recall hole
+    r243 closed inbound, found by asking the outbound direction
+    separately.
+
+    ``fold_case`` keeps the marker check's documented case-insensitivity
+    (``prose.lower()``) while the returned spellings stay as written in
+    the constant, so a finding still names the marker's own casing.
+    """
+    surfaces = _scan_normalize(text)
+    if fold_case:
+        surfaces = tuple(surface.lower() for surface in surfaces)
+    found = []
+    for needle in needles:
+        probe = needle.lower() if fold_case else needle
+        for surface in surfaces:
+            if probe in surface:
+                found.append(needle)
+                break
+    return found
+
+
 def _mark_untrusted(text):
     """Append an inline warning to a ledger row that reads like an instruction.
 
@@ -6177,11 +6205,15 @@ def mode_ship(book, text, strict=False, json_flag=False, format_path=None):
     structural = markdown_structural_lines(lines)
     prose = "\n".join(line for index, line in enumerate(lines) if index not in structural)
 
-    leaked = sorted({s for s in INNER_ONLY if s in prose})
+    # r244: both register checks match on normalised surfaces, the same
+    # one ``scan_untrusted`` uses. ``prose`` is still the structural-free
+    # text — a quoted code block is data the author chose to show — but
+    # the bytes inside it are read as a reader renders them.
+    leaked = sorted(text_contains_any(prose, INNER_ONLY))
     if leaked:
         findings.append(INVARIANTS[6] + " Found: " + " ".join(leaked))
 
-    hot = sorted({m for m in MARKERS if m.lower() in prose.lower()})
+    hot = sorted(text_contains_any(prose, MARKERS, fold_case=True))
     if hot:
         findings.append("state markers in outgoing text: " + ", ".join(hot))
 
@@ -7701,6 +7733,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "untrusted-scan-hardening", "since": "r243",
      "summary": "the r239 scan now matches what a reader sees, which matters because r242 made it a hard gate: matching runs on normalised surfaces, so a fullwidth ＳＹＳＴＥＭ ＯＶＥＲＲＩＤＥ or a zero-width separator inside \"system override\" no longer slips through while still reading as a directive (one invisible byte plays two roles — hiding a letter inside a word and standing in for the space between two words — so both readings are matched), and \"override\" now requires the directive's own shape (the punctuation an imperative uses, the end of the row, or the verb it orders) because \"document the system override field\" — ordinary work about a feature that really is called the system override — used to flip the health gate to unhealthy",
+     "default": True},
+    {"id": "outbound-register-normalization", "since": "r244",
+     "summary": "ship's two register checks now read what a reader sees, closing the outbound half of the boundary r243 normalized inbound: a fullwidth ＰＨＥＷ, a fullwidth ？！ standing in for ?!, or a word joiner inside \"DATA DATA\" used to leave a workspace answering clean while the document still rendered the leaked token to whoever printed it. One shared helper, text_contains_any, runs the same normalized surfaces scan_untrusted uses, and its fold_case switch keeps the marker check's documented case-insensitivity while findings still name the marker's own casing. The structural exclusion is unchanged and pinned — notation inside a fenced block or a real table is still data the author chose to quote",
      "default": True},
 )
 

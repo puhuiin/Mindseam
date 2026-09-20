@@ -5249,3 +5249,75 @@ verify_suite 9/9, run bare, exit 0.
   The ordered-verb branch restores it; without it the precision
   fix would have traded one false positive for one false
   negative and both would have looked like progress.
+
+## r244 — the outbound half of the register scan reads like a reader
+
+r243 closed the recall hole on the inbound trust boundary. Its own
+premise was that a detector promoted to a gate is correct at both
+ends — but the fix went one direction, and the outbound half was
+still reading raw bytes:
+
+    leaked = sorted({s for s in INNER_ONLY if s in prose})
+    hot = sorted({m for m in MARKERS if m.lower() in prose.lower()})
+
+Asked as its own question, the outbound direction had the same hole
+r243 had just closed inbound. A probe on `ship`:
+
+    PHEW                clean=False  state markers: PHEW
+    ＰＨＥＷ               clean=True   (nothing)
+    ？！                 clean=True   (nothing)
+    DATA<ZWSP>DATA      clean=True   (nothing)
+
+`ship` is the human-facing boundary — the tool whose entire job is
+to stop inner-register notation reaching a person or a task-facing
+tool. It is exactly the document these spellings survive into, so
+the evasion there is worse than the inbound one, not a mirror of it.
+
+Both checks now go through one shared helper,
+`text_contains_any(text, needles, fold_case=False)`, which runs
+`_scan_normalize` before matching. That is the same two-surface
+normalization r243 built for the inbound scan, so there is one
+definition of "what the reader sees" in the controller instead of
+two that can drift apart. `fold_case` keeps the marker check's
+documented case-insensitivity (`prose.lower()`) while the returned
+spellings stay as the constant writes them, so a finding still names
+`GRRR` rather than `grrr` — a host matching on the token does not
+have to know the casing.
+
+The structural exclusion is unchanged and pinned. A fenced code
+block, a heading, a setext underline and a real table are still
+structure, and notation inside them is data the author chose to
+quote. r244 is about how the bytes read, not about which lines
+count — worth stating separately, because the two questions sound
+alike in a diff and a round that merged them would either flag
+every quoted command in a tutorial or miss a leaked marker in a
+heading.
+
+Ruled out deliberately rather than left silent: a bare `| a ?! b |`
+with no delimiter row is NOT a table to `markdown_structural_lines`
+— one pipe character does not make a row. `ship` flags it, and that
+is correct behaviour, pinned here so a future round reading the
+table test does not "fix" it into a false negative.
+
+Two pins advanced: r175 catalog count 64 -> 65, r200 empty-window
+bracket r244 -> r245.
+
+Catalog entry outbound-register-normalization (since r244).
+
+Suite after r244: 2153 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+### Gotchas
+- A first normalization that covers one role of a byte looks
+  complete because the probe that motivated it passes. The inbound
+  probe used a zero-width space hiding a letter; the outbound probe
+  needed one standing in for the space between two words. The two
+  surfaces exist because neither one alone is the reading.
+- When a test helper builds its input by concatenating a constant,
+  the constant can be empty and every test still passes for the
+  wrong reason. The fullwidth markers in this file are literal bytes;
+  scan the test file back for them before trusting the pass.
+- My own probe can be the bug. `\uff36` is a fullwidth V, not a W,
+  so the first fullwidth-marker probe tested PHEV and reported a
+  hole that did not exist. A probe that fails needs its input
+  checked before the code is changed.
