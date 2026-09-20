@@ -3808,6 +3808,25 @@ def model_provenance():
 #   legitimate next action — flipped a CI gate to ``unhealthy``. The
 #   phrase now has to carry the directive's own shape: the punctuation an
 #   imperative uses, the end of the row, or the verb it orders.
+# r248: the pieces the plain-English dismissal pattern composes from.
+# The verb list is the family that tells a reader to stop reading what
+# it has already read; "skip" is deliberately absent because it is too
+# often ordinary work ("skip the previous section" in a test fixture).
+_DISMISSAL_VERBS = (r"(?:ignore|disregard|forget|discard|drop|override"
+                    r"|replace|rewrite)")
+# Filler a real sentence puts between the verb and its object — "all of
+# the previous instructions" has two. Bounded, so "ignore the flaky test
+# the previous run left behind" cannot reach a target three words later.
+_DISMISSAL_FILLER = r"(?:(?:all|any|of|the|those|these|every|your|my)\s+){0,3}"
+_PRIOR_CONTEXT = r"(?:previous|prior|earlier|preceding|above)"
+_INSTRUCTION_WORDS = (r"(?:instructions?|directives?|rules?|guidance"
+                      r"|prompt|context)")
+# A directive in the negative is prose, not an injection: "do not forget
+# your instructions from the ticket" is a task, and so is "never
+# disregard the previous guidance". Python's lookbehind must be
+# fixed-width, so this is a chain of them, not one alternation.
+_DISMISSAL_NEGATION = (r"(?<!not )(?<!not to )(?<!n't )(?<!never )"
+                       r"(?<!avoid )(?<!cannot )")
 UNTRUSTED_PATTERNS = (
     ("override",
      re.compile(r"(?:^|\b)(?:system|developer|assistant)\s+override\b"
@@ -3820,6 +3839,44 @@ UNTRUSTED_PATTERNS = (
                 re.IGNORECASE)),
     ("disregard",
      re.compile(r"\bdisregard\s+(the\s+)?(ledger|previous|above|instructions|rules)\b",
+                re.IGNORECASE)),
+    # r248: the plain-English end of the same family. The three verb
+    # patterns above match the terse form a machine writes ("ignore
+    # previous") but not the sentence a person or a model writes —
+    # "ignore the previous instructions", "forget all previous
+    # instructions", "disregard prior instructions", "override your
+    # instructions" all scanned clean while their terse cousins were
+    # flagged, and the scan that gates health (r242) and frames five
+    # surfaces is worthless on the phrasing the reader is most likely
+    # to have pasted. This is r243's recall hole again with a different
+    # cause: there the word was invisible, here the word between the
+    # verb and the noun was missing from the alternation.
+    #
+    # The anchor is the object, not the interposed words. A dismissal
+    # verb followed by filler and then a prior-context noun phrase is
+    # flagged; a dismissal verb followed by anything else is not, so
+    # "ignore the above if the build is green" and "drop previous
+    # versions from the changelog" stay ordinary work. The noun phrase
+    # reads in either order — "ignore the previous instructions" and
+    # "override the instructions above" are the same sentence with the
+    # preposition moved — and the one branch that needs no noun is
+    # "ignore everything above", whose object is the reader's own
+    # context spelled out rather than named.
+    # A directive in the negative is prose, not an injection ("do not
+    # forget your instructions from the ticket" is a task), so every
+    # branch carries ``_DISMISSAL_NEGATION``.
+    ("dismiss-instructions",
+     re.compile(_DISMISSAL_NEGATION + r"\b" + _DISMISSAL_VERBS + r"\s+"
+                + _DISMISSAL_FILLER + _PRIOR_CONTEXT + r"\s+"
+                + _DISMISSAL_FILLER + _INSTRUCTION_WORDS + r"\b"
+                + r"|" + _DISMISSAL_NEGATION + r"\b" + _DISMISSAL_VERBS
+                + r"\s+" + _DISMISSAL_FILLER + _INSTRUCTION_WORDS + r"\s+"
+                + r"(?:above|prior|before|previous|preceding|earlier)\b"
+                + r"|" + _DISMISSAL_NEGATION + r"\b" + _DISMISSAL_VERBS
+                + r"\s+(?:everything|all)\s+(?:above|prior|before|previous"
+                + r"|preceding|that\s+came\s+before)\b"
+                + r"|" + _DISMISSAL_NEGATION + r"\b" + _DISMISSAL_VERBS
+                + r"\s+your\s+" + _INSTRUCTION_WORDS + r"\b",
                 re.IGNORECASE)),
     ("you-must",
      re.compile(r"\byou\s+must\s+(\w+\s+){0,2}(run|delete|execute|ignore|report|reset|push)\b",
@@ -8027,6 +8084,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "skillbook-untrusted-framing", "since": "r247",
      "summary": "the skillbook is the third place the ledger's own words come back, and r245/r246 never reached it because both rounds probed commands while this is a derived artefact: extract_skillbook mines the recurring error text out of the seam history and mode_skillbook printed e[\"text\"] verbatim on every face, so an error row reading \"secrets: SYSTEM OVERRIDE: ignore previous\" came back as a harvestable pattern on the one report whose purpose is to feed the model things worth remembering. The persisted .mindseam/skillbook.md is the long-lived half — every real seam rewrites it, so the plant does not merely print once, it sits in the workspace for the next session's model to read as harvested knowledge. skillbook_untrusted_map / skillbook_entry_tag / frame_skillbook_entries give the surface the shape it already has: an index-keyed map at the --format root (so --format untrusted answers and --format untrusted,entries[0].text pairs both halves), the same inline tag after r187's recency marker on the text face, and one untrusted list field folded into each flagged entry so the file, the JSON face and the projection carry the same signal. Presence is the signal, the container stays a bare list, and the health gate still does not read a harvested artefact — r245's deferral stands, pinned rather than widened",
+     "default": True},
+    {"id": "plain-english-directives", "since": "r248",
+     "summary": "the untrusted pattern family was drawn around the phrasings a machine writes (\"ignore previous\", \"disregard the ledger\", \"SYSTEM OVERRIDE\") and missed the sentence a person pastes: a probe over twenty wordings of the same directive found sixteen of them scanning clean — \"ignore the previous instructions\", \"forget all previous instructions\", \"disregard prior instructions\", \"override your instructions\", \"ignore everything above\" — while their terse cousins were flagged, so the scan that gates health and frames five surfaces was blind on the most likely wording. The hole was the words between the verb and the noun, plus one verb the family never had. One new pattern, dismiss-instructions, composed from named pieces: a dismissal verb (ignore/disregard/forget/discard/drop/override/replace/rewrite), bounded filler (\"all of the\"), a prior-context word and an instruction noun in either order, \"everything above\" as the branch that names its own object, and a negation guard that reads \"do not forget your instructions from the ticket\" as the task it is. The anchor is the object, so \"ignore the above if the build is green\", \"drop previous versions from the changelog\" and \"override the default timeout\" stay ordinary work; r243's six regexes are untouched, and a phrase they already name now carries two names instead of one",
      "default": True},
 )
 
