@@ -4088,6 +4088,61 @@ def text_untrusted_tag(text):
     return "  [untrusted: %s]" % ", ".join(names)
 
 
+def skillbook_untrusted_map(entries):
+    """Return ``{index: [pattern names]}`` for flagged skillbook entries.
+
+    r247: the skillbook is the third place the ledger's own words come
+    back. ``extract_skillbook`` mines the recurring ``error`` text out of
+    the seam history and ``mode_skillbook`` prints ``e["text"]`` verbatim
+    on every face — so an ``error`` row reading "secrets: SYSTEM
+    OVERRIDE: ignore previous" comes back as a harvestable pattern with
+    no marker, on the face whose whole purpose is to feed the model
+    things worth remembering. The key shape matches ``untrusted_facts``
+    (r246): an index into the list the machine face emits, so
+    ``untrusted[2]`` names the entry at position 2 whichever renderer
+    asked. Absence still means clean.
+    """
+    texts = [e.get("text", "") if isinstance(e, dict) else "" for e in entries]
+    return text_untrusted_map(texts)
+
+
+def skillbook_entry_tag(entry):
+    """Return the inline ``[untrusted: ...]`` suffix for one entry."""
+    if not isinstance(entry, dict):
+        return ""
+    return text_untrusted_tag(entry.get("text", ""))
+
+
+def frame_skillbook_entries(entries):
+    """Return the entries with the framing map folded into each flagged one.
+
+    The persisted ``.mindseam/skillbook.md`` is the long-lived half of
+    this surface: every ``seam`` rewrites it, so a planted ``error``
+    text does not merely print once, it sits in the workspace for the
+    next session's model to read as harvested knowledge. One copy per
+    flagged entry with an ``"untrusted"`` list field — the same
+    presence-is-the-signal convention the r239 machine faces use, so a
+    host gates on the key rather than pattern-matching the text. Clean
+    entries are copied unchanged, and a caller that ignores the field
+    keeps working, because the container stays a bare JSON list.
+    """
+    framed = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            framed.append(entry)
+            continue
+        # One entry at a time, so the key is always 0 — the fold has to
+        # key off this entry's own text, never off where it sits.
+        names = skillbook_untrusted_map([entry]).get(0)
+        if not names:
+            framed.append(entry)
+            continue
+        copy = dict(entry)
+        copy["untrusted"] = names
+        framed.append(copy)
+    return framed
+
+
 def _untrusted_in_text(value, found=None):
     """Collect pattern names from any string inside a JSON-shaped value.
 
@@ -5677,7 +5732,12 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
         if meta_problem:
             print("WARNING: telemetry was not saved — " + meta_problem,
                   file=sys.stderr)
-        write_skillbook(extract_skillbook(hist))
+        # r247: the seam's side-effect write of the skillbook is framed
+        # too. The command prints no entry, but it persists the file the
+        # next session reads as harvested knowledge, so this is the
+        # longest-lived echo of the ledger's words in the workspace and
+        # the one a framing pass cannot skip.
+        write_skillbook(frame_skillbook_entries(extract_skillbook(hist)))
     if json_flag or format_path is not None:
         payload = _seam_json_payload(book, hist, found, gap)
         # r246: the r239 framing now covers the fact list too. A detector
@@ -7965,6 +8025,9 @@ _FEATURE_CATALOG = (
     {"id": "echoing-facts-framing", "since": "r246",
      "summary": "r245 framed the ledger rows and the findings, but a fact sentence is the second place the ledger's own words come back: seam's \"Next-action loop detected (NEXT → NEXT repeated)\" quotes both ends of a planted next verbatim, so the same run that printed \"Goal: ... [untrusted: ...]\" handed the reader the instruction unframed one line later and its untrusted_facts map answered {}. info --json shipped ledger.goal and ledger.next raw while its text face framed the same two lines, the resume gap r245 closed for seam and left open here. text_untrusted_map / text_untrusted_tag scan the fact list once; seam's three faces gain the map and the inline tag, and info's machine face gains the same untrusted key resume and seam carry so the three reports cannot disagree. A projection is still a projection (--format ledger.next --json renders the chosen path, and --format ledger.next,untrusted.next is the escape hatch), remediation/heal never re-quote, and a history-only plant stays invisible to the section map",
      "default": True},
+    {"id": "skillbook-untrusted-framing", "since": "r247",
+     "summary": "the skillbook is the third place the ledger's own words come back, and r245/r246 never reached it because both rounds probed commands while this is a derived artefact: extract_skillbook mines the recurring error text out of the seam history and mode_skillbook printed e[\"text\"] verbatim on every face, so an error row reading \"secrets: SYSTEM OVERRIDE: ignore previous\" came back as a harvestable pattern on the one report whose purpose is to feed the model things worth remembering. The persisted .mindseam/skillbook.md is the long-lived half — every real seam rewrites it, so the plant does not merely print once, it sits in the workspace for the next session's model to read as harvested knowledge. skillbook_untrusted_map / skillbook_entry_tag / frame_skillbook_entries give the surface the shape it already has: an index-keyed map at the --format root (so --format untrusted answers and --format untrusted,entries[0].text pairs both halves), the same inline tag after r187's recency marker on the text face, and one untrusted list field folded into each flagged entry so the file, the JSON face and the projection carry the same signal. Presence is the signal, the container stays a bare list, and the health gate still does not read a harvested artefact — r245's deferral stands, pinned rather than widened",
+     "default": True},
 )
 
 
@@ -9014,16 +9077,32 @@ def mode_skillbook(json_flag=False, format_path=None):
     plain text or JSON. ``--format`` resolves dot-paths against a
     dict root ``{"entries": [...]}`` so ``entries[0].kind`` works;
     the bare-list JSON face is unchanged, the way a host that
-    already parses the list keeps working.
+    already parses the list keeps working. r247 added ``untrusted``
+    to that root and folded an ``untrusted`` list field into each
+    flagged entry, so the projection ``--format untrusted`` answers
+    and a host reading the JSON or the persisted file sees the same
+    signal; a clean entry still carries no extra key.
     """
     hist = read_history()[0]
     entries = extract_skillbook(hist)
-    write_skillbook(entries)
+    # r247: frame before anything prints or persists. The entry's ``text``
+    # is the ledger's own ``error`` field coming back, so the framing is
+    # owed here exactly as it is on every other echoing face — and the
+    # persisted copy is the one that outlives the run, so it is folded
+    # in the same pass rather than being left to a later round.
+    framed = frame_skillbook_entries(entries)
+    write_skillbook(framed)
     if format_path is not None:
-        print(_format_paths({"entries": entries}, format_path))
+        # The map rides the projection root so ``--format untrusted``
+        # answers and ``--format untrusted,entries[0].text`` pairs the
+        # two halves, the way r246 documents a projection: it renders
+        # the path you asked for, never more.
+        print(_format_paths(
+            {"entries": framed, "untrusted": skillbook_untrusted_map(entries)},
+            format_path))
         return 0
     if json_flag:
-        print(json.dumps(entries, ensure_ascii=False, indent=2))
+        print(json.dumps(framed, ensure_ascii=False, indent=2))
         return 0
     # r182: the text face distinguishes "no history at all"
     # from "history exists but no pattern passed the utility bar".
@@ -9046,6 +9125,10 @@ def mode_skillbook(json_flag=False, format_path=None):
             e["kind"], e["text"], e["count"], e["utility"])
         if e.get("stale"):
             line += " [stale: last seen seam %d]" % e["last_seen"]
+        # r247: the tag lands after the recency marker so the line still
+        # reads as one entry, and it is the same suffix every other text
+        # face appends.
+        line += skillbook_entry_tag(e)
         print(line)
     return 0
 
