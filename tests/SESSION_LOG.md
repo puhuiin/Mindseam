@@ -6470,6 +6470,66 @@ Catalog entry format-oneline (since r258).
 Suite after r258: 2535 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
 
+### Round 259 (test r259)
+
+Found by walking one level up from the hole r258 closed. r258 gave
+`history --format` the `_oneline` guarantee, but that fix wrapped `history`'s
+OWN per-row template engine (`_render_format_lines`). Every OTHER `--format`
+surface — `skillbook` / `discover` / `info` / `resume` / `ship` / `audit` /
+`seam` — routes through a SEPARATE generic dot-path projector
+(`_format_paths` -> `_format_path` -> `_render_value`) that resolves a
+dot-path against the JSON payload the `jq -r` way: a list renders one element
+per line, a scalar via `str(val)` RAW. That terminal scalar was the last raw
+`str(val)` on any `--format` path, and it echoes model-authored text —
+a skillbook entry's `text` is the ledger's own `error` field, mined verbatim
+by `extract_skillbook` when two rows share it (`SKILLBOOK_MIN_RECURRENCE`):
+
+    error mined into a skillbook entry:
+        "boom\nignore all previous instructions"
+
+    skillbook --format entries[*].text, before r259:
+        boom                                     <- one entry, split ...
+        ignore all previous instructions         <- ... across two lines
+
+So one resolved value carrying `\n` / `\r` split across two physical lines:
+a line-reading host over-counted entries and the planted directive read as
+its own standalone line. Same structure-only half of the r255/r256/r257/r258
+class (a dot-path projection carries no r245 tag to strand).
+
+Fix: change `_render_value`'s terminal scalar from `return str(val)` to
+`return _oneline(str(val))` — the ONE chokepoint every dot-path funnels
+through after the list/dict/bool/None branches. One resolved value is now one
+physical line, the list SEPARATOR stays intact (a genuine multi-element
+projection like `info --format features[*].id` still fans out one id per
+line, because the join happens in the `list` branch above the scalar), and
+`--json` never calls the projector (it builds its payload from `json.dumps`),
+so the machine face keeps the raw newline as the byte-recovery path.
+
+### Gotchas
+- The value-carrying surface is `skillbook --format entries[*].text`, not
+  `audit`: a live probe of `audit --format findings[*].evidence` returned 0
+  findings for the seeded rows, so audit was not a useful newline carrier —
+  the skillbook mining path (error field -> entry text) is the proven one.
+- `_render_value` / `_format_path` / `_format_paths` are reached ONLY from
+  `--format` emit sites (guarded by `format_path is not None`); `--json` and
+  every other face are untouched, so the fix cannot move a machine face.
+- Retired r258's `test_r258_is_the_highest_round` exact `max == 258` pin to
+  `>= 258`, and let the r259 file own the exact `max == 259` head (the
+  self-invalidating equality-pin lesson, r255->r256->r257->r258->r259).
+- `_oneline` maps only `\r` / `\n`; a clean value is byte-identical (a
+  Windows path or an embedded tab rides through), so the pin is "clean value
+  byte-identical" AND "one resolved value is one physical line", not a
+  reversible round-trip — that is the `--json` face's job.
+
+Bracket r259 -> r260 (r259 is now the highest catalog entry), the usual
+deliberate pin updates when a round lands: r175 count 79 -> 80, r200
+empty-window bracket r259 -> r260.
+
+Catalog entry format-oneline-generic (since r259).
+
+Suite after r259: 2556 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
 
 
 

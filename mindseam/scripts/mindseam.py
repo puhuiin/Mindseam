@@ -8374,6 +8374,9 @@ _FEATURE_CATALOG = (
     {"id": "format-oneline", "since": "r258",
      "summary": "r257 gave the line-oriented human history faces the _oneline guarantee (one ledger row is exactly one physical line) but scoped out history --format, naming it the documented next-round hole: --format renders one line per row through a host-chosen template (%t / %n / %next / %m / %v / %o / %h), and %n / %m resolve to model-authored ledger text, so a value carrying a carriage return or newline split one rendered row across two physical lines. A line-reading host over-counted rows and a planted directive read as its own standalone physical line — the same r255/r256/r257 structure-corruption class, here the structure-only half because --format carries NO r245 [untrusted: ...] tag (the template is host-controlled, so there is no tag to strand). The renderer _render_format_lines(hist, template) is SHARED by the text face and the --json lines array; the fix wraps _oneline at the TEXT emit path ONLY (print(_oneline(line))), leaving the JSON lines array raw as the machine-face byte-recovery path — the exact r257 display-vs-machine split. A clean template result with no CR/LF is byte-identical (a Windows path or an embedded tab in a value passes through untouched, since _oneline maps only \\r / \\n), every r253 token contract holds (%next beats %n by longest-first alternation, %% is a literal percent, an unknown %z drops the lone %, a missing field renders -, %h is one-based, a substituted value is never rescanned), and one --format row is now guaranteed to be exactly one physical line whatever control characters the value holds",
      "default": True},
+    {"id": "format-oneline-generic", "since": "r259",
+     "summary": "r258 gave history --format the _oneline guarantee, but history renders through its OWN per-row template engine (_render_format_lines). Every other --format surface — skillbook / discover / info / resume / ship / audit / seam — routes through a SEPARATE generic dot-path projector (_format_paths -> _format_path -> _render_value) that resolves a dot-path against the JSON payload the way jq -r does: a list renders one element per line ('\\n'.join), multiple comma-paths render one block per line. The terminal scalar was emitted RAW (str(val)), so a model-authored value carrying a carriage return or newline split one element across two physical lines — the '\\n'.join element separator and the value's own newline became indistinguishable. A skillbook entry's text is the ledger's own harvested error field (r247), so skillbook --format entries[*].text over the harvest of a multi-line error over-counted entries and let a planted directive read as its own standalone line — the r255/r256/r257/r258 structure-corruption class on the one code path r258 did not reach (--format carries no r245 [untrusted: ...] tag, so this is the structure-only half). The fix wraps _oneline at the single terminal scalar chokepoint every path (scalar, list element, comma block) routes through, so one resolved value is exactly one physical line; the list separator stays intact so a genuine multi-element projection still fans out one element per line (info --format features[*].id stays one id per line). A clean value with no CR/LF is byte-identical (a Windows path or an embedded tab passes through, since _oneline maps only \\r / \\n), and the --json face never calls this projector — it emits json.dumps of the payload and keeps the raw newline inside the string, the same display-vs-machine byte-recovery split as r257/r258",
+     "default": True},
 )
 
 
@@ -8507,7 +8510,24 @@ def _render_value(val):
         return "\n".join(_render_value(v) for v in val)
     if isinstance(val, dict):
         return json.dumps(val, ensure_ascii=False)
-    return str(val)
+    # r259: the generic dot-path ``--format`` projector is line-oriented the
+    # way r257/r258 are — a list renders one element per line (``\n``.join),
+    # multiple paths render one block per line, so a host counts one line per
+    # resolved value the way ``jq -r`` scripts do. But the scalar is model-
+    # authored ledger text (a skillbook entry's ``text`` is the ledger's own
+    # ``error`` field), and a ``\r`` / ``\n`` in it split one element across
+    # two physical lines: the join separator and the value's own newline
+    # became indistinguishable, over-counting rows and letting a planted
+    # directive read as its own standalone line. r258 closed this on
+    # history's per-row ``--format`` template (``_render_format_lines``); this
+    # is the SEPARATE generic projector r258 did not reach. ``_oneline`` here
+    # neutralises only ``\r`` / ``\n`` at the one terminal scalar chokepoint
+    # every path (scalar, list element, block) routes through, so one
+    # resolved value is exactly one physical line. A clean value with no
+    # CR/LF is byte-identical (a Windows path or a tab passes through), and
+    # the ``--json`` face — which never calls this projector — stays the raw
+    # byte-recovery path, the same display-vs-machine split as r257/r258.
+    return _oneline(str(val))
 
 
 def _format_paths(payload, path_spec):

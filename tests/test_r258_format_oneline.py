@@ -218,9 +218,11 @@ class CatalogPinTests(unittest.TestCase):
         self.assertEqual(self._by_id("format-oneline")["since"], "r258")
 
     def test_r258_is_the_highest_round(self):
+        # r259 retired the exact-max pin to a floor: r258 stays a
+        # catalog entry, but a later round is free to advance the head.
         rounds = [int(e["since"][1:]) for e in mindseam._FEATURE_CATALOG
                   if e["since"].startswith("r")]
-        self.assertEqual(max(rounds), 258)
+        self.assertGreaterEqual(max(rounds), 258)
 
 
 if __name__ == "__main__":
