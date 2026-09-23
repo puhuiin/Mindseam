@@ -262,8 +262,10 @@ class CatalogPinTests(unittest.TestCase):
         self.assertEqual(entry["since"], "r256")
 
     def test_r256_is_the_highest_round(self):
+        # Retired to a floor once r257 landed: an exact-highest-round pin
+        # is self-invalidating, so the current head owns the exact max.
         rounds = [int(e["since"][1:]) for e in mindseam._FEATURE_CATALOG]
-        self.assertEqual(max(rounds), 256)
+        self.assertGreaterEqual(max(rounds), 256)
 
 
 if __name__ == "__main__":

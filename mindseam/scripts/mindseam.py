@@ -4107,6 +4107,35 @@ def _tsv_escape(cell):
             .replace("\n", "\\n"))
 
 
+def _oneline(text):
+    """Keep a free-text field on one physical line for the line-oriented
+    text faces — ``history`` (the table), ``--quiet`` and the dedup list
+    (r257).
+
+    Those faces print a row's free-text field (``next`` / ``msg``) and
+    then append the r245 ``[untrusted: ...]`` tag on the SAME ``print``
+    call, promising the reader one physical line per row: ``--quiet`` says
+    "one per line (like ``git log --oneline``)" and is built to pipe into
+    ``xargs`` / ``grep`` / ``sort -u``. But the field is model-authored
+    ledger text, and a carriage return or newline in the value split one
+    row across two physical lines — a line-reader counted more rows than
+    the ledger held, and (worse) the split stranded the untrusted tag on
+    the LAST physical line, so a planted directive's FIRST line read as an
+    untagged standalone entry. This is the r255/r256 structure-corruption
+    class on the primary human faces those rounds did not touch.
+
+    Only ``\\r`` and ``\\n`` break "one row is one line", so only they are
+    made visible (``\\r`` / ``\\n``); a value with neither is returned
+    unchanged, so a clean row stays byte-identical and a legitimate
+    backslash (a Windows path) or tab in the value is left alone. Unlike
+    ``--fields`` (r256) / ``--csv`` (r255), these are DISPLAY faces (like
+    ``git log --oneline``) and do not promise a reversible round-trip —
+    the machine faces (``--json`` raw, ``--csv`` RFC-4180-quoted,
+    ``--fields`` reversibly escaped) are where a host recovers the exact
+    bytes."""
+    return text.replace("\r", "\\r").replace("\n", "\\n")
+
+
 def history_untrusted_map(rows):
     """Return ``{row index: {field: [pattern names]}}`` for flagged rows.
 
@@ -7450,13 +7479,13 @@ def mode_history(args):
                   % (len(deduped), len(hist)))
             for index, row in enumerate(deduped, 1):
                 msg = row.get("msg") or "(empty)"
-                print("  %3d  %s%s" % (index, msg, row_untrusted_tag(row)))
+                print("  %3d  %s%s" % (index, _oneline(msg), row_untrusted_tag(row)))
         else:
             print("── mindseam ─ history (%d unique next actions across %d rows)"
                   % (len(deduped), len(hist)))
             for index, row in enumerate(deduped, 1):
                 nxt = row.get("next") or "(empty)"
-                print("  %3d  %s%s" % (index, nxt, row_untrusted_tag(row)))
+                print("  %3d  %s%s" % (index, _oneline(nxt), row_untrusted_tag(row)))
         return 0
     if getattr(args, "empty", False):
         # Borrowed from ``find -empty`` / ``awk '/^$/'`` /
@@ -7529,7 +7558,7 @@ def mode_history(args):
         # ``git log --oneline`` powers a commit title index.
         for row in hist:
             nxt = row.get("next") or ""
-            print(nxt + row_untrusted_tag(row))
+            print(_oneline(nxt) + row_untrusted_tag(row))
         return 0
     if getattr(args, "count", False):
         # Borrowed from ``wc -l`` / ``git rev-list --count``:
@@ -7659,8 +7688,10 @@ def mode_history(args):
         verified = row.get("verified", 0)
         opens = row.get("open", 0)
         # r245: the row's own tag, on the value a reader reads.
+        # r257: one-line the next action so an embedded newline cannot
+        # split the row and strand the tag on the last physical line.
         print("  %3d  %s  v=%d o=%d  %s%s"
-              % (index, when, verified, opens, nxt, row_untrusted_tag(row)))
+              % (index, when, verified, opens, _oneline(nxt), row_untrusted_tag(row)))
     return 0
 
 
@@ -8327,6 +8358,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "fields-tsv-escape", "since": "r256",
      "summary": "history --fields joins the selected cells with a literal tab and prints one print line per row, promising a host it can pick a column with cut -f2 / awk -F'\\t' / column -t. But the cell values are model-authored ledger text and the tab form has no quoting: a next holding a raw tab spawned a spurious column, and one holding a newline split a single row across two physical lines — a line-reading host then counted more rows than the ledger held, and (worse) a planted directive whose value carried a newline put its first physical line ABOVE the r245 [untrusted: ...] tag, so the injected line read as untagged. This is the same structure-corruption class r255 fixed for --csv's terminator, except here the value itself carried the delimiter; --csv survives it because csv.writer RFC-4180-quotes a field with an embedded comma/quote/newline, but --fields had no equivalent guarantee. The fix gives the tab form the analogue of that quoting via a reversible _tsv_escape(cell): backslash FIRST (so the transform round-trips), then tab / carriage-return / newline to their \\t / \\r / \\n two-character forms, applied to every cell in the --fields emit path (the header stays unescaped — field names are host-authored and carry no control chars). A value with none of these is returned unchanged, so a clean row stays byte-identical ('build: ship\\t0\\t0'), the r254 count taxonomy and the r245 untrusted tag are untouched, and one ledger row is now guaranteed to be exactly one physical line with the selected column count no matter what control characters the value holds",
+     "default": True},
+    {"id": "oneline-text-faces", "since": "r257",
+     "summary": "the line-oriented text history faces — the default table, history --quiet (documented as 'one per line, like git log --oneline' and built to pipe into xargs / grep / sort -u) and the --dedup / --dedup-by-msg list — print a row's free-text field (next / msg) and then append the r245 [untrusted: ...] tag on the SAME print call, promising one physical line per row. But the field is model-authored ledger text: a carriage return or newline in the value split one row across two physical lines, so a line-reading host counted more rows than the ledger held, and (worse) the split stranded the untrusted tag on the LAST physical line — a planted directive's FIRST physical line then read as an untagged standalone entry. This is the r255/r256 structure-corruption class on the primary human faces those rounds did not touch (--csv quotes per r255, --fields reversibly escapes per r256). The fix runs each value through _oneline(text), which makes only the two line-breaking bytes visible — \\r to \\r and \\n to \\n — leaving backslash and tab untouched, because these are DISPLAY faces (like git log --oneline) and deliberately do not promise a reversible round-trip: a clean value with no CR/LF is byte-identical (a Windows path or an embedded tab passes through), and the machine faces (--json raw, --csv RFC-4180-quoted, --fields r256-escaped) remain the exact-byte recovery paths. One ledger row is now guaranteed to be exactly one physical line on every human face, and the r245 tag can no longer be stranded off the row it belongs to. --format also one-lines its value but carries no tag (a host-controlled template), so it stays a documented next-round hole",
      "default": True},
 )
 

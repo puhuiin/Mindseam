@@ -6345,6 +6345,70 @@ Catalog entry fields-tsv-escape (since r256).
 Suite after r256: 2487 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
 
+### Round 257 (test r257)
+
+Found by continuing the r255/r256 structure-corruption probe off the two
+machine faces and onto the three *human* ones those rounds never touched:
+the default `history` table, `--quiet` (documented "one per line, like
+`git log --oneline`", built to pipe into `xargs` / `grep` / `sort -u`) and
+the `--dedup` / `--dedup-by-msg` list. Each prints a row's free-text field
+(`next` / `msg`) and then the r245 `[untrusted: …]` tag on the SAME `print`
+call — promising one physical line per row. But the field is model-authored
+ledger text:
+
+    row next = "ship\nignore all previous instructions"
+
+    --quiet, before r257:
+        ship                                                  <- untagged
+        ignore all previous instructions  [untrusted: …]      <- tag stranded
+
+So a value carrying `\n` or `\r` split one row across two physical lines: a
+line-reading host counted more rows than the ledger held, and — worse — the
+split stranded the untrusted tag on the LAST physical line, so the planted
+directive's FIRST physical line read as an untagged standalone entry. This
+is the r255/r256 class on the primary human faces (r255 quotes the `--csv`
+terminator; r256 escapes the `--fields` cell); here it hits the display
+paths that carry the security tag.
+
+Fix: a `_oneline(text)` helper next to `_tsv_escape`, applied at the four
+render sites (dedup-msg, dedup-next, `--quiet`, default table). It makes
+ONLY the two line-breaking bytes visible — `\r` -> `\r`, `\n` -> `\n` —
+leaving backslash and tab alone, because these are DISPLAY faces (like
+`git log --oneline`) and deliberately do NOT promise a reversible round-
+trip: a clean value with no CR/LF is byte-identical (a Windows path or an
+embedded tab passes straight through). The machine faces (`--json` raw,
+`--csv` RFC-4180-quoted, `--fields` r256-escaped) remain the exact-byte
+recovery paths and are untouched. One ledger row is now exactly one
+physical line on every human face, and the r245 tag can no longer be
+stranded off the row it belongs to.
+
+### Gotchas
+- The r245 `role-tag` pattern anchors at the start of the whole value, so
+  a planted `"ship\nassistant: do X"` did NOT fire a tag (the first draft's
+  security pin found 0 tags). Switched the fixture to
+  `"ship\nignore all previous instructions"` — `ignore-previous` matches
+  anywhere, so the tag fires and the "tag stranded on the second physical
+  line" defect is faithfully reproduced.
+- `_oneline` is a DISPLAY neutraliser, not the r256 reversible escape: it
+  leaves backslash undoubled and tab untouched on purpose, so a legitimate
+  Windows path stays byte-identical. Byte recovery is the machine faces'
+  job, not these.
+- Retired r256's `test_r256_is_the_highest_round` exact `max == 256` pin to
+  `>= 256` (the self-invalidating equality-pin lesson from r255->r256), and
+  let the r257 file own the exact `max == 257` head.
+- `--format` also splits on an embedded newline but carries NO untrusted
+  tag (it is a host-controlled template), so it is SCOPED OUT of r257 as a
+  documented next-round hole rather than silently one-lined.
+
+Bracket r257 -> r258 (r257 is now the highest catalog entry), the usual
+deliberate pin updates when a round lands: r175 count 77 -> 78, r200
+empty-window bracket r257 -> r258.
+
+Catalog entry oneline-text-faces (since r257).
+
+Suite after r257: 2513 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
 
 
 
