@@ -6141,4 +6141,84 @@ usual deliberate pin updates when a round lands.
 Suite after r253: 2416 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
 
+### Round 254 (test r254)
+
+Found by staying on the seam r253 opened and asking which readers still
+disagreed. r253 taught `history --format` that a `verified`/`open` count
+of 0 is a real number — `%v`/`%o` resolve through an `is not None` guard,
+so a 0 count renders the digit `"0"` rather than the `-` placeholder. But
+`--format` is only one of four history projectors, and the two *generic*
+ones r253 never touched still tested truthiness:
+
+    --csv    cells = [str(row.get(f, "")) if row.get(f) else "" ...]
+    --fields cells.append(str(value) if value else "-")
+
+So the identical `verified=0` / `open=0` seam came out four different
+ways:
+
+    history --format %v/%o        ->  0/0          (r253, correct)
+    history --json  row           ->  verified=0    (correct)
+    history --csv                 ->  1000,ship,,   (blank cells)
+    history --fields verified,open->  -\t-          (dash)
+
+`verified` and `open` are the DEFAULT `--csv` columns (`cols = selected
+if selected is not None else ["t","next","verified","open"]`), so this
+was the common path: a host piping the default CSV into a spreadsheet
+read a genuine zero as an empty cell — the classic zero-vs-missing data
+footgun, and the exact class r253 had just fixed one renderer over.
+
+Fix: a shared `_history_cell(field, value, missing)` helper both
+projectors call, sitting next to `HISTORY_TEXT_FIELDS`. A count field in
+the new `HISTORY_COUNT_FIELDS = ("verified", "open")` shows its value
+whenever it is `is not None` (0 -> "0"); every other field keeps the
+pre-r254 truthiness rule so an empty text field still collapses to the
+caller's placeholder (`"-"` for `--fields`, `""` for `--csv`). One helper,
+two callers — they cannot drift (the r246 "same rule from the same call"
+lesson).
+
+Post-fix the four faces agree: a `verified=0`/`open=0` row renders `0/0`
+under `--format`, `0,0` in the default CSV, `0\t0` under `--fields`, and
+`verified=0` under `--json`. An empty `next` still blanks (CSV) / dashes
+(`--fields`); a text field holding the literal string `"0"` is truthy and
+renders. `t` stays on the truthiness rule to match r253's `%t` (`str(...
+or "-")`), so all faces treat a `t==0` epoch the same way too.
+
+### Gotchas
+- `--csv`/`--fields` are GENERIC projectors — they render whatever field
+  the host names, not a fixed set. Universally switching them to `is not
+  None` would change text-field behavior (an empty `next` would print the
+  empty string instead of the `-`/blank placeholder the docs promise).
+  The fix is a count-field SET, not a blanket rule; text fields keep
+  truthiness.
+- In practice `verified`/`open` are always present ints (computed from
+  `len(book["Verified"])` at append time), so the `is not None` guard
+  renders the digit on every real row; the `None` branch is the helper's
+  contract, not an on-disk state. The unit tests pin the contract; the CLI
+  tests pin the real path.
+- The r245 untrusted tag rides the cell AFTER `_history_cell` renders the
+  value, on the free-text tag column only — the count columns never carry
+  a tag, so the helper and the tag append don't interact. A clean row
+  stays byte-identical: `1000,build: ship,0,0`.
+
+bracket r254 -> r255 (r254 is now the highest catalog entry), the usual
+deliberate pin updates when a round lands.
+
+Catalog entry count-projector-zero (since r254).
+
+Incident during r254: the edit that added `count-projector-zero` matched
+its anchor on the tail of the r253 `format-single-pass` entry and
+*replaced* it instead of inserting after it, so the catalog silently lost
+r253 and stayed at the same size (`since>=r170` held at 74 instead of
+climbing to 75). The r175 pin (75) caught it. Recovered the exact r253
+entry text from commit ae2efdf and reinserted it between
+`domain-label-untrusted` (r252) and `count-projector-zero` (r254); catalog
+is 105 entries, `since>=r170` == 75. Lesson: a catalog-append edit whose
+`old_string` is a single entry's opening line can clobber the preceding
+entry when the anchor is ambiguous — verify the catalog GREW (import it and
+count) after every append, don't trust the edit's success report.
+
+Suite after r254: 2439 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
 

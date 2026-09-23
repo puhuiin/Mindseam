@@ -4062,6 +4062,28 @@ def ledger_untrusted_map(book):
 HISTORY_TEXT_FIELDS = ("next", "msg", "error", "outcome", "verifier",
                        "goal", "marker", "confidence")
 
+# r254: the row's integer counters. A genuine 0 is data, not an absent
+# cell — the same distinction r253 drew for ``--format`` %v/%o, which
+# resolve ``str(row.get("verified") if ... is not None else "-")``. The
+# generic ``--csv`` / ``--fields`` projectors used to test truthiness
+# (``if value``), so a verified=0 / open=0 seam rendered blank / ``-``
+# and disagreed with both ``--format`` and ``--json`` (which report 0).
+HISTORY_COUNT_FIELDS = ("verified", "open")
+
+
+def _history_cell(field, value, missing):
+    """Render one projected history cell for ``--csv`` / ``--fields`` (r254).
+
+    A count field (``verified`` / ``open``) shows its value whenever it is
+    ``is not None`` — so a genuine ``0`` renders ``"0"`` the way r253's
+    ``--format`` does, not the ``missing`` placeholder. Every other field
+    keeps the pre-r254 truthiness rule, where an empty string collapses to
+    ``missing`` too. ``missing`` is the caller's own absent-cell token
+    (``"-"`` for ``--fields``, ``""`` for ``--csv``)."""
+    if field in HISTORY_COUNT_FIELDS:
+        return str(value) if value is not None else missing
+    return str(value) if value else missing
+
 
 def history_untrusted_map(rows):
     """Return ``{row index: {field: [pattern names]}}`` for flagged rows.
@@ -7264,7 +7286,7 @@ def mode_history(args):
         writer = _csv.writer(buf)
         writer.writerow(cols)
         for row in hist:
-            cells = [str(row.get(f, "")) if row.get(f) else "" for f in cols]
+            cells = [_history_cell(f, row.get(f), "") for f in cols]
             if tag_col:
                 at = cols.index(tag_col)
                 cells[at] += row_untrusted_tag(row)
@@ -7520,8 +7542,10 @@ def mode_history(args):
         # way ``--format`` / ``-o``-style renderers do. The
         # header line names the columns so a host piping into
         # ``awk '{print $1}'`` or ``column -t`` can pick a
-        # column by name. Missing or empty fields render as
-        # ``-`` so the columns line up.
+        # column by name. Missing or empty text fields render as
+        # ``-`` so the columns line up; a count field's genuine 0
+        # renders ``0`` (r254, via ``_history_cell``), matching
+        # ``--format`` %v/%o and ``--json``.
         selected = [f.strip() for f in fields.split(",") if f.strip()]
         if not selected:
             selected = ["next"]
@@ -7533,8 +7557,7 @@ def mode_history(args):
         for row in hist:
             cells = []
             for f in selected:
-                value = row.get(f)
-                cells.append(str(value) if value else "-")
+                cells.append(_history_cell(f, row.get(f), "-"))
             if tag_col:
                 at = selected.index(tag_col)
                 cells[at] += row_untrusted_tag(row)
@@ -8261,6 +8284,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "format-single-pass", "since": "r253",
      "summary": "history --format resolved its per-row template with a chain of str.replace calls, which broke two ways. It substituted %n before %next, so the %next alias the docstring and --format help both advertise came out as <next>ext — a documented placeholder that worked nowhere, since %next contains %n and the shorter token clobbered the longer one first. And each replace pass re-scanned the text the previous pass had written, so a row whose next or msg free text held a literal placeholder had it rewritten: next 'ship %h now' rendered under %n as 'ship 1 now' (the %h became the row index) and msg 'has %next inside' rendered under %m as 'has next inside'. The row's own words are model- and attacker-authored (the r239-r252 boundary), so this was the one projection that trusted its input to be inert rewriting the host's chosen template. r253 replaces the chain with a single re.sub pass over one alternation, %%|%next|%t|%n|%m|%v|%o|%h|%, whose alternatives are tried longest-first so %next beats %n, and whose callback emits each substituted value whole — a value is never re-scanned as a placeholder. Every r197 contract holds: %t %n still renders the two fields, %% is a literal percent, an unknown %z drops the lone % and keeps the z, a missing field renders as -; the text face and the --json lines face stay byte-identical",
+     "default": True},
+    {"id": "count-projector-zero", "since": "r254",
+     "summary": "r253 taught history --format that a verified/open count of 0 is a real number, resolving %v/%o through an is-not-None guard so 0 renders '0'. The two generic projectors it did not touch — history --csv and history --fields — still tested truthiness (str(value) if value else '-' / '' ), so the identical verified=0 / open=0 seam came out as a blank CSV cell and a '-' in the fields view, disagreeing with both --format and --json (which report 0). verified and open are DEFAULT --csv columns (cols = selected if selected is not None else ['t','next','verified','open']), so a host piping the default CSV into a spreadsheet read a genuine zero as an empty cell — the classic zero-vs-missing data footgun. The fix is a shared _history_cell(field, value, missing) helper both projectors call: a count field in HISTORY_COUNT_FIELDS = ('verified','open') shows its value whenever it is is-not-None (0 -> '0'), while every other field keeps the pre-r254 truthiness rule so an empty text field still collapses to the caller's placeholder ('-' for --fields, '' for --csv). This lands the same value taxonomy r253 gave --format's value map on all four faces at once; the r245 untrusted tag still rides the free-text tag column and a clean row's cells stay byte-identical (t,next stays '1000,build: ship' with the counts now '0,0' rather than trailing commas)",
      "default": True},
 )
 
