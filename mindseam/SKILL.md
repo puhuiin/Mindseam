@@ -281,7 +281,7 @@ That keeps `.mindseam/` with the task rather than with the skill.
 <python-command> <skill-root>/scripts/mindseam.py history --fields next                   # print only the listed fields, tab-separated (like docker ps --format)
 <python-command> <skill-root>/scripts/mindseam.py history --format "%h %n"                # per-row template, fields %t/%n/%m/%v/%o/%h (like git log --format)
 <python-command> <skill-root>/scripts/mindseam.py history --csv                           # emit the history as CSV (like aws output csv)
-<python-command> <skill-root>/scripts/mindseam.py history --domains                     # group by the next-action domain prefix (like JIT-Agent's diversity analysis)
+<python-command> <skill-root>/scripts/mindseam.py history --domains                     # group by the next-action domain prefix (like JIT-Agent's diversity analysis); a domain label that reads like an instruction is framed [untrusted: ...] on both faces
 <python-command> <skill-root>/scripts/mindseam.py history --span                        # first seam, last seam and duration (like git log stat)
 <python-command> <skill-root>/scripts/mindseam.py history --grep review                       # entries whose next action contains 'review' (like git log --grep)
 <python-command> <skill-root>/scripts/mindseam.py history --filter marker=OPEN             # exact field match; repeatable, ANDed (like docker ps --filter)
@@ -316,8 +316,8 @@ That keeps `.mindseam/` with the task rather than with the skill.
 <python-command> <skill-root>/scripts/mindseam.py skillbook --json                                 # same, machine-readable JSON
 <python-command> <skill-root>/scripts/mindseam.py info                                              # what the suite has learned about this workspace
 <python-command> <skill-root>/scripts/mindseam.py info --json                                       # same, machine-readable JSON
-<python-command> <skill-root>/scripts/mindseam.py discover                                          # modules / domains selected for the next pass
-<python-command> <skill-root>/scripts/mindseam.py discover --json                                   # same, machine-readable JSON
+<python-command> <skill-root>/scripts/mindseam.py discover                                          # modules / domains selected for the next pass; a domain label (and the suggested-next line) that reads like an instruction is framed [untrusted: ...]
+<python-command> <skill-root>/scripts/mindseam.py discover --json                                   # same, machine-readable JSON; a flagged domain adds an untrusted key keyed by the label
 <python-command> <skill-root>/scripts/mindseam.py audit                                             # tagged ledger waste, biggest cut first (report only)
 <python-command> <skill-root>/scripts/mindseam.py audit --json                                      # same, machine-readable JSON; every finding carries an `evidence` block; top-level `gate` is clean / finding / gated
 <python-command> <skill-root>/scripts/mindseam.py audit --json --format grade                       # r180: every finding carries a stable per-run id ([D1] / [S1] / [Y1] / [K1] / [G1] / [N1] / [C1]) and the payload closes with a letter grade A-F over the fresh count (cut points 0/1/2/5/8); r241: the payload also carries a `model` block (id / rev / grade_scale / health_bands / thresholds) so a host can tell whether a grade changed because the scale moved or the ledger did -- seam --json and resume --json carry the same block

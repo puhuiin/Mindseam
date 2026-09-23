@@ -298,23 +298,32 @@ class HistoryFaceTests(LedgerWorkspace):
         self.assertEqual(r.stdout.strip(), PLANT)
 
     def test_aggregate_faces_are_documented_non_goals(self):
-        # --domains groups by prefix, --span reports times, --count
-        # reports a number, --empty lists indices: none of them echoes
-        # a row's free text, so none of them grows a tag. They must
-        # keep working unchanged.
+        # --span reports times, --count reports a number, --empty lists
+        # indices: none echoes a row's free text, so none grows a tag.
+        # (--domains was listed here too until r252, which found its
+        # grouping *label* is echoed host text and framed it — see
+        # test_domains_label_is_framed_since_r252 below and test_r252.)
         self.write_ledger(rows=[{"t": 1000, "next": PLANT},
                                 {"t": 1001, "next": ""}])
-        for args in (["history", "--domains", "--json"],
-                     ["history", "--span", "--json"],
+        for args in (["history", "--span", "--json"],
                      ["history", "--count"],
                      ["history", "--empty"]):
             r = self.run_cli(*args)
             self.assertEqual(r.returncode, 0, "%s -> %s" % (args, r.stderr))
-        domains = json.loads(self.run_cli("history", "--domains",
-                                          "--json").stdout)
-        self.assertEqual(list(domains), ["domains"])
         self.assertEqual(self.run_cli("history", "--count").stdout.strip(),
                          "2")
+
+    def test_domains_label_is_framed_since_r252(self):
+        # The r245 non-goal above was two-thirds right: --domains lifts the
+        # `dom:` prefix into a heading, and that prefix is echoed host text.
+        # r252 frames it, so this face now carries an `untrusted` map keyed
+        # by the label. The count itself is unchanged.
+        self.write_ledger(rows=[{"t": 1000, "next": PLANT},
+                                {"t": 1001, "next": ""}])
+        domains = json.loads(self.run_cli("history", "--domains",
+                                          "--json").stdout)
+        self.assertIn("untrusted", domains)
+        self.assertEqual(domains["untrusted"], {"system override": ["override"]})
 
 
 class AuditFaceTests(LedgerWorkspace):
