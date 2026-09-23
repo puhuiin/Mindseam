@@ -167,12 +167,13 @@ class IndexSinceContractTests(unittest.TestCase):
         # ledger-readers-untrusted-framing, r245
         # echoing-facts-framing, r246
         # skillbook-untrusted-framing, r247
-        # plain-english-directives, r248). The count is stable
+        # plain-english-directives, r248
+        # frame-forgery, r249). The count is stable
         # because the catalog is static; it moves only when a
         # new round lands, and the move is a deliberate pin
         # update, the way the r167 catalog count moved when
         # r169 landed.
-        self.assertEqual(len(recent), 69)
+        self.assertEqual(len(recent), 70)
         for line in recent:
             self.assertIn(line, full)
 

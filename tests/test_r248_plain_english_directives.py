@@ -219,11 +219,14 @@ class ScanFamilyTests(unittest.TestCase):
 
     def test_the_family_is_the_seventh_entry_after_disregard(self):
         # Order is part of the reported name list, and a host matching
-        # names reads it positionally. The five r239 names keep theirs.
+        # names reads it positionally. The five r239 names keep theirs,
+        # dismiss-instructions stays fourth, and r249 appended
+        # frame-forgery at the end without disturbing any earlier slot.
         self.assertEqual(
             [name for name, _ in mindseam.UNTRUSTED_PATTERNS],
             ["override", "ignore-previous", "disregard", FAMILY,
-             "you-must", "destructive-command", "role-tag"])
+             "you-must", "destructive-command", "role-tag",
+             "frame-forgery"])
 
 
 class OrdinaryProseTests(unittest.TestCase):

@@ -319,18 +319,20 @@ class ExistingContractTests(unittest.TestCase):
         self.assertEqual(mindseam.scan_untrusted(""), [])
         self.assertEqual(mindseam.scan_untrusted(None), [])
 
-    def test_pattern_set_grew_only_in_r248(self):
+    def test_pattern_set_grew_only_in_r249(self):
         # Adding a pattern is a deliberate round, not a quiet edit: the
         # health reason names pattern strings a host can already match.
-        # r248 is that round — the plain-English family the three verb
-        # patterns could not see — and it inserted itself after
-        # ``disregard`` so the five r239 names keep their order. A host
-        # that matches names sees the new one only where the old
-        # alternation had no word for what the sentence said.
+        # r248 added the plain-English family after ``disregard``; r249
+        # appended ``frame-forgery`` at the end — the row that wears the
+        # controller's own ``[untrusted: ...]`` annotation, the mirror of
+        # ``role-tag`` one layer up. Every earlier slot keeps its index,
+        # so a host that matches names positionally reads the new one only
+        # at the tail.
         self.assertEqual([name for name, _ in mindseam.UNTRUSTED_PATTERNS],
                          ["override", "ignore-previous", "disregard",
                           "dismiss-instructions",
-                          "you-must", "destructive-command", "role-tag"])
+                          "you-must", "destructive-command", "role-tag",
+                          "frame-forgery"])
 
     def test_html_entity_escaping_is_a_documented_non_goal(self):
         # A reader of the ledger's own bytes sees "&#83;YSTEM OVERRIDE",
