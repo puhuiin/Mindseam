@@ -6068,3 +6068,77 @@ The old claim was corrected in the test rather than deleted.
 Suite after r252: 2390 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
 
+### Round 253 (test r253)
+
+A deliberate departure from the fourteen-round untrusted-framing family
+(r239-r252), to a correctness defect in a different renderer — though it
+lands on the same boundary the family has been guarding: attacker-authored
+row text corrupting a host-chosen template. The target is
+`history --format`, the per-row template renderer where `%X` placeholders
+are swapped for row fields.
+
+Two real defects, both confirmed by a Python probe and over the CLI
+before the fix:
+
+    template "%next"                 rendered "<next>ext"   (alias dead)
+    next="ship %h now", tmpl "%n"    rendered "ship 1 now"  (ledger wins)
+
+(a) The documented `%next` alias worked *nowhere*. The old renderer was a
+chain of `str.replace` calls in the order `t, n, next, m, v, o, h`; `%n`
+was substituted before `%next`, so `%next` had its `%n` eaten and came out
+as `<value>ext` — a placeholder the help text advertised and that resolved
+to garbage on every input.
+
+(b) Each `str.replace` pass re-scanned the string it had just written.
+So a row whose own `next`/`msg` free text contained a literal placeholder
+(say `%h`) had it rewritten to the row index on a *later* pass: the host's
+chosen template silently rewritten by the ledger's own — attacker-authored
+— words. The same class the untrusted family fights, arriving through the
+formatter instead of a report face.
+
+Fix: one `re.sub` pass over a single longest-first alternation.
+
+    _FORMAT_TOKEN = re.compile(r"%%|%next|%t|%n|%m|%v|%o|%h|%")
+
+`%%` and `%next` sit ahead of `%n`/`%` in the alternation, so the regex
+engine's leftmost-longest choice makes `%next` beat `%n` and `%%` beat a
+bare `%`. Every match is resolved from a values dict in the *same* pass,
+and a substituted value is emitted whole and never rescanned — so a value
+that itself contains a `%X` is inert. Both call sites (the JSON
+`payload["lines"]` and the text face) route through the one helper, so the
+two faces cannot drift.
+
+### Gotchas
+- Longest-first is the whole trick. `%n` is a prefix of `%next`; a chain
+  of independent replaces resolves the prefix first and truncates the
+  longer token. A single alternation with the long token listed first lets
+  one leftmost-longest pass settle it. `%%` before `%` is the same shape.
+- Never rescan a substituted value. The `str.replace` chain re-read its
+  own output; that is what let ledger text impersonate a placeholder. A
+  single `re.sub` with a callback emits each replacement whole — the
+  attacker-in-the-ledger path closes as a side effect of doing the
+  substitution correctly.
+- A value of `0` is not missing. The values map guards `verified`/`open`
+  with `is not None`, so a genuine count of `0` renders `"0"`, while a
+  truly absent field renders `"-"`. A test that built a `verified=0` row
+  but called the shared `self.one` (which used the setUp ledger) saw
+  `2/1`, not `0/0` — the fix was to render the fresh row directly. The
+  behaviour was right; the probe was wrong (r-lesson: a failing probe may
+  be the probe — check its input first).
+- Every r197/r198 contract is preserved: six mutually-exclusive renderers,
+  `%%`→`%`, unknown `%z`→`z`, missing field→`-`, `%h` 1-based. The rewrite
+  changed *how* the template resolves, not *what* any documented
+  placeholder means.
+
+bracket r253 -> r254.
+
+Catalog entry format-single-pass (since r253).
+
+The r175 catalog-count pin moved 73 -> 74 and the r200 empty-window
+bracket moved `r253` -> `r254` (r253 is now the highest catalog entry), the
+usual deliberate pin updates when a round lands.
+
+Suite after r253: 2416 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+

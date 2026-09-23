@@ -171,12 +171,13 @@ class IndexSinceContractTests(unittest.TestCase):
         # frame-forgery, r249
         # history-metacog-untrusted, r250
         # alias-catalog-untrusted, r251
-        # domain-label-untrusted, r252). The count is stable
+        # domain-label-untrusted, r252
+        # format-single-pass, r253). The count is stable
         # because the catalog is static; it moves only when a
         # new round lands, and the move is a deliberate pin
         # update, the way the r167 catalog count moved when
         # r169 landed.
-        self.assertEqual(len(recent), 73)
+        self.assertEqual(len(recent), 74)
         for line in recent:
             self.assertIn(line, full)
 

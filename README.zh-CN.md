@@ -144,7 +144,7 @@ loop 三种 pass，以及可选控制器负责记录长任务状态而不负责�
 | `info --content-hash` | 附带 `content_hash` 块，给每个 ledger 工件一个短 SHA-1，让 host 在 mtime 不靠谱时也能检测内容变化（类似 `git rev-parse --short` / `sha1sum`） |
 | `info --changed` | 附带 `changed` 块，列出相对上次 info 调用哪些 ledger 工件变化了；上次的哈希持久化在 `.mindseam/info-state.json`，每次调用覆盖（类似 `git status` 的 porcelain 输出） |
 | `info --features` | 附带 `features` 块，列出 controller 全部能做的 flag / block / gate，按稳定 id 索引并标注引入轮次（类似 `gh` 的 features list / `rustup component list`） |
-| `info --format path1,path2` | 仅渲染给定 dot-path 上的值（类似 `docker inspect --format` / `jq -r`）。同一 flag 也作用于 `seam` / `resume` / `ship` / `skillbook` / `discover` / `audit`，退出码合约与 JSON 面逐字节一致。`history` 保留自己的逐行模板 `--format`；`note` 是编辑器，保持单面 |
+| `info --format path1,path2` | 仅渲染给定 dot-path 上的值（类似 `docker inspect --format` / `jq -r`）。同一 flag 也作用于 `seam` / `resume` / `ship` / `skillbook` / `discover` / `audit`，退出码合约与 JSON 面逐字节一致。`history` 保留自己的逐行模板 `--format`（字段 `%t`/`%n`/`%m`/`%v`/`%o`/`%h`，其中 `%next` 是 `%n` 的别名）；r253：单次 `re.sub` 遍历一条最长优先的择一式解析整个模板，于是文档里写着的 `%next` 别名终于压过 `%n`（此前它会渲染成 `<next>ext`），而本身含有 `%X` 的值会被整体输出、不再被二次扫描——账本里攻击者写入的文字再也无法改写宿主选定的模板。`note` 是编辑器，保持单面 |
 | `info --field path.key` | 单 token dot-path `--format` 简写；与 `--format` 互斥（类似 `kubectl get -o json -o yaml` 拒绝两种输出格式）|
 | `info --index` | 打印 `info.<feature-id>` 平面行式索引（类似 `pytest` 的 fixture 列表 / `git help config`）；空工作区也可用，已排序，可 grep。r200：`--json` 发出 `{"index": [...]}`；该面与其余短路面（`--version`/`--check`/`--memory`/`--list-fields`）以及 `--format`/`--field` 互斥——组合调用以 exit 2 拒绝 |
 | `info --index --index-since r172` | 类似 `tldr` 的 listing flag / `git log --since`：按轮次过滤索引（轮次标签包含在内，无效轮次标签拒绝并退出码 2）|
@@ -204,7 +204,7 @@ loop 三种 pass，以及可选控制器负责记录长任务状态而不负责�
 <python-command> <skill-root>/scripts/mindseam.py history -c
 <python-command> <skill-root>/scripts/mindseam.py history --first-match
 <python-command> <skill-root>/scripts/mindseam.py history --fields next
-<python-command> <skill-root>/scripts/mindseam.py history --format "%h %n"
+<python-command> <skill-root>/scripts/mindseam.py history --format "%h %next"
 <python-command> <skill-root>/scripts/mindseam.py history --csv
 <python-command> <skill-root>/scripts/mindseam.py history --domains
 <python-command> <skill-root>/scripts/mindseam.py history --span
