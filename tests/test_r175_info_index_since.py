@@ -185,12 +185,13 @@ class IndexSinceContractTests(unittest.TestCase):
         # rowid-detail-oneline, r263
         # audit-finding-oneline, r264,
         # alias-catalog-oneline, r265
-        # meta-telemetry-untrusted, r266). The count is stable
+        # meta-telemetry-untrusted, r266
+        # trend-untrusted, r267). The count is stable
         # because the catalog is static; it moves only when a
         # new round lands, and the move is a deliberate pin
         # update, the way the r167 catalog count moved when
         # r169 landed.
-        self.assertEqual(len(recent), 87)
+        self.assertEqual(len(recent), 88)
         for line in recent:
             self.assertIn(line, full)
 

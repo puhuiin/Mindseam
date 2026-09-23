@@ -253,7 +253,9 @@ class FeatureCatalogTests(unittest.TestCase):
         return out
 
     def test_r266_is_the_highest_round(self):
-        self.assertEqual(max(self._since_ints()), 266)
+        # Retired to a floor when r267 landed: only the newest round owns
+        # the exact ``max ==`` head pin; earlier rounds hold a ``>=`` floor.
+        self.assertGreaterEqual(max(self._since_ints()), 266)
 
     def test_recent_catalog_floor(self):
         recent = [n for n in self._since_ints() if n >= 170]
