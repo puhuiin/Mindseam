@@ -4085,6 +4085,28 @@ def _history_cell(field, value, missing):
     return str(value) if value else missing
 
 
+def _tsv_escape(cell):
+    """Escape a ``--fields`` (TSV) cell so a control character in the value
+    cannot break the tab-separated structure (r256).
+
+    ``--fields`` joins cells with a literal tab and prints one row per
+    ``print`` line, promising a host it can ``cut -f2`` / ``awk -F'\\t'`` /
+    ``column -t`` by column. But the cell values are model-authored ledger
+    text: a ``next`` holding a raw tab spawned a spurious column, and one
+    holding a newline split a single row across two physical lines — the
+    same structure-corruption class r255 fixed for ``--csv``'s terminator,
+    except here the value itself carried the delimiter. ``--csv`` survives
+    it because ``csv.writer`` quotes such fields (RFC 4180); the tab form
+    has no quoting, so it escapes instead: backslash FIRST (so the escape
+    is reversible), then tab / carriage-return / newline to their
+    two-character ``\\t`` / ``\\r`` / ``\\n`` forms. A value with none of
+    these is returned unchanged, so a clean row stays byte-identical."""
+    return (cell.replace("\\", "\\\\")
+            .replace("\t", "\\t")
+            .replace("\r", "\\r")
+            .replace("\n", "\\n"))
+
+
 def history_untrusted_map(rows):
     """Return ``{row index: {field: [pattern names]}}`` for flagged rows.
 
@@ -7570,7 +7592,10 @@ def mode_history(args):
             if tag_col:
                 at = selected.index(tag_col)
                 cells[at] += row_untrusted_tag(row)
-            print("\t".join(cells))
+            # r256: escape each cell so a tab / newline in the value cannot
+            # spawn a spurious column or split the row across lines — the
+            # tab form's answer to what ``--csv`` gets from RFC 4180 quoting.
+            print("\t".join(_tsv_escape(c) for c in cells))
         return 0
     if getattr(args, "dedup", False) or getattr(args, "dedup_by_msg", False):
         # Borrowed from ``git log --skip N -n 1`` /
@@ -8299,6 +8324,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "csv-lf-terminator", "since": "r255",
      "summary": "history --csv built its output with csv.writer(buf), whose default record terminator is RFC 4180's \\r\\n (CRLF). That buffer is handed to a text-mode stdout, and on Windows the trailing \\n of each \\r\\n is itself translated to \\r\\n, so every record terminator became \\r\\r\\n; a downstream universal-newline reader (csv.reader, pandas.read_csv, a shell redirect) decodes \\r\\r\\n as two line breaks and yields a blank record after every real one — the header 't,next,verified,open' came back as [['t','next','verified','open'], []] and an N-row ledger parsed as 2N+1 records, half of them empty []. The default columns are the common path, so the documented 'like aws --output csv / feed it straight into csv.reader' contract was broken for the ordinary case, not a corner. r254 had pinned the CRLF bytes as 'byte-identical', but that terminator was the defect. The fix pins csv.writer(buf, lineterminator='\\n') so the buffer holds a single \\n per record; the cell bytes are untouched, RFC 4180 quoting still covers embedded commas and the r245 untrusted tag still rides the free-text column, and every history face now emits the same \\n line break — csv.reader sees exactly header + N rows with zero empty records on every platform",
+     "default": True},
+    {"id": "fields-tsv-escape", "since": "r256",
+     "summary": "history --fields joins the selected cells with a literal tab and prints one print line per row, promising a host it can pick a column with cut -f2 / awk -F'\\t' / column -t. But the cell values are model-authored ledger text and the tab form has no quoting: a next holding a raw tab spawned a spurious column, and one holding a newline split a single row across two physical lines — a line-reading host then counted more rows than the ledger held, and (worse) a planted directive whose value carried a newline put its first physical line ABOVE the r245 [untrusted: ...] tag, so the injected line read as untagged. This is the same structure-corruption class r255 fixed for --csv's terminator, except here the value itself carried the delimiter; --csv survives it because csv.writer RFC-4180-quotes a field with an embedded comma/quote/newline, but --fields had no equivalent guarantee. The fix gives the tab form the analogue of that quoting via a reversible _tsv_escape(cell): backslash FIRST (so the transform round-trips), then tab / carriage-return / newline to their \\t / \\r / \\n two-character forms, applied to every cell in the --fields emit path (the header stays unescaped — field names are host-authored and carry no control chars). A value with none of these is returned unchanged, so a clean row stays byte-identical ('build: ship\\t0\\t0'), the r254 count taxonomy and the r245 untrusted tag are untouched, and one ledger row is now guaranteed to be exactly one physical line with the selected column count no matter what control characters the value holds",
      "default": True},
 )
 

@@ -6282,5 +6282,69 @@ Suite after r255: 2459 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
 
 
+### Round 256 (test r256)
+
+Found by continuing the r255 probe onto the sibling projector: r255 made
+`--csv`'s record *terminator* a clean single LF; r256 asked whether
+`--fields` — the other structured face — was as robust when the delimiter
+lived inside the *value*. It was not. `--fields` joins the selected cells
+with a literal tab and prints one `print` line per row, promising a host
+`cut -f2` / `awk -F'\t'` / `column -t` by column. But the cells are
+model-authored ledger text and the tab form has no quoting:
+
+    row next = "build: do\tthing"   -> "build: do<TAB>thing"   (2 columns, not 1)
+    row next = "ship: line1\nline2" -> "ship: line1" / "line2"  (2 physical lines, not 1)
+
+So a value carrying a raw tab spawned a spurious column and one carrying a
+newline split a single ledger row across two physical lines — a
+line-reading host counted more rows than the ledger held. Worse, a planted
+directive whose value carried a newline put its FIRST physical line
+*above* the r245 `[untrusted: …]` tag (the tag rides the end of the cell),
+so the injected line read as untagged. This is the same structure-
+corruption class r255 fixed, except here the value itself carried the
+delimiter. `--csv` survives the identical input because `csv.writer`
+RFC-4180-quotes any field with an embedded comma / quote / newline;
+`--fields` had no equivalent guarantee.
+
+Fix: a reversible `_tsv_escape(cell)` inserted right after `_history_cell`
+and applied to every cell in the `--fields` emit path — backslash FIRST
+(so the transform round-trips), then tab / carriage-return / newline to
+their `\t` / `\r` / `\n` two-character forms. The header stays unescaped
+(field names are host-authored and carry no control chars). A value with
+none of these is returned unchanged, so a clean row stays byte-identical
+(`build: ship\t0\t0`), the r254 count taxonomy and the r245 untrusted tag
+are untouched, and one ledger row is now guaranteed to be exactly one
+physical line with the selected column count no matter what the value
+holds — the tab form's answer to what `--csv` gets from RFC 4180 quoting.
+
+### Gotchas
+- The parity test's first draft asserted `--csv` was `\r`-free on a value
+  carrying `\r`. That is wrong: a raw `\r` inside a `--csv` *quoted cell*
+  is legitimate RFC 4180 data — r255 fixed the record TERMINATOR, not the
+  cell bytes. The two faces defend "one row = one record" by different,
+  both-correct means: `--fields` ESCAPES the control char, `--csv` QUOTES
+  it. The test now pins each face's own invariant, not a shared \r-free
+  claim.
+- r255 introduced a `test_r255_is_the_highest_round` pin asserting
+  `max(rounds) == 255`. A per-round "I am the newest" equality pin is
+  self-invalidating: r256 landing made it false. Retired it to the durable
+  invariant `max(rounds) >= 255` (the catalog never regresses past r255)
+  and let the r256 file own the exact `max == 256` head pin. Only the
+  newest round should assert the exact head.
+- The corruption was visible to the in-process StringIO harness (unlike
+  the r255 CRLF terminator defect), because the bad bytes were in the
+  value, not the OS-translated line terminator — so the r256 tests catch a
+  regression without needing a real subprocess.
+
+Bracket r256 -> r257 (r256 is now the highest catalog entry), the usual
+deliberate pin updates when a round lands: r175 count 76 -> 77, r200
+empty-window bracket r256 -> r257.
+
+Catalog entry fields-tsv-escape (since r256).
+
+Suite after r256: 2487 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
 
 

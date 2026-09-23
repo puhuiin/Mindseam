@@ -212,9 +212,12 @@ class CatalogPinTests(unittest.TestCase):
                      if e["id"] == "csv-lf-terminator")
         self.assertEqual(entry["since"], "r255")
 
-    def test_r255_is_the_highest_round(self):
+    def test_r255_is_not_beyond_the_catalog_head(self):
+        # r255 was the highest catalog round when it landed; later rounds
+        # supersede that exact claim (r256 owns max==256), so this pins the
+        # durable invariant instead: the catalog never regresses below r255.
         rounds = [int(e["since"][1:]) for e in mindseam._FEATURE_CATALOG]
-        self.assertEqual(max(rounds), 255)
+        self.assertGreaterEqual(max(rounds), 255)
 
 
 if __name__ == "__main__":

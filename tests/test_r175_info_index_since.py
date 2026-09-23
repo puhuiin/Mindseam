@@ -174,12 +174,13 @@ class IndexSinceContractTests(unittest.TestCase):
         # domain-label-untrusted, r252
         # format-single-pass, r253
         # count-projector-zero, r254
-        # csv-lf-terminator, r255). The count is stable
+        # csv-lf-terminator, r255
+        # fields-tsv-escape, r256). The count is stable
         # because the catalog is static; it moves only when a
         # new round lands, and the move is a deliberate pin
         # update, the way the r167 catalog count moved when
         # r169 landed.
-        self.assertEqual(len(recent), 76)
+        self.assertEqual(len(recent), 77)
         for line in recent:
             self.assertIn(line, full)
 
