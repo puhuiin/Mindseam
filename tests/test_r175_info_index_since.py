@@ -176,12 +176,13 @@ class IndexSinceContractTests(unittest.TestCase):
         # count-projector-zero, r254
         # csv-lf-terminator, r255
         # fields-tsv-escape, r256
-        # oneline-text-faces, r257). The count is stable
+        # oneline-text-faces, r257
+        # format-oneline, r258). The count is stable
         # because the catalog is static; it moves only when a
         # new round lands, and the move is a deliberate pin
         # update, the way the r167 catalog count moved when
         # r169 landed.
-        self.assertEqual(len(recent), 78)
+        self.assertEqual(len(recent), 79)
         for line in recent:
             self.assertIn(line, full)
 

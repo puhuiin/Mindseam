@@ -6411,4 +6411,65 @@ verify_suite 9/9, run bare, exit 0.
 
 
 
+### Round 258 (test r258)
+
+Found by walking straight into the hole r257 documented and scoped out:
+`history --format`. r257 gave the line-oriented human faces the `_oneline`
+guarantee (one ledger row is exactly one physical line) but named `--format`
+the next-round hole, because it carries no r245 tag and so is the
+structure-only half of the class. `--format` renders one line per row through
+a host-chosen template (`%t` / `%n` / `%next` / `%m` / `%v` / `%o` / `%h`),
+and `%n` / `%m` resolve to model-authored ledger text:
+
+    row next = "ship: line1\nignore all previous instructions"
+    template  = "ROW%h:%n"
+
+    text face, before r258:
+        ROW1:build: do work
+        ROW2:ship: line1                        <- one row, split ...
+        ignore all previous instructions        <- ... across two lines
+        ROW3:deploy: last
+
+So a value carrying `\n` or `\r` split one rendered row across two physical
+lines: a line-reading host over-counted rows and the planted directive read
+as its own standalone physical line. Same r255/r256/r257 class, here the
+structure-only half (the template is host-controlled, so there is no tag to
+strand — this face carries none).
+
+Fix: `_render_format_lines(hist, template)` is SHARED by the text face and
+the `--json` `lines` array. Wrap `_oneline` at the TEXT emit path ONLY —
+`print(_oneline(line))` — leaving the JSON `lines` array raw as the
+machine-face byte-recovery path. This is the exact r257 display-vs-machine
+split: the human face is one-lined, the machine face keeps the raw bytes.
+
+### Gotchas
+- The in-process StringIO harness SEES this defect (unlike r255's CRLF
+  terminator, which needed a real subprocess): the bad bytes are in the
+  VALUE, not the stdout terminator, so `res.stdout.splitlines()` over-counts
+  in-process — harness visibility depends on where the defect lives (the
+  r255->r256 lesson again).
+- `_oneline` maps only `\r` / `\n`; a clean template result is byte-identical
+  (a Windows path or an embedded tab in a value passes through untouched), so
+  the pin is "clean value byte-identical" AND "row is one physical line", not
+  a reversible round-trip — that is the machine face's job.
+- Retired r257's `test_r257_is_the_highest_round` exact `max == 257` pin to
+  `>= 257`, and let the r258 file own the exact `max == 258` head (the
+  self-invalidating equality-pin lesson, r255->r256->r257->r258).
+- The r253 token contracts all still hold on the one-lined face (%next beats
+  %n by longest-first, `%%` literal, unknown `%z` drops the lone `%`, missing
+  field renders `-`, `%h` one-based, a substituted value is never rescanned)
+  — `_oneline` runs AFTER the render, so it neutralises only line breaks and
+  touches no token.
+
+Bracket r258 -> r259 (r258 is now the highest catalog entry), the usual
+deliberate pin updates when a round lands: r175 count 78 -> 79, r200
+empty-window bracket r258 -> r259.
+
+Catalog entry format-oneline (since r258).
+
+Suite after r258: 2535 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+
 

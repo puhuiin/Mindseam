@@ -7590,8 +7590,17 @@ def mode_history(args):
         # give the host the header-bearing and comma-bearing
         # forms respectively. Under ``--json`` the lines ride the
         # general payload (see the json face above).
+        # r258: this text face promises one physical line per row
+        # (``git log --format`` / ``--no-header``), but ``%n``/``%m``
+        # are model-authored ledger text — a value carrying ``\r``/``\n``
+        # split one row across physical lines, so a line-reading host
+        # (``| wc -l`` / ``sort`` / ``grep``) over-counted rows and a
+        # planted directive read as its own standalone line. ``_oneline``
+        # makes only those two bytes visible (the r257 display-face rule);
+        # the ``--json`` ``lines`` array above calls the renderer directly
+        # and stays raw, the machine-face byte-recovery path.
         for line in _render_format_lines(hist, format_template):
-            print(line)
+            print(_oneline(line))
         return 0
     if fields:
         # Borrowed from ``docker ps --format '{{.Names}}'`` /
@@ -8361,6 +8370,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "oneline-text-faces", "since": "r257",
      "summary": "the line-oriented text history faces — the default table, history --quiet (documented as 'one per line, like git log --oneline' and built to pipe into xargs / grep / sort -u) and the --dedup / --dedup-by-msg list — print a row's free-text field (next / msg) and then append the r245 [untrusted: ...] tag on the SAME print call, promising one physical line per row. But the field is model-authored ledger text: a carriage return or newline in the value split one row across two physical lines, so a line-reading host counted more rows than the ledger held, and (worse) the split stranded the untrusted tag on the LAST physical line — a planted directive's FIRST physical line then read as an untagged standalone entry. This is the r255/r256 structure-corruption class on the primary human faces those rounds did not touch (--csv quotes per r255, --fields reversibly escapes per r256). The fix runs each value through _oneline(text), which makes only the two line-breaking bytes visible — \\r to \\r and \\n to \\n — leaving backslash and tab untouched, because these are DISPLAY faces (like git log --oneline) and deliberately do not promise a reversible round-trip: a clean value with no CR/LF is byte-identical (a Windows path or an embedded tab passes through), and the machine faces (--json raw, --csv RFC-4180-quoted, --fields r256-escaped) remain the exact-byte recovery paths. One ledger row is now guaranteed to be exactly one physical line on every human face, and the r245 tag can no longer be stranded off the row it belongs to. --format also one-lines its value but carries no tag (a host-controlled template), so it stays a documented next-round hole",
+     "default": True},
+    {"id": "format-oneline", "since": "r258",
+     "summary": "r257 gave the line-oriented human history faces the _oneline guarantee (one ledger row is exactly one physical line) but scoped out history --format, naming it the documented next-round hole: --format renders one line per row through a host-chosen template (%t / %n / %next / %m / %v / %o / %h), and %n / %m resolve to model-authored ledger text, so a value carrying a carriage return or newline split one rendered row across two physical lines. A line-reading host over-counted rows and a planted directive read as its own standalone physical line — the same r255/r256/r257 structure-corruption class, here the structure-only half because --format carries NO r245 [untrusted: ...] tag (the template is host-controlled, so there is no tag to strand). The renderer _render_format_lines(hist, template) is SHARED by the text face and the --json lines array; the fix wraps _oneline at the TEXT emit path ONLY (print(_oneline(line))), leaving the JSON lines array raw as the machine-face byte-recovery path — the exact r257 display-vs-machine split. A clean template result with no CR/LF is byte-identical (a Windows path or an embedded tab in a value passes through untouched, since _oneline maps only \\r / \\n), every r253 token contract holds (%next beats %n by longest-first alternation, %% is a literal percent, an unknown %z drops the lone %, a missing field renders -, %h is one-based, a substituted value is never rescanned), and one --format row is now guaranteed to be exactly one physical line whatever control characters the value holds",
      "default": True},
 )
 
