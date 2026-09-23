@@ -157,7 +157,7 @@ loop 三种 pass，以及可选控制器负责记录长任务状态而不负责�
 | `history --json` | 机器可读审计日志尾 |
 | `discover` | 列出下次迭代推荐的模块 / 领域 |
 | `discover --json` | 同上，机器可读 JSON |
-| `audit` | 按标签逐行报告账本冗余，最大可削减项优先（只读报告，借鉴自 ponytail） |
+| `audit` | 按标签逐行报告账本冗余，最大可削减项优先（只读报告，借鉴自 ponytail）；r264：一条 finding 就是控制器把账本原文回引给主机——`next-stall` 通过一个纯 `%s` 把某条 history 行的 `next` 逐字渲染出来，而 r245 又在同一次 `print` 里补上 `[untrusted: …]` 标签，于是值里十一种 `str.splitlines()` 断行中的任何一种（一个裸的 `\u2028` 可越过只拒绝 `\r`/`\n` 的 `clean_scalar` 抵达这里）都会把一条 finding 拆成两条物理行、把标签落在最后一行，而植入的指令读起来像一条未标注的结论——现在这条 finding 行会过一遍 `_oneline`，于是一条 finding 就是一条物理行、标签不脱离所属行，干净 finding 逐字节一致，而 `--json`/`--format` 的 `findings` 保留原始字节作为可恢复路径（与 r257-r263 同样的展示对恢复拆分） |
 | `audit --json` | 同上，机器可读 JSON；每条 finding 携带一个 `evidence` 块（行号、归一化文本、计数），结论可追溯 |
 | `audit --json` 评级 | r180：每条 finding 带稳定 run 内 id（`[D1]`/`[S1]`/`[Y1]`/`[K1]`/`[G1]`/`[N1]`/`[C1]`，借鉴 tokenhabit），payload 附 fresh 计数的字母评级 A-F（切点 0/1/2/5/8）；id 在 `--tag` 投影之前分配，投影不重编号 |
 | `audit --json` 决策出处 | r241：payload 带 `model` 块，注明产出该评级的版本化决策输入——id、控制器 rev、评级切点、健康分档位表、具名阈值。借鉴 Jev 的校准规则（*当阈值依赖模型行为时固定版本化 model ID，并记录响应里返回的版本而非别名*）：宿主看到此前的 `grade: C` 能分辨是尺度变了还是账本变了。`seam --json` 与 `resume --json` 带同一块 |

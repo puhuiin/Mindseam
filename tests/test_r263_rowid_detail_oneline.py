@@ -214,9 +214,9 @@ class FeatureCatalogTests(unittest.TestCase):
         return [int(e["since"].lstrip("r")) for e in mindseam._FEATURE_CATALOG]
 
     def test_max_round_is_263(self):
-        # r263 is the newest round: it owns the exact ``max == NNN`` head
-        # (the prior round retires its equality pin to a floor).
-        self.assertEqual(max(self._since_ints()), 263)
+        # r264 now owns the exact ``max == NNN`` head; r263 retires its
+        # equality pin to a floor (the newest round owns the equality).
+        self.assertGreaterEqual(max(self._since_ints()), 263)
 
     def test_recent_since_r170_count(self):
         recent = [s for s in self._since_ints() if s >= 170]
