@@ -180,12 +180,13 @@ class IndexSinceContractTests(unittest.TestCase):
         # format-oneline, r258
         # format-oneline-generic, r259
         # seam-fact-oneline, r260
-        # domain-label-oneline, r261). The count is stable
+        # domain-label-oneline, r261
+        # splitlines-break-coverage, r262). The count is stable
         # because the catalog is static; it moves only when a
         # new round lands, and the move is a deliberate pin
         # update, the way the r167 catalog count moved when
         # r169 landed.
-        self.assertEqual(len(recent), 82)
+        self.assertEqual(len(recent), 83)
         for line in recent:
             self.assertIn(line, full)
 
