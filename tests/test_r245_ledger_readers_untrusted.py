@@ -105,11 +105,13 @@ class FramingHelperTests(unittest.TestCase):
             self.assertEqual(names, PLANT_NAMES)
 
     def test_counter_and_label_fields_are_not_scanned(self):
-        # marker / confidence / risk are closed domains and t / verified /
-        # open are counters: none of them is the model writing prose, so
-        # a phrase in one is data about a field, not an instruction.
-        rows = [{"t": 1, "next": "dom: a", "marker": PLANT,
-                 "confidence": PLANT, "risk": PLANT}]
+        # r250 corrected the r245 grouping: marker / confidence are free
+        # text (scanned below, see test_r250_*), but t / verified / open
+        # are counters and risk is a closed domain repaired to "" at the
+        # boundary — none of those is the model writing prose, so a phrase
+        # in one is data about a field, not an instruction.
+        rows = [{"t": 1, "next": "dom: a", "risk": PLANT,
+                 "verified": 0, "open": 0}]
         self.assertEqual(mindseam.history_untrusted_map(rows), {})
 
     def test_map_keys_index_the_list_it_was_handed(self):
