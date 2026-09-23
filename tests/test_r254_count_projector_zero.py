@@ -187,7 +187,11 @@ class TagStillRidesTests(_CliBase):
     def test_clean_row_csv_is_byte_identical(self):
         self.write_rows([row(nxt="build: ship", verified=0, open_=0)])
         out = self.run_cli("history", "--csv").stdout
-        self.assertEqual(out, "t,next,verified,open\r\n1000,build: ship,0,0\r\n")
+        # r255 superseded this pin's terminator: the csv.writer default
+        # "\r\n" was the very bug r255 fixed (it became a blank line
+        # between records on a real Windows stdout), so a clean row now
+        # ends with a single "\n". The cell bytes are unchanged.
+        self.assertEqual(out, "t,next,verified,open\n1000,build: ship,0,0\n")
 
     def test_planted_directive_still_tagged_in_csv(self):
         self.write_rows([row(

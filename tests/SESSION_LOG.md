@@ -6221,4 +6221,66 @@ Suite after r254: 2439 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
 
 
+### Round 255 (test r255)
+
+Found by dumping every `history` face over a seeded ledger and reading
+the raw bytes, not just the parsed values. r254 had made the four faces
+agree on a zero *count*; r255 asked whether the `--csv` face's *record
+framing* was actually the CSV the docs promise. It was not. `history
+--csv` builds its output with `csv.writer(buf)`, whose default record
+terminator is RFC 4180's CRLF (`\r\n`). That buffer is handed to a
+text-mode stdout, and on Windows the trailing `\n` of each `\r\n` is
+itself translated to `\r\n`, so every terminator on the wire became
+`\r\r\n`. A universal-newline reader — `csv.reader`, `pandas.read_csv`,
+a plain shell redirect — decodes `\r\r\n` as *two* line breaks:
+
+    raw:     't,next,verified,open\r\n1000,build: ship,0,0\r\n'
+    on wire: 't,next,verified,open\r\r\n1000,build: ship,0,0\r\r\n'
+    reader:  [['t','next','verified','open'], [], ['1000','build: ship','0','0'], []]
+
+So an N-row ledger parsed as `2N+1` records, every other one an empty
+`[]`, and `csv.DictReader` yielded a garbage all-None dict after each
+real row. `verified`/`open` are the DEFAULT `--csv` columns, so this was
+the common path — a host feeding the default CSV "straight into
+`csv.reader`" (the documented contract, SKILL.md) got blank rows. The
+in-process test harness captures stdout through a `StringIO`, which does
+no newline translation, so the r254 suite never saw the blank lines and
+even *pinned* the CRLF bytes as "byte-identical" — the pin was encoding
+the bug.
+
+Fix: `csv.writer(buf, lineterminator="\n")`. The buffer now holds a
+single `\n` per record; the cell bytes are untouched, RFC 4180 quoting
+still covers embedded commas, and the r245 untrusted tag still rides the
+free-text column. Every history face already emitted `\n` line breaks,
+so `--csv` now matches them, and `csv.reader` sees exactly header + N
+rows with zero empty records on every platform.
+
+### Gotchas
+- The r254 pin `test_clean_row_csv_is_byte_identical` asserted the CRLF
+  terminator as the contract. r255 supersedes that one assertion with
+  the LF terminator, because CRLF *was* the defect — a prior round's
+  byte-exact pin is fair game to revise when the pinned bytes are the
+  bug the new round fixes. Only the terminator changed; the cell bytes
+  did not.
+- The defect was invisible to the in-process suite (StringIO capture, no
+  OS newline translation) and only manifested through a real subprocess
+  stdout on Windows. The r255 tests pin the platform-independent
+  property — the buffer holds a single `\n`, output has no `\r`, and
+  `csv.reader` yields no `[]` records — so they catch a regression on
+  any host.
+- `lineterminator="\n"` is the canonical Python fix for "CSV has blank
+  lines between rows"; the usual sibling fix (`open(..., newline="")`)
+  does not apply because the sink is `sys.stdout`, not a file we open.
+
+bracket r255 -> r256 (r255 is now the highest catalog entry), the usual
+deliberate pin updates when a round lands: r175 count 75 -> 76, r200
+empty-window bracket r255 -> r256.
+
+Catalog entry csv-lf-terminator (since r255).
+
+Suite after r255: 2459 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+
 

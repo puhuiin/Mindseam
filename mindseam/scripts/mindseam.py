@@ -7283,7 +7283,16 @@ def mode_history(args):
         # does not move; RFC 4180 quoting covers the commas inside
         # the tag, and a clean row's cell stays byte-identical.
         tag_col = untrusted_tag_column(cols)
-        writer = _csv.writer(buf)
+        # r255: pin the record terminator to a single "\n". csv.writer
+        # defaults to "\r\n" (RFC 4180's CRLF); when that buffer is
+        # written to a text-mode stdout on Windows the trailing "\n" is
+        # itself translated to "\r\n", turning each terminator into
+        # "\r\r\n", which a universal-newline reader decodes as a blank
+        # line between every record. A parser (`csv.reader` / pandas)
+        # then sees an empty row after each real one. Pinning "\n" here
+        # keeps one line per record on every platform, matching the
+        # "\n" every other history face already emits.
+        writer = _csv.writer(buf, lineterminator="\n")
         writer.writerow(cols)
         for row in hist:
             cells = [_history_cell(f, row.get(f), "") for f in cols]
@@ -8287,6 +8296,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "count-projector-zero", "since": "r254",
      "summary": "r253 taught history --format that a verified/open count of 0 is a real number, resolving %v/%o through an is-not-None guard so 0 renders '0'. The two generic projectors it did not touch — history --csv and history --fields — still tested truthiness (str(value) if value else '-' / '' ), so the identical verified=0 / open=0 seam came out as a blank CSV cell and a '-' in the fields view, disagreeing with both --format and --json (which report 0). verified and open are DEFAULT --csv columns (cols = selected if selected is not None else ['t','next','verified','open']), so a host piping the default CSV into a spreadsheet read a genuine zero as an empty cell — the classic zero-vs-missing data footgun. The fix is a shared _history_cell(field, value, missing) helper both projectors call: a count field in HISTORY_COUNT_FIELDS = ('verified','open') shows its value whenever it is is-not-None (0 -> '0'), while every other field keeps the pre-r254 truthiness rule so an empty text field still collapses to the caller's placeholder ('-' for --fields, '' for --csv). This lands the same value taxonomy r253 gave --format's value map on all four faces at once; the r245 untrusted tag still rides the free-text tag column and a clean row's cells stay byte-identical (t,next stays '1000,build: ship' with the counts now '0,0' rather than trailing commas)",
+     "default": True},
+    {"id": "csv-lf-terminator", "since": "r255",
+     "summary": "history --csv built its output with csv.writer(buf), whose default record terminator is RFC 4180's \\r\\n (CRLF). That buffer is handed to a text-mode stdout, and on Windows the trailing \\n of each \\r\\n is itself translated to \\r\\n, so every record terminator became \\r\\r\\n; a downstream universal-newline reader (csv.reader, pandas.read_csv, a shell redirect) decodes \\r\\r\\n as two line breaks and yields a blank record after every real one — the header 't,next,verified,open' came back as [['t','next','verified','open'], []] and an N-row ledger parsed as 2N+1 records, half of them empty []. The default columns are the common path, so the documented 'like aws --output csv / feed it straight into csv.reader' contract was broken for the ordinary case, not a corner. r254 had pinned the CRLF bytes as 'byte-identical', but that terminator was the defect. The fix pins csv.writer(buf, lineterminator='\\n') so the buffer holds a single \\n per record; the cell bytes are untouched, RFC 4180 quoting still covers embedded commas and the r245 untrusted tag still rides the free-text column, and every history face now emits the same \\n line break — csv.reader sees exactly header + N rows with zero empty records on every platform",
      "default": True},
 )
 
