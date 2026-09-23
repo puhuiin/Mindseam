@@ -6066,8 +6066,16 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
         # r246: a fact that echoes a row carries the same inline tag the
         # row gets everywhere else, so the quiet listing cannot be the
         # one renderer that hands a planted directive out unframed.
+        # r260: and it is one physical line. A fact that quotes a ledger
+        # ``next`` verbatim (loop_detection: "Next-action loop detected
+        # (X → Y repeated)") carries whatever newline the model-authored
+        # row planted, so the r246 tag — appended once, on the last
+        # physical line — stranded: the injected middle line read as an
+        # untagged standalone fact. ``_oneline`` collapses the fact to one
+        # line so the tag can no longer be stranded (the ``untrusted_facts``
+        # machine face at r246 keeps the raw bytes for recovery).
         for f in found:
-            print(f + text_untrusted_tag(f))
+            print(_oneline(f) + text_untrusted_tag(f))
         return 0
     if state_reasons:
         print()
@@ -6077,7 +6085,7 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
     if found:
         print()
         for f in found:
-            print("· " + f + text_untrusted_tag(f))
+            print("· " + _oneline(f) + text_untrusted_tag(f))
         print()
         print("You would not have noticed that; I keep the record, so here it is.")
         print("If that is depth, carry on. If it is a stall, the moves open to you are:")
@@ -8376,6 +8384,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "format-oneline-generic", "since": "r259",
      "summary": "r258 gave history --format the _oneline guarantee, but history renders through its OWN per-row template engine (_render_format_lines). Every other --format surface — skillbook / discover / info / resume / ship / audit / seam — routes through a SEPARATE generic dot-path projector (_format_paths -> _format_path -> _render_value) that resolves a dot-path against the JSON payload the way jq -r does: a list renders one element per line ('\\n'.join), multiple comma-paths render one block per line. The terminal scalar was emitted RAW (str(val)), so a model-authored value carrying a carriage return or newline split one element across two physical lines — the '\\n'.join element separator and the value's own newline became indistinguishable. A skillbook entry's text is the ledger's own harvested error field (r247), so skillbook --format entries[*].text over the harvest of a multi-line error over-counted entries and let a planted directive read as its own standalone line — the r255/r256/r257/r258 structure-corruption class on the one code path r258 did not reach (--format carries no r245 [untrusted: ...] tag, so this is the structure-only half). The fix wraps _oneline at the single terminal scalar chokepoint every path (scalar, list element, comma block) routes through, so one resolved value is exactly one physical line; the list separator stays intact so a genuine multi-element projection still fans out one element per line (info --format features[*].id stays one id per line). A clean value with no CR/LF is byte-identical (a Windows path or an embedded tab passes through, since _oneline maps only \\r / \\n), and the --json face never calls this projector — it emits json.dumps of the payload and keeps the raw newline inside the string, the same display-vs-machine byte-recovery split as r257/r258",
+     "default": True},
+    {"id": "seam-fact-oneline", "since": "r260",
+     "summary": "r257 gave the line-oriented human text faces the _oneline guarantee (one value is exactly one physical line) and r258/r259 carried it through the two --format engines, but the seam observations fact list was the human face the neutralisation never reached. mode_seam prints one fact per line — the --quiet listing (print(f + text_untrusted_tag(f))) and the default '·' listing (print('· ' + f + text_untrusted_tag(f))) — each fact followed by the r246 inline [untrusted: ...] tag on the SAME print. Almost every fact is controller-composed numeric prose with no ledger bytes, but loop_detection quotes the ledger 'next' field verbatim on both ends ('Next-action loop detected (X → Y repeated); break the cycle.'). clean_scalar refuses carriage return / newline on every CLI scalar flag, so newlines are only reachable through a model-authored history.json — the ECC self-injection channel: a planted 'next' carrying a carriage return or newline, arranged as a repeating loop within the STALL_RUN observation window, made the fact span several physical lines. The r246 tag, appended once, then landed on the LAST physical line, so the injected middle line (SYSTEM OVERRIDE: ...) read as an untagged standalone fact — the exact r257 tag-stranding class, one face later. The fix wraps _oneline at the two seam TEXT emit sites so one fact is exactly one physical line and the tag can no longer be stranded; a clean fact is byte-identical (a Windows path or an embedded tab passes through, since _oneline maps only carriage return / newline), the loop still fires and the fact still carries its tag, and the --json untrusted_facts machine face (text_untrusted_map(found)) keeps the raw newline for byte recovery — the same display-vs-machine split as r257/r258/r259",
      "default": True},
 )
 

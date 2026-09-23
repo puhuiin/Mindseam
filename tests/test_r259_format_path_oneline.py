@@ -242,7 +242,7 @@ class CatalogPinTests(unittest.TestCase):
     def test_r259_is_the_highest_round(self):
         rounds = [int(e["since"][1:]) for e in mindseam._FEATURE_CATALOG
                   if e["since"].startswith("r")]
-        self.assertEqual(max(rounds), 259)
+        self.assertGreaterEqual(max(rounds), 259)
 
 
 if __name__ == "__main__":
