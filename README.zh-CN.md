@@ -128,7 +128,7 @@ loop 三种 pass，以及可选控制器负责记录长任务状态而不负责�
 | `info --workspace-id` | 输出 16 字符的 workspace 指纹（路径 + ledger mtime），让 host 验证自己确实处于正确的工作区（类似 `direnv stdlib` / `poetry env info`） |
 | `info --audit-baseline <path>` | 附带 `audit_baseline_diff` 块（fresh / baselined / drift），使用与 `audit --baseline` 相同的基线文件（类似 `flutter analyze --baseline`） |
 | `info --manifest` | 附带 `audit_manifest` 块，列出 audit 可以触发的每个标签，包括未触发的（seen-but-clean = 0），让 host 验证检测器集确实跑过 |
-| `info --mtime` | 附带 `workspace_files` 块，列出每个 ledger 工件（WORKSPACE.md / history.json / metacognition.json / skillbook.md）的 mtime、size、exists（类似 `find -printf` / `stat`） |
+| `info --mtime` | 附带 `workspace_files` 块，列出每个 ledger 工件（WORKSPACE.md / history.json / metacognition.json / skillbook.md）的 mtime、size、exists（类似 `find -printf` / `stat`）；r285：单字节工件的大小显示为 `1 byte`（单数），其余数量为复数 |
 | `info --health` | 附带 `health` 块，把 `lock_state` + `audit_summary.lean` + `warnings` + `long_gap` 收口为单个 `ok` / `degraded` / `unhealthy` 状态加 `reasons` 列表（类似 `kubectl get componentstatus` / `systemctl is-system-running`） |
 | `info --health` velocity | r181：health 块附带 `velocity` 块——在最近 5 个 seam 边界重算评分并归类为 `improving` / `stable` / `degrading`（借鉴 gsd-core 的 STATE.md Trend 词）；短于 3-seam 测量下限的前缀会被跳过，否则中性的 100 分默认值会伪造下降 |
 | `info --health` untrusted | r242：此次收口开始读账本自身的文本——只要有一行读起来像指令，就追加一个 `untrusted_ledger` 原因（severity hard，越界的章节名和模式名作为列表字段给出，而不是塞进 detail 字符串里让人去解析），状态枚举不可能再回答 `ok`。同一份扫描同时喂给 resume 机器面的 `untrusted` map（该 map 现在也覆盖 Verified），并且这个块终于有了文本形态 |
@@ -214,7 +214,7 @@ loop 三种 pass，以及可选控制器负责记录长任务状态而不负责�
 <python-command> <skill-root>/scripts/mindseam.py info --version
 <python-command> <skill-root>/scripts/mindseam.py info --human
 <python-command> <skill-root>/scripts/mindseam.py info --check
-<python-command> <skill-root>/scripts/mindseam.py info --memory
+<python-command> <skill-root>/scripts/mindseam.py info --memory                        # 以人类可读单位报告 workspace 磁盘大小（类似 free -m / du -h）；r285：单字节 workspace 的大小词与其原始字节括注显示为 `1 byte`（单数），其余数量为复数
 <python-command> <skill-root>/scripts/mindseam.py info --list-fields
 <python-command> <skill-root>/scripts/mindseam.py history
 <python-command> <skill-root>/scripts/mindseam.py history --head 5

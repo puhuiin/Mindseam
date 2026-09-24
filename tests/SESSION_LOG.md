@@ -7846,8 +7846,52 @@ No pre-identified r285 carrier is named. r285 must probe a fresh live defect.
 Suite after r284: 2999 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
 
+### Round 285 (test r285)
 
+Live defect: byte-count noun hardcoded plural. Three human surfaces print a
+raw byte count and each one wrote `%d bytes` unconditionally, so a one-byte
+artefact read `1 bytes` — the same singular/plural class as r281 (domains /
+next-actions), r282 (dedup headers), and r283 ("N seconds across N rows").
+The carriers were `_humanize_bytes`'s sub-1024 branch, `info --memory`'s
+`size:` parenthetical, and `info --mtime`'s Files line.
 
+Before-probe (real subprocess, bare 1-byte file in a fresh `.mindseam`):
+`info --memory` printed `size:      1 byte (1 bytes)` and `info --mtime`
+printed `... 1 bytes  mtime=...`. The `--json` faces already carried the raw
+integer with no noun, so they were correct and stayed untouched.
+
+Fix: one chokepoint `_bytes_noun(count)` at line 3629 returning
+`"%d byte%s" % (count, "" if count == 1 else "s")` — the r262 discipline of a
+single shared renderer rather than widening each call site. `_humanize_bytes`
+sub-1024 branch (line 3660), the `info --memory` size parenthetical (line
+9720), and the `info --mtime` Files line (line 9935) all route through it, so
+the three surfaces agree by construction (the r254/r259 enumerate-every-
+projector discipline). Only exactly 1 renders `1 byte`; 0, 2, 3, ... 1023 all
+stay plural, and 1024+ leaves the byte branch entirely for KB/MB/GB.
+
+After-probe (same subprocesses): `info --memory` → `size:      1 byte
+(1 byte)` with `"human": "1 byte"` in JSON (RC 0); `info --mtime` →
+`skillbook.md            1 byte  mtime=...` alongside `WORKSPACE.md
+57 bytes` (RC 0).
+
+Tests: tests/test_r285_humanize_bytes_singular_byte.py (23 tests) —
+`BytesNounTests` (5, incl. a range(0,2048) scan proving 1 is the only
+singular), `HumanizeBytesTests` (8, incl. a loop pinning [0,2,3,500,1023]
+equal to the old `%d bytes` form so only 1 changed), `InfoMemorySingularTests`
+(4), `InfoMtimeSingularTests` (2), `CatalogTests` (4).
+
+Pins moved the usual way: r175 recent count 105 -> 106, r200 empty-window
+bracket r285 -> r286 (r285 is now the highest catalog entry), and r284's
+exact `max == 284` head retired to `>= 284` (`test_r284_is_the_highest_round`
+`>= 284`, `test_catalog_grew_to_135` `>= 135`, `test_recent_window_is_105`
+`>= 105`).
+
+Catalog entry humanize-bytes-singular-byte (since r285); import-verified the
+catalog grew to len 136, since>=170 count 106, max since 285, module loads and
+`_resolve_path` is intact.
+
+Suite after r285: 3022 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
 
 
 

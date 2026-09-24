@@ -3626,6 +3626,26 @@ def _humanize_seconds(seconds):
     return "%d year%s" % (years, "" if years == 1 else "s")
 
 
+def _bytes_noun(count):
+    """Render a raw byte count with a correctly-pluralized noun.
+
+    r285: the byte count is the one file-size quantity the human
+    faces print as a bare integer (KB/MB/GB are ``%.1f`` floats,
+    conventionally plural-neutral the way ``ls -lh`` writes
+    "1.0K"), so it is the only rung that can read a wrong
+    singular. Three human surfaces render it — ``_humanize_bytes``'s
+    sub-1K branch (``info --memory`` size), the ``info --memory``
+    raw parenthetical, and the ``info --mtime`` Files per-artefact
+    line — and all three hardcoded ``"%d bytes"``, so a one-byte
+    workspace or a one-byte artefact read "1 bytes". Route every one
+    through this chokepoint so they agree; "0 bytes" (documented,
+    empty workspace) and every count >= 2 stay byte-identical, only
+    exactly 1 becomes "1 byte". The ``--json`` faces expose the raw
+    integer ``bytes``/``size`` with no noun and are untouched.
+    """
+    return "%d byte%s" % (count, "" if count == 1 else "s")
+
+
 def _humanize_bytes(size_bytes):
     """Render a file size in the most natural unit, the way
     ``ls -lh`` / ``du -h`` / ``free -m`` do. The renderer picks
@@ -3634,10 +3654,11 @@ def _humanize_bytes(size_bytes):
     above. ``info --memory`` is the only caller; ``info --json``
     also exposes the raw ``bytes`` count for hosts that need
     it. Returns the literal string ``"0 bytes"`` for an empty
-    workspace.
+    workspace, and ``"1 byte"`` (singular) for a one-byte one.
     """
     if size_bytes < 1024:
-        return "%d bytes" % size_bytes
+        return _bytes_noun(size_bytes)
+
     size_kb = size_bytes / 1024.0
     if size_kb < 1024:
         return "%.1f KB" % size_kb
@@ -9011,6 +9032,9 @@ _FEATURE_CATALOG = (
     {"id": "humanize-year-boundary", "since": "r284",
      "summary": "_humanize_seconds scales a raw second count through a units ladder (second, minute, hour, day, month, year) and is the humanizer behind history --human (per-row 'N ago' age), info --human ('Last seam: N ago (long gap)') and info --human --json (human.gap_human). A 'month' on the ladder is 30 days and a 'year' is 365, so 12 months (360 days) is five days short of a full year. The old handoff guarded on 'months < 12' and then computed 'years = days // 365' — but at day 360 that quotient is still 0, so the whole [360, 365)-day window fell through the month branch and rendered '0 years'. Live before-fix: a one-row history.json timed 361 days back made history --human print '1  0 years ago' and info --human print 'Last seam: 0 years ago (long gap)'. The fix gates the handoff on the year COUNT instead of the month count — compute 'years = days // 365' up front and hold the month branch while 'years < 1' — so the dead zone now reads '12 months'. days >= 365 stay byte-identical (years >= 1), days < 360 never reached the year branch, and only [360, 365) changes",
      "default": True},
+    {"id": "humanize-bytes-singular-byte", "since": "r285",
+     "summary": "_humanize_bytes scales a file size through a units ladder (byte, KB, MB, GB) and is the size word behind info --memory; the KB/MB/GB rungs are %.1f floats (plural-neutral the way ls -lh writes 1.0K), so the sub-1K byte rung is the only integer-rendered unit that can read a wrong singular. Three human surfaces print a raw byte count and all three hardcoded %d bytes: _humanize_bytes's sub-1K branch (the info --memory size word), the info --memory raw parenthetical (%d bytes), and the info --mtime Files per-artefact line %d bytes. Live before-fix: a one-byte .mindseam made info --memory print 'size: 1 byte (1 bytes)' — the ladder word already singular but the parenthetical still plural — and a one-byte skillbook.md made info --mtime print 'skillbook.md 1 bytes'. This is the same missing singular the r281 history --domains, r282 history --dedup and r283 history --span headers carry. The fix routes every raw byte render through one chokepoint _bytes_noun(count) that pluralizes the noun the same way (empty suffix when the count is exactly 1, s otherwise); '0 bytes' (documented empty workspace) and every count >= 2 stay byte-identical, only exactly 1 becomes '1 byte'. The --json faces expose the raw integer bytes/size with no noun and are untouched",
+     "default": True},
 )
 
 def _resolve_path(payload, path):
@@ -9696,7 +9720,7 @@ def mode_info(book, json_flag=False, warnings_only=False,
             return 0
         print("── mindseam ─ info memory")
         print("  workspace: %s" % os.path.abspath(workspace_path))
-        print("  size:      %s (%d bytes)" % (size_human, size_bytes))
+        print("  size:      %s (%s)" % (size_human, _bytes_noun(size_bytes)))
         return 0
     if list_fields:
         # Borrowed from ``kubectl explain`` / ``gh repo view
@@ -9910,8 +9934,8 @@ def mode_info(book, json_flag=False, warnings_only=False,
         print("Files:")
         for name, entry in payload["workspace_files"].items():
             if entry["exists"]:
-                print("  %-22s  %d bytes  mtime=%d"
-                      % (name, entry["size"], entry["mtime"]))
+                print("  %-22s  %s  mtime=%d"
+                      % (name, _bytes_noun(entry["size"]), entry["mtime"]))
             else:
                 print("  %-22s  (missing)" % name)
     if content_hash and "content_hash" in payload:

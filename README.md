@@ -134,7 +134,7 @@ the task workspace as the current directory.
 | `info --workspace-id` | Emit a 16-hex workspace fingerprint (path + ledger mtime) so a host can verify it is in the right workspace (like `direnv stdlib` / `poetry env info`) |
 | `info --audit-baseline <path>` | Carry an `audit_baseline_diff` block (fresh / baselined / drift) using the same baseline file as `audit --baseline` (like `flutter analyze --baseline`) |
 | `info --manifest` | Carry an `audit_manifest` block listing every tag the audit can fire, including tags that did not fire (seen-but-clean = 0) so a host can verify the detector set actually ran |
-| `info --mtime` | Carry a `workspace_files` block listing each ledger artefact (WORKSPACE.md / history.json / metacognition.json / skillbook.md) with mtime, size, presence (like `find -printf` / `stat`) |
+| `info --mtime` | Carry a `workspace_files` block listing each ledger artefact (WORKSPACE.md / history.json / metacognition.json / skillbook.md) with mtime, size, presence (like `find -printf` / `stat`); r285: a one-byte artefact's size reads `1 byte` (singular), plural for every other count |
 | `info --health` | Carry a `health` block rolling up `lock_state` + `audit_summary.lean` + `warnings` + `long_gap` into a single `ok` / `degraded` / `unhealthy` status with a `reasons` list (like `kubectl get componentstatus` / `systemctl is-system-running`) |
 | `info --health` velocity | r181: the health block carries a `velocity` block: the score recomputed at each of the last 5 seam boundaries and classified `improving` / `stable` / `degrading` (gsd-core STATE.md Trend borrow). Prefixes shorter than the 3-seam measurement floor are skipped — the neutral-100 unmeasurable default would otherwise fake a decline |
 | `info --health` untrusted | r242: the roll-up reads the ledger's own text, so a row that reads like an instruction adds an `untrusted_ledger` reason (severity hard, with the offending sections and pattern names as list fields rather than words inside the detail string) and the status can never answer `ok` while one is present. The same scan feeds the resume machine face's `untrusted` map, which now covers Verified as well, and the block finally renders on the text report |
@@ -217,7 +217,7 @@ the task workspace as the current directory.
 <python-command> <skill-root>/scripts/mindseam.py info --version
 <python-command> <skill-root>/scripts/mindseam.py info --human
 <python-command> <skill-root>/scripts/mindseam.py info --check
-<python-command> <skill-root>/scripts/mindseam.py info --memory
+<python-command> <skill-root>/scripts/mindseam.py info --memory                        # report workspace disk size in human units (like free -m / du -h); r285: the size word and its raw byte parenthetical read `1 byte` (singular) for a one-byte workspace, plural otherwise
 <python-command> <skill-root>/scripts/mindseam.py info --list-fields
 <python-command> <skill-root>/scripts/mindseam.py history
 <python-command> <skill-root>/scripts/mindseam.py history --head 5

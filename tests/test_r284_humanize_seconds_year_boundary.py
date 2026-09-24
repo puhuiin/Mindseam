@@ -196,16 +196,16 @@ class CatalogTests(unittest.TestCase):
         self.assertTrue(entry["default"])
 
     def test_r284_is_the_highest_round(self):
-        # The newest round owns the exact ``max == NNN`` head; it retires
-        # to a ``>=`` floor once its successor lands (r285).
-        self.assertEqual(max(self._since_ints()), 284)
+        # The newest round owns the exact ``max == NNN`` head; it retired
+        # to a ``>=`` floor once its successor (r285) landed.
+        self.assertGreaterEqual(max(self._since_ints()), 284)
 
     def test_catalog_grew_to_135(self):
-        self.assertEqual(len(mindseam._FEATURE_CATALOG), 135)
+        self.assertGreaterEqual(len(mindseam._FEATURE_CATALOG), 135)
 
     def test_recent_window_is_105(self):
         recent = [i for i in self._since_ints() if i >= 170]
-        self.assertEqual(len(recent), 105)
+        self.assertGreaterEqual(len(recent), 105)
 
 
 if __name__ == "__main__":
