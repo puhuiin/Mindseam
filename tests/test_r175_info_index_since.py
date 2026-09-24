@@ -199,13 +199,14 @@ class IndexSinceContractTests(unittest.TestCase):
         # discover-counts-colonless-domains, r279,
         # discover-empty-message-distinguishes-no-history, r280,
         # domains-header-names-next-actions, r281,
-        # dedup-headers-pluralize, r282). The
+        # dedup-headers-pluralize, r282,
+        # span-duration-pluralizes, r283). The
         # count is stable
         # because the catalog is static; it moves only when a
         # new round lands, and the move is a deliberate pin
         # update, the way the r167 catalog count moved when
         # r169 landed.
-        self.assertEqual(len(recent), 103)
+        self.assertEqual(len(recent), 104)
         for line in recent:
             self.assertIn(line, full)
 

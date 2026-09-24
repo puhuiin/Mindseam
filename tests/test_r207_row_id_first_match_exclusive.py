@@ -13,7 +13,8 @@ it sits next to.
 What is NOT refused is pinned in the same file, because the
 boundary matters: --first-match with the renderers is REAL
 composition — the slice runs first and the renderer renders the
-sliced rows (span reports "across 1 rows", csv emits one row,
+sliced rows (span reports "across 1 row" — pluralized since
+r283 — csv emits one row,
 quiet prints one fact) — and --row-id with a renderer keeps its
 documented before-every-render-flag precedence (r197's pin).
 """
@@ -110,7 +111,7 @@ class RowIdFirstMatchExclusiveTests(unittest.TestCase):
         r = _invoke(["history", "--first-match", "--span"],
                     self.workspace)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("across 1 rows", r.stdout)
+        self.assertIn("across 1 row", r.stdout)
         r = _invoke(["history", "--first-match", "--quiet"],
                     self.workspace)
         self.assertEqual(r.returncode, 0, r.stderr)

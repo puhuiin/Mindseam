@@ -7741,6 +7741,56 @@ No pre-identified r283 carrier is named. r283 must probe a fresh live defect.
 Suite after r282: 2965 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
 
+### Round 283 (test r283)
+
+Live probe on `history --span`. It prints a one-line window summary —
+first seam, last seam, and the duration between them as raw seconds.
+r273 already fixed the extent to be order-invariant (`min`/`max`
+endpoints, raw `duration_seconds` in JSON). But the text line
+
+    print("  Duration:   %d seconds across %d rows" % (duration, len(hist)))
+
+hardcoded BOTH nouns plural, so a one-second window read "1 seconds" and
+a one-row window read "across 1 rows" — the same missing singular/plural
+the sibling reflections already carry: r281 pluralized `history
+--domains`, r282 pluralized `history --dedup`, and `discover` has long
+used "%d visit%s". This line is additionally the ONLY human-facing
+duration in the tool that does not route through `_humanize_seconds`
+(line 3596, used at 7272/9565/9841), which pluralizes AND scales — so it
+alone kept the raw-plural form every sibling had dropped.
+
+Live before-fix, via a real subprocess CLI (not the in-process harness):
+a two-row `history.json` one second apart printed `Duration:   1 seconds
+across 2 rows`; a one-row `history.json` printed `Duration:   0 seconds
+across 1 rows`. The two singular cases are mutually exclusive in one
+invocation — a one-second window needs two rows (min/max one apart), and
+a one-row window has `first_t == last_t` so duration 0 — so each singular
+is probed on its own window.
+
+Fix pluralizes both nouns via the same `"" if n == 1 else "s"` idiom the
+siblings use: `Duration:   1 second across 2 rows`, `Duration:   0
+seconds across 1 row` (n == 0 correctly stays plural). `duration` stays
+raw seconds — I deliberately did NOT route it through `_humanize_seconds`
+for sibling-consistency, because r273 pins the text at `Duration:   9000
+seconds` (`test_span_reverse_text_duration_matches`) and humanizing would
+turn 9000 into "2 hours" and break that pin; the JSON `duration_seconds`
+is likewise untouched. A text-face accuracy fix; only the missing
+singular is added.
+
+Pins moved the usual way: r175 recent count 103 -> 104, r200 empty-window
+bracket r283 -> r284 (r283 is now the highest catalog entry), and r282's
+exact `max == 282` head retired to `>= 282` (`test_r282_is_the_highest_round`
+`>= 282`, `test_catalog_grew_to_133` `>= 133`, `test_recent_window_is_103`
+`>= 103`).
+
+Catalog entry span-duration-pluralizes (since r283); import-verified the
+catalog grew to len 134, since>=170 count 104, max since 283, module loads.
+
+No pre-identified r284 carrier is named. r284 must probe a fresh live defect.
+
+Suite after r283: 2979 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
 
 
 

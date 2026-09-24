@@ -7944,7 +7944,16 @@ def mode_history(args):
         print("── mindseam ─ history span")
         print("  First seam: %s" % first_when)
         print("  Last seam:  %s" % last_when)
-        print("  Duration:   %d seconds across %d rows" % (duration, len(hist)))
+        # Pluralize both nouns the way ``discover`` prints
+        # ``%d visit%s`` and r281/r282 pluralize their own
+        # headers: a one-second window is "1 second", a
+        # one-row window is "across 1 row". ``duration`` stays
+        # raw seconds (r273 pins the text at "9000 seconds" and
+        # the JSON ``duration_seconds`` unchanged); only the
+        # missing singular is added.
+        print("  Duration:   %d second%s across %d row%s" % (
+            duration, "" if duration == 1 else "s",
+            len(hist), "" if len(hist) == 1 else "s"))
         return 0
     if getattr(args, "dedup", False) or getattr(args, "dedup_by_msg", False):
         # Borrowed from ``sort -u`` / ``uniq`` /
@@ -8985,6 +8994,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "dedup-headers-pluralize", "since": "r282",
      "summary": "history --dedup collapses the surviving rows to the unique next actions, in first-appearance order (--dedup-by-msg does the same on the msg annotation). Both text headers hardcoded the plural nouns — 'history (%d unique next actions across %d rows)' — so a single-row window read 'history (1 unique next actions across 1 rows)', the same missing singular/plural the sibling reflections already carry: r281 pluralized history --domains ('1 domain across 1 next action') and discover has long used '%d visit%s'. Live before-fix on a one-row history.json: history --dedup printed 'history (1 unique next actions across 1 rows)' and history --dedup-by-msg printed 'history (1 unique msg annotations across 1 rows)'. The fix pluralizes both nouns of both headers via the same '\"\" if n == 1 else \"s\"' idiom the siblings use — a single row now reads 'history (1 unique next action across 1 row)'. The blank-next row is deliberately kept as a listed, counted bucket (unlike the ranking sibling --domains, which excludes it): --dedup collapses rows to unique next VALUES and a blank next is a value, so r277 still ships and frames it in the --dedup --json untrusted map — dropping it would hide a planted injection carried on a blank-next row's msg. The --json face never carried these headers and is unchanged",
+     "default": True},
+    {"id": "span-duration-pluralizes", "since": "r283",
+     "summary": "history --span prints a one-line window summary — first seam, last seam, and the duration between them as raw seconds. r273 fixed the extent to be order-invariant (min/max endpoints, JSON duration_seconds unchanged), but the text line 'Duration:   %d seconds across %d rows' hardcoded BOTH nouns plural, so a one-second window read '1 seconds' and a one-row window read 'across 1 rows'. This is the same missing singular/plural the sibling reflections already carry: r281 pluralized history --domains, r282 pluralized history --dedup, and discover has long used '%d visit%s'. It is additionally the only human-facing duration in the tool that does not route through _humanize_seconds (which pluralizes and scales). Live before-fix: a two-row history.json one second apart printed 'Duration:   1 seconds across 2 rows'; a one-row history printed 'Duration:   0 seconds across 1 rows'. The fix pluralizes both nouns via the same '\"\" if n == 1 else \"s\"' idiom — '1 second across 2 rows', '0 seconds across 1 row' — while keeping duration raw seconds so r273's text pin ('9000 seconds') and the JSON duration_seconds are byte-identical. A text-face accuracy fix; the --json face never carried this line and is untouched",
      "default": True},
 )
 

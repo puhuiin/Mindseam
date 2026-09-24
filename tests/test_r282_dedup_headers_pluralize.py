@@ -215,14 +215,14 @@ class CatalogTests(_DedupFixture):
     def test_r282_is_the_highest_round(self):
         # The newest round owns the exact ``max == NNN`` head; it retires
         # to a ``>=`` floor once its successor lands (r283).
-        self.assertEqual(max(self._since_ints()), 282)
+        self.assertGreaterEqual(max(self._since_ints()), 282)
 
     def test_catalog_grew_to_133(self):
-        self.assertEqual(len(mindseam._FEATURE_CATALOG), 133)
+        self.assertGreaterEqual(len(mindseam._FEATURE_CATALOG), 133)
 
     def test_recent_window_is_103(self):
         recent = [i for i in self._since_ints() if i >= 170]
-        self.assertEqual(len(recent), 103)
+        self.assertGreaterEqual(len(recent), 103)
 
 
 if __name__ == "__main__":
