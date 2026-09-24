@@ -189,7 +189,9 @@ class CatalogPinTests(unittest.TestCase):
         self.assertEqual(entry[0]["since"], "r269")
 
     def test_r269_is_the_highest_round(self):
-        self.assertEqual(max(self._since_ints()), 269)
+        # Retired to a floor when r270 landed: the newest round owns the
+        # exact ``max == NNN`` head; r269 keeps only a ``>=`` floor.
+        self.assertGreaterEqual(max(self._since_ints()), 269)
 
     def test_recent_catalog_floor(self):
         recent = [n for n in self._since_ints() if n >= 170]

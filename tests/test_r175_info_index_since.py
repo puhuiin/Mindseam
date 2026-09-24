@@ -193,7 +193,7 @@ class IndexSinceContractTests(unittest.TestCase):
         # new round lands, and the move is a deliberate pin
         # update, the way the r167 catalog count moved when
         # r169 landed.
-        self.assertEqual(len(recent), 90)
+        self.assertEqual(len(recent), 91)
         for line in recent:
             self.assertIn(line, full)
 
