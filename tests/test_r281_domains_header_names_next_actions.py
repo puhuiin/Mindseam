@@ -214,15 +214,15 @@ class CatalogTests(_DomainsHeaderFixture):
 
     def test_r281_is_the_highest_round(self):
         # The newest round owns the exact ``max == NNN`` head; it retires
-        # to a ``>=`` floor once its successor lands.
-        self.assertEqual(max(self._since_ints()), 281)
+        # to a ``>=`` floor once its successor lands (r282).
+        self.assertGreaterEqual(max(self._since_ints()), 281)
 
     def test_catalog_grew_to_132(self):
-        self.assertEqual(len(mindseam._FEATURE_CATALOG), 132)
+        self.assertGreaterEqual(len(mindseam._FEATURE_CATALOG), 132)
 
     def test_recent_window_is_102(self):
         recent = [i for i in self._since_ints() if i >= 170]
-        self.assertEqual(len(recent), 102)
+        self.assertGreaterEqual(len(recent), 102)
 
 
 if __name__ == "__main__":

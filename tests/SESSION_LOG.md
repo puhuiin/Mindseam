@@ -7695,6 +7695,52 @@ No pre-identified r282 carrier is named. r282 must probe a fresh live defect.
 Suite after r281: 2948 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
 
+### Round 282 (test r282)
+
+Live probe on `history --dedup` and `history --dedup-by-msg` text headers. Both
+hardcoded the plural nouns — `"%d unique next actions across %d rows"` and
+`"%d unique msg annotations across %d rows"` — so a single-row window read
+"1 unique next actions across 1 rows", the same missing singular/plural the
+sibling reflections already carry: r281 pluralized `history --domains`
+("1 domain across 1 next action") and `discover` has long used `"%d visit%s"`.
+
+Live before-fix on a one-row `history.json`: `history --dedup` printed
+"history (1 unique next actions across 1 rows)" and `history --dedup-by-msg`
+printed "history (1 unique msg annotations across 1 rows)". Fix pluralizes both
+nouns of both headers via the same `"" if n == 1 else "s"` idiom the siblings
+use — a single row now reads "1 unique next action across 1 row". The `--json`
+face never carried these headers and is unchanged.
+
+Near-regression caught and rejected. The round was first drafted as a
+sibling-disagreement fix: skip the blank-next row in the next-dedup loop
+(`if not key: continue`, mirroring `--domains`) so `--dedup`'s unique-action
+count would agree with `--domains`. Running the suite surfaced ONE failure —
+`test_empty_next_row_flagged_on_msg` in `test_r277_history_dedup_empty_json_untrusted`
+(`AssertionError: '1' not found in {'0': {'next': ['override']}}`). Root cause:
+`--domains` excludes a blank next because a blank has no domain to RANK — that
+is a property of ranking, not a universal "blanks don't count" rule. `--dedup`
+collapses rows to unique next VALUES, and a blank next is a value; r277 pins
+that a planted injection carried on a blank-next row's `msg` survives into the
+`--dedup --json` untrusted map. Dropping the blank row hid that injection — a
+security-framing regression, not a cosmetic win. The blank-skip was removed and
+the round narrowed to the genuine defect (header pluralization). The blank-next
+row stays a listed, counted `--dedup` bucket. `DedupKeepsFramedBlankRowTests`
+now pins the r277 invariant from inside r282's own test file.
+
+Pins moved the usual way: r175 recent count 102 -> 103, r200 empty-window
+bracket r282 -> r283 (r282 is now the highest catalog entry), and r281's exact
+`max == 281` head retired to `>= 281` (`test_r281_is_the_highest_round`
+`>= 281`, `test_catalog_grew_to_132` `>= 132`, `test_recent_window_is_102`
+`>= 102`).
+
+Catalog entry dedup-headers-pluralize (since r282); import-verified the
+catalog grew to len 133, since>=170 count 103, max since 282, module loads.
+
+No pre-identified r283 carrier is named. r283 must probe a fresh live defect.
+
+Suite after r282: 2965 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
 
 
 

@@ -7993,15 +7993,27 @@ def mode_history(args):
             payload["untrusted"] = history_untrusted_map(deduped)
             print(json.dumps(payload, ensure_ascii=False, indent=2))
             return 0
+        # r282: both text headers hardcoded the plural nouns
+        # ("unique next actions"/"rows"), so a single-row dedup read
+        # "1 unique next actions across 1 rows" -- the same missing
+        # singular/plural the sibling reflections already carry (r281
+        # pluralized ``--domains``; ``discover`` uses ``%d visit%s``).
+        # Pluralize both nouns via the same ``"" if n == 1 else "s"``
+        # idiom. The blank-next row stays a listed bucket here: ``--dedup``
+        # collapses rows to unique next VALUES and a blank next is a value,
+        # so r277 still ships and frames it (dropping it would hide a
+        # planted injection carried on a blank-next row's msg).
         if use_msg:
-            print("── mindseam ─ history (%d unique msg annotations across %d rows)"
-                  % (len(deduped), len(hist)))
+            print("── mindseam ─ history (%d unique msg annotation%s across %d row%s)"
+                  % (len(deduped), "" if len(deduped) == 1 else "s",
+                     len(hist), "" if len(hist) == 1 else "s"))
             for index, row in enumerate(deduped, 1):
                 msg = row.get("msg") or "(empty)"
                 print("  %3d  %s%s" % (index, _oneline(msg), row_untrusted_tag(row)))
         else:
-            print("── mindseam ─ history (%d unique next actions across %d rows)"
-                  % (len(deduped), len(hist)))
+            print("── mindseam ─ history (%d unique next action%s across %d row%s)"
+                  % (len(deduped), "" if len(deduped) == 1 else "s",
+                     len(hist), "" if len(hist) == 1 else "s"))
             for index, row in enumerate(deduped, 1):
                 nxt = row.get("next") or "(empty)"
                 print("  %3d  %s%s" % (index, _oneline(nxt), row_untrusted_tag(row)))
@@ -8970,6 +8982,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "domains-header-names-next-actions", "since": "r281",
      "summary": "history --domains ranks the domain prefix of every recorded next action; the loop skips a blank-next row with 'if not nxt: continue' and counts the survivors in 'total'. But the NON-EMPTY text header read '%d domains across %d seams' % (len(counts), total) — it borrowed the word 'seams' for a count that is actually rows WITH a next action, not the seam count. So on a window holding a blank-next seam the header claimed 'across 2 seams' while history --count reported 3 (a blank-next row is still a seam), and the noun 'seams' disagreed with this command's OWN empty face, which names the unit accurately: 'no rows with a next action'. The header also never pluralized, so a single row read '1 domains across 1 seams' while the sibling discover already pluralizes ('%d visit%s'). Live on a three-row history.json (two 'build:' nexts + one blank-next row): history --count printed 3 but history --domains printed 'history (1 domains across 2 seams)'; on a single-row history it printed 'history (1 domains across 1 seams)'. The fix renames the ranked unit to 'next action' so both faces of --domains agree with each other and with the 'if not nxt' guard, and pluralizes both nouns: the header now reads '1 domain across 2 next actions' / '2 domains across 3 next actions' / '1 domain across 1 next action'. The --json face never carried this header and is untouched",
+     "default": True},
+    {"id": "dedup-headers-pluralize", "since": "r282",
+     "summary": "history --dedup collapses the surviving rows to the unique next actions, in first-appearance order (--dedup-by-msg does the same on the msg annotation). Both text headers hardcoded the plural nouns — 'history (%d unique next actions across %d rows)' — so a single-row window read 'history (1 unique next actions across 1 rows)', the same missing singular/plural the sibling reflections already carry: r281 pluralized history --domains ('1 domain across 1 next action') and discover has long used '%d visit%s'. Live before-fix on a one-row history.json: history --dedup printed 'history (1 unique next actions across 1 rows)' and history --dedup-by-msg printed 'history (1 unique msg annotations across 1 rows)'. The fix pluralizes both nouns of both headers via the same '\"\" if n == 1 else \"s\"' idiom the siblings use — a single row now reads 'history (1 unique next action across 1 row)'. The blank-next row is deliberately kept as a listed, counted bucket (unlike the ranking sibling --domains, which excludes it): --dedup collapses rows to unique next VALUES and a blank next is a value, so r277 still ships and frames it in the --dedup --json untrusted map — dropping it would hide a planted injection carried on a blank-next row's msg. The --json face never carried these headers and is unchanged",
      "default": True},
 )
 
