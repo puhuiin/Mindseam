@@ -7792,6 +7792,61 @@ Suite after r283: 2979 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
 
 
+### Round 284 (test r284)
+
+Live probe on the shared `_humanize_seconds` ladder (line 3596). It
+scales a raw second count through second/minute/hour/day/month/year and
+is the humanizer behind three human faces: `history --human` (the
+per-row "N ago" age, line 7282), `info --human` ("Last seam: N ago (long
+gap)", line 9866) and `info --human --json` (`human.gap_human`, line
+9587). r283 named it the pluralizing/scaling humanizer every sibling
+duration should route through — this round found a defect INSIDE it, a
+different class from the r281-r283 pluralization family.
+
+A "month" on this ladder is 30 days and a "year" is 365, so 12 months
+(360 days) is five days short of a full year. The old code was
+
+    months = days // 30
+    if months < 12:
+        return "%d month%s" % (months, ...)
+    years = days // 365
+    return "%d year%s" % (years, ...)
+
+At day 360 `months` is 12, so the `months < 12` guard falls through to
+the year branch — but `years = 360 // 365` is still 0, so the span
+rendered "0 years". The whole window [360, 365) days was a dead zone:
+past the last month but before the first year, printing a literal zero.
+Import-probe: 359 -> "11 months", 360/361/364 -> "0 years", 365 -> "1
+year".
+
+Live before-fix, on the CLI surfaces: a one-row `history.json` timed 361
+days before now made `history --human` print "    1  0 years ago" and
+`info --human` print "Last seam: 0 years ago (long gap)".
+
+Fix gates the month/year handoff on the year COUNT rather than the month
+count — compute `years = days // 365` up front and hold the month branch
+while `years < 1`. Days >= 365 are byte-identical (years >= 1), days <
+360 never reached the year branch anyway, and only the [360, 365) dead
+zone changes, now "12 months" rather than "0 years". No existing test or
+doc pinned the buggy "0 years" output (grep of tests/ for "0 years",
+"_humanize_seconds", "months < 12", "// 365"), so — unlike r283's r207
+case — no pre-existing buggy pin needed updating.
+
+Pins moved the usual way: r175 recent count 104 -> 105, r200 empty-window
+bracket r284 -> r285 (r284 is now the highest catalog entry), and r283's
+exact `max == 283` head retired to `>= 283` (`test_r283_is_the_highest_round`
+`>= 283`, `test_catalog_grew_to_134` `>= 134`, `test_recent_window_is_104`
+`>= 104`).
+
+Catalog entry humanize-year-boundary (since r284); import-verified the
+catalog grew to len 135, since>=170 count 105, max since 284, module loads.
+
+No pre-identified r285 carrier is named. r285 must probe a fresh live defect.
+
+Suite after r284: 2999 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
 
 
 

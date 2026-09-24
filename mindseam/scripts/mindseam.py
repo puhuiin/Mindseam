@@ -3610,9 +3610,19 @@ def _humanize_seconds(seconds):
     if days < 30:
         return "%d day%s" % (days, "" if days == 1 else "s")
     months = days // 30
-    if months < 12:
-        return "%d month%s" % (months, "" if months == 1 else "s")
     years = days // 365
+    # r284: a "month" on this ladder is 30 days and a "year" is 365, so
+    # 12 months (360 days) is five days short of a year. The old handoff
+    # guarded on ``months < 12`` and then computed ``years = days // 365``
+    # — but at day 360 that quotient is still 0, so a 360-to-364-day span
+    # fell through to the year branch and rendered "0 years" (live on both
+    # ``info --human`` and ``history --human``). Gate the handoff on the
+    # year COUNT instead: hold the month branch until a full year actually
+    # lands. days >= 365 stay byte-identical (years >= 1); days < 360 never
+    # reached the year branch anyway; only the [360, 365) dead zone changes,
+    # now "12 months" rather than "0 years".
+    if years < 1:
+        return "%d month%s" % (months, "" if months == 1 else "s")
     return "%d year%s" % (years, "" if years == 1 else "s")
 
 
@@ -8997,6 +9007,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "span-duration-pluralizes", "since": "r283",
      "summary": "history --span prints a one-line window summary — first seam, last seam, and the duration between them as raw seconds. r273 fixed the extent to be order-invariant (min/max endpoints, JSON duration_seconds unchanged), but the text line 'Duration:   %d seconds across %d rows' hardcoded BOTH nouns plural, so a one-second window read '1 seconds' and a one-row window read 'across 1 rows'. This is the same missing singular/plural the sibling reflections already carry: r281 pluralized history --domains, r282 pluralized history --dedup, and discover has long used '%d visit%s'. It is additionally the only human-facing duration in the tool that does not route through _humanize_seconds (which pluralizes and scales). Live before-fix: a two-row history.json one second apart printed 'Duration:   1 seconds across 2 rows'; a one-row history printed 'Duration:   0 seconds across 1 rows'. The fix pluralizes both nouns via the same '\"\" if n == 1 else \"s\"' idiom — '1 second across 2 rows', '0 seconds across 1 row' — while keeping duration raw seconds so r273's text pin ('9000 seconds') and the JSON duration_seconds are byte-identical. A text-face accuracy fix; the --json face never carried this line and is untouched",
+     "default": True},
+    {"id": "humanize-year-boundary", "since": "r284",
+     "summary": "_humanize_seconds scales a raw second count through a units ladder (second, minute, hour, day, month, year) and is the humanizer behind history --human (per-row 'N ago' age), info --human ('Last seam: N ago (long gap)') and info --human --json (human.gap_human). A 'month' on the ladder is 30 days and a 'year' is 365, so 12 months (360 days) is five days short of a full year. The old handoff guarded on 'months < 12' and then computed 'years = days // 365' — but at day 360 that quotient is still 0, so the whole [360, 365)-day window fell through the month branch and rendered '0 years'. Live before-fix: a one-row history.json timed 361 days back made history --human print '1  0 years ago' and info --human print 'Last seam: 0 years ago (long gap)'. The fix gates the handoff on the year COUNT instead of the month count — compute 'years = days // 365' up front and hold the month branch while 'years < 1' — so the dead zone now reads '12 months'. days >= 365 stay byte-identical (years >= 1), days < 360 never reached the year branch, and only [360, 365) changes",
      "default": True},
 )
 
