@@ -7307,6 +7307,61 @@ Suite after r273: 2810 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
 
 
+### Round 274 (test r274)
+
+r273 fixed a `min`/`max` clamp on `history --span`. r274 stays in the same
+`history` command but returns to the renderer-exclusivity family (r188 / r197 /
+r198 / r207): the guard that refuses two terminal renderers in one call so a
+later one is not silently dropped at exit 0.
+
+`mode_history` (mindseam.py:~7384) builds a `renderers` list from the picked
+terminal renderers and, `if len(renderers) > 1`, prints
+`CANNOT: ... are mutually exclusive renderers; pick one.` and returns 2. But the
+list held only SIX slots — `--count`, `--csv`, `--domains`, `--format`,
+`--quiet`, `--span`. `--dedup` / `--dedup-by-msg` (terminal branch ~7852) and
+`--empty` (terminal branch ~7902) are ALSO print-and-return renderers, each with
+its own `--json` sub-face, and neither was in the guard's set. So a call that
+paired one of them with a listed renderer composed silently-wrong: the earlier
+branch won by runtime terminal order (`--csv` < `--domains` < `--span` <
+`--dedup`/`--dedup-by-msg` < `--empty` < plain `--json` < `--quiet` < `--count`
+< `--format`) and the later flag vanished at exit 0 — the exact class the r188/
+r197/r198/r207 rounds closed one renderer at a time.
+
+Live before the fix on a `history.json`: `history --dedup --quiet` printed the
+dedup face and dropped `--quiet` at rc 0; `history --csv --empty` printed CSV
+and dropped `--empty`; `history --span --dedup` printed the span and dropped
+`--dedup`. Twelve such combos composed silently-wrong.
+
+Fix (mindseam.py:~7384): count eight renderers. `--dedup` and `--dedup-by-msg`
+share ONE slot (they compose *with each other* by design — line 7866, "both are
+honoured if both are passed" — so the pair must not self-refuse; the slot is
+named `--dedup/--dedup-by-msg` when both are passed, else the single one that
+is), and `--empty` is its own slot. Any two distinct renderers now refuse with
+exit 2 and the `mutually exclusive renderers` message. `--json` is NOT a
+renderer — it rides `--dedup` / `--empty` / `--span` through each branch's own
+JSON sub-face (the r170 two-faces rule), so `--dedup --json` and `--empty --json`
+stay exit 0.
+
+Live-confirmed after the fix: the twelve formerly-silent combos now exit 2 with
+`mutually exclusive renderers`; the must-stay-0 set — `--dedup --dedup-by-msg`,
+`--dedup`, `--dedup-by-msg`, `--empty`, `--dedup --json`, `--empty --json` —
+stays rc 0.
+
+Pins moved the usual way: r175 count 94 -> 95, r200 empty-window bracket
+r274 -> r275 (r274 is now the highest catalog entry), and r273's exact
+`max == 273` head retired to `>= 273` (`test_r273_is_present_and_not_the_last_word`
+`>= 273`, `test_catalog_grew_to_at_least_124` `>= 124`,
+`test_recent_window_is_at_least_94` `>= 94`).
+
+Catalog entry history-renderers-dedup-empty (since r274); import-verified the
+catalog grew to len 125, since>=170 count 95, max since 274, module loads.
+
+No pre-identified r275 carrier is named. r275 must probe a fresh live defect.
+
+Suite after r274: 2834 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
 
 
 

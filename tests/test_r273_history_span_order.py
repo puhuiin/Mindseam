@@ -221,17 +221,17 @@ class HistorySpanOrderCatalogTests(unittest.TestCase):
         self.assertIn("--reverse", entry["summary"])
         self.assertIn("min", entry["summary"])
 
-    def test_r273_is_the_highest_round(self):
-        # The newest round owns the exact ``max == NNN`` head; it retires
-        # to a ``>=`` floor once its successor lands.
-        self.assertEqual(max(self._since_ints()), 273)
+    def test_r273_is_present_and_not_the_last_word(self):
+        # The newest round owns the exact ``max == NNN`` head; once its
+        # successor (r274) landed, r273 retires to a ``>=`` floor.
+        self.assertGreaterEqual(max(self._since_ints()), 273)
 
-    def test_catalog_grew_to_124(self):
-        self.assertEqual(len(mindseam._FEATURE_CATALOG), 124)
+    def test_catalog_grew_to_at_least_124(self):
+        self.assertGreaterEqual(len(mindseam._FEATURE_CATALOG), 124)
 
-    def test_recent_window_is_94(self):
+    def test_recent_window_is_at_least_94(self):
         recent = [i for i in self._since_ints() if i >= 170]
-        self.assertEqual(len(recent), 94)
+        self.assertGreaterEqual(len(recent), 94)
 
 
 if __name__ == "__main__":

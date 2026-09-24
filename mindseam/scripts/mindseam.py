@@ -7381,10 +7381,32 @@ def mode_history(args):
     # --span ride
     # --json (r170), --row-id keeps its documented
     # before-every-render-flag precedence.
+    # r274: --dedup / --dedup-by-msg and --empty are terminal renderers
+    # too -- each prints its own listing (or a --json face of it) and
+    # returns at the dedup/empty tier, ahead of the plain --json,
+    # --quiet and --count faces. r198 named "six mutually exclusive
+    # renderers" but there were eight: the dedup pair and --empty were
+    # never added to this set, so ``history --span --dedup`` /
+    # ``--empty --count`` / ``--csv --dedup`` passed the guard (len 1)
+    # and the earlier branch won while the later flag was silently
+    # dropped -- the identical winner-by-branch-order ambiguity r197/
+    # r198/r207 refuse. --dedup and --dedup-by-msg compose WITH EACH
+    # OTHER by design (one pass honours both keys), so they occupy ONE
+    # renderer slot named for whichever was given; --empty is its own.
+    if getattr(args, "dedup", False) and getattr(args, "dedup_by_msg", False):
+        dedup_name = "--dedup/--dedup-by-msg"
+    elif getattr(args, "dedup_by_msg", False):
+        dedup_name = "--dedup-by-msg"
+    elif getattr(args, "dedup", False):
+        dedup_name = "--dedup"
+    else:
+        dedup_name = None
     renderers = [name for name, picked in (
         ("--count", getattr(args, "count", False)),
         ("--csv", getattr(args, "csv", False)),
         ("--domains", getattr(args, "domains", False)),
+        (dedup_name, dedup_name is not None),
+        ("--empty", getattr(args, "empty", False)),
         ("--format", getattr(args, "format", None)),
         ("--quiet", getattr(args, "quiet", False)),
         ("--span", getattr(args, "span", False)),
@@ -8830,6 +8852,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "history-span-order", "since": "r273",
      "summary": "r272 pivoted from the exhausted untrusted-framing family to slicing-correctness on history's window selectors; r273 stays on correctness but on a different operator — a min/max clamp that lied when the rows were reordered. history --span borrows git log --stat / journalctl --list-boots: a one-line summary of the surviving window's first seam, last seam and the duration between them. The endpoints were read positionally — first_t = hist[0]['t'], last_t = hist[-1]['t'] — and the duration was floored, duration = max(0, last_t - first_t). The default walk is append order (oldest first), so hist[0] is the earliest and hist[-1] the latest and the subtraction is positive. But --span composes with --reverse (git log --reverse, applied a few lines up at the hist[::-1] flip), which walks the same rows newest-first; that swapped hist[0] and hist[-1], made last_t - first_t negative, and the max(0, ...) floor reported Duration: 0 seconds for a window that plainly spanned time — the JSON face emitted first > last with duration_seconds 0 to match. Live on history: a three-row history.json spanning 9000 seconds printed 'Duration: 9000 seconds' under --span but 'Duration: 0 seconds' under --span --reverse over the identical rows, and the --span --json face reported first 1009000 / last 1000000 / duration_seconds 0. A hand-written history.json whose rows are not in ascending t hit the same lie without --reverse at all. The span is the time EXTENT of the window, an interval that reordering the rows must not change; positional endpoints plus a sign-swallowing floor made it order-dependent. The fix reads the endpoints as span_times = [int(row.get('t') or 0) for row in hist] then first_t = min(span_times), last_t = max(span_times), and drops the max(0, ...) floor because min/max make last_t - first_t provably non-negative — so --span is order-invariant (--reverse is now a no-op for it, the way git log --stat's diffstat is the same whatever the walk order), the earliest/latest labels are correct under any row order, and every non-reversed pin (the r47/baseline 100-second round-trips, the --grep TODO --span burst window) is byte-identical because append order already had hist[0] == min and hist[-1] == max",
+     "default": True},
+    {"id": "history-renderers-dedup-empty", "since": "r274",
+     "summary": "r272/r273 stayed on correctness (a zero-width tail slice, an order-dependent span clamp); r274 returns to the winner-by-branch-order renderer-exclusivity family (r188/r197/r198/r207) with the two renderers that family's own completeness round missed. mode_history builds a mutual-exclusion set of terminal renderers and refuses any pair with exit 2 before the destructive --keep rotation. r197 named four ({--csv, --domains, --format, --quiet}); r198 extended it to six by adding --span and --count and its docstring called the set complete — 'six mutually exclusive renderers'. But --dedup / --dedup-by-msg (the sort -u / uniq collapse, terminal at 7852 with its own --json face) and --empty (the find -empty post-filter, terminal at 7902 with its own --json face) are ALSO print-and-return renderers, and neither was ever added to the set. The runtime branch order is --csv < --domains < --span < --dedup < --empty < plain --json < --quiet < --count < --format, so whichever branch printed first won and the later flag was silently dropped at exit 0. Live on history over a three-row ledger: --dedup --quiet, --dedup --count, --empty --count, --empty --quiet, --csv --dedup, --csv --empty, --dedup --empty, --dedup --format %n, --span --dedup, --span --empty, --dedup --domains all returned 0 with one renderer's output and the other silently ignored — the exact ambiguity a host cannot reason about that r197/r198/r207 refuse. The fix extends the renderers list at 7384 to eight slots: --empty gets its own slot, and --dedup / --dedup-by-msg share ONE slot (they compose with each other by design — line 7866 'both are honoured if both are passed' — so they must not self-refuse) named via a dedup_name computation ('--dedup', '--dedup-by-msg', or '--dedup/--dedup-by-msg') so the refusal message stays accurate. --json stays OUT of the set (it rides dedup/empty/span via each branch's own json face, the r170 two-faces rule), --dedup --dedup-by-msg still composes to exit 0, and every one of the six prior renderers still refuses each other and still works alone (r197/r198 byte-identical)",
      "default": True},
 )
 
@@ -11220,17 +11245,17 @@ def main(argv=None):
     hist_p.add_argument("--keep", dest="keep", type=int, default=None,
         help="discard rows older than the last N and persist the slimmed history (like logrotate --keep, docker system prune)")
     hist_p.add_argument("--dedup", dest="dedup", action="store_true",
-        help="collapse the surviving rows to unique next actions (like sort -u / uniq)")
+        help="collapse the surviving rows to unique next actions (like sort -u / uniq); r274: one of eight mutually exclusive renderers — a combined call is refused with exit 2, but --dedup and --dedup-by-msg compose with each other")
     hist_p.add_argument("--dedup-by-msg", dest="dedup_by_msg", action="store_true",
-        help="collapse the surviving rows to unique msg annotations (like sort -u -k 2)")
+        help="collapse the surviving rows to unique msg annotations (like sort -u -k 2); r274: one of eight mutually exclusive renderers — a combined call is refused with exit 2, but --dedup and --dedup-by-msg compose with each other")
     hist_p.add_argument("--row-id", dest="row_id", default=None,
         help="return the single row at the 1-based index N (like git log --skip N -n 1 / sed -n 'Np')")
     hist_p.add_argument("--empty", dest="empty", action="store_true",
-        help="keep only the rows whose next action is blank (like find -empty / awk '/^$/')")
+        help="keep only the rows whose next action is blank (like find -empty / awk '/^$/'); r274: one of eight mutually exclusive renderers — a combined call is refused with exit 2")
     hist_p.add_argument("--quiet", dest="quiet", action="store_true",
-        help="print only the next action of each row, one per line (like git log --oneline); r197/r198: one of six mutually exclusive renderers — a combined call is refused with exit 2")
+        help="print only the next action of each row, one per line (like git log --oneline); r197/r198/r274: one of eight mutually exclusive renderers — a combined call is refused with exit 2")
     hist_p.add_argument("-c", "--count", dest="count", action="store_true",
-        help="print only the row count (like wc -l, like git rev-list --count); r198: one of six mutually exclusive renderers — a combined call is refused with exit 2")
+        help="print only the row count (like wc -l, like git rev-list --count); r198/r274: one of eight mutually exclusive renderers — a combined call is refused with exit 2")
     hist_p.add_argument("--first-match", dest="first_match", action="store_true",
         help="stop after the first matching row (like grep -m 1 / ripgrep --max-count=1)")
     hist_p.add_argument("--fields", dest="fields", default=None,
@@ -11243,16 +11268,16 @@ def main(argv=None):
               "%%v (verified count), %%o (open count), "
               "%%h (row index, 1-based). "
               "Example: '%%t %%n' (like git log --format='%%h %%s'). "
-              "r197/r198: one of six mutually exclusive renderers — a "
+              "r197/r198/r274: one of eight mutually exclusive renderers — a "
               "combined call is refused with exit 2. r253: one pass "
               "resolves the template, so %%next wins over %%n and a "
               "row's own text can never corrupt the format"))
     hist_p.add_argument("--csv", dest="csv", action="store_true",
-        help="emit history as CSV (like aws --output csv, PowerShell ConvertTo-Csv); r197/r198: one of six mutually exclusive renderers — a combined call is refused with exit 2")
+        help="emit history as CSV (like aws --output csv, PowerShell ConvertTo-Csv); r197/r198/r274: one of eight mutually exclusive renderers — a combined call is refused with exit 2")
     hist_p.add_argument("--domains", dest="domains", action="store_true",
-        help="group history by next-action domain prefix, the way JIT-Agent factors memory/planning/action/capability; r197/r198: one of six mutually exclusive renderers — a combined call is refused with exit 2")
+        help="group history by next-action domain prefix, the way JIT-Agent factors memory/planning/action/capability; r197/r198/r274: one of eight mutually exclusive renderers — a combined call is refused with exit 2")
     hist_p.add_argument("--span", dest="span", action="store_true",
-                   help="print the first-seam, last-seam and duration of the window (like git log --stat / journalctl --list-boots); r198: one of six mutually exclusive renderers — a combined call is refused with exit 2; rides --json")
+                   help="print the first-seam, last-seam and duration of the window (like git log --stat / journalctl --list-boots); r198/r274: one of eight mutually exclusive renderers — a combined call is refused with exit 2; rides --json")
     hist_p.add_argument("--filter", dest="filter", action="append", metavar="KEY=VALUE",
                    help="keep only rows whose field KEY equals VALUE; repeatable, all filters AND together (like docker ps --filter)")
     hist_p.add_argument("--human", dest="human", action="store_true",
