@@ -6450,9 +6450,20 @@ def mode_seam(book, json_flag=False, dry_run=False, quiet=False, message=None,
         # tense is conditional — the count is the same fact, the
         # completion is not.
         if extra_nexts or from_stdin:
+            # r289: the singular/plural family reaches the JSON warnings
+            # face. This warning hardcoded "next actions" (plural stem)
+            # while its text sibling (mode_seam's "From stdin: %d next
+            # action%s recorded." line) already pluralizes on the count,
+            # so exactly one piped next action made the two faces render
+            # the SAME quantity two ways: JSON "1 next actions recorded",
+            # text "1 next action recorded." The count agrees on the noun
+            # here too now (r254/r259 enumerate-every-projector: two faces
+            # of one value must agree by construction); 0 and >=2 stay
+            # plural, only exactly 1 becomes "next action".
             payload.setdefault("warnings", []).append(
-                "from-stdin: %d next actions %s"
+                "from-stdin: %d next action%s %s"
                 % (len(extra_nexts),
+                   "" if len(extra_nexts) == 1 else "s",
                    "would be recorded" if dry_run else "recorded"))
         if format_path is not None:
             print(_format_paths(payload, format_path))
@@ -9084,6 +9095,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "ledger-stagnation-agrees-noun-and-verb", "since": "r288",
      "summary": "the seam ledger-stagnation fact (detect_ledger_stagnation, surfaced by observations() on every seam) rendered a stale-core-item count as '%d core item(s) have gone unverified across %d seams' — the ONLY count-render in the tool still using the '(s)' lazy plural, and the only one whose VERB also disagreed at exactly one item. Live before-fix on a seam over a workspace with one stale Core item and a flat 8-seam verified window: the fact read '1 core item(s) have gone unverified across 8 seams' — a plural verb ('have') and the parenthetical '(s)' for a single subject, where every sibling health fact and the codebase idiom pluralize cleanly with 'item%s'. This is the singular/plural family of r281-r287, but the FIRST to fix subject-verb agreement (the verb, not only the noun): the noun routes through the same 'item' vs 'items' split every sibling uses and the verb agrees ('has' for one, 'have' for two or more), so a lone stale item reads '1 core item has gone unverified across 8 seams' while two or more read '2 core items have gone ...'. The 'across N seams' clause is unchanged (LEDGER_STALE_SEAMS is the constant 8, never singular) and the 'gone unverified' remediation key (mindseam.py:6143) survives verbatim, so the advice mapping still fires. The --json seam payload carries the same fact list; a host reads the corrected sentence there too",
+     "default": True},
+    {"id": "from-stdin-warning-agrees-noun", "since": "r289",
+     "summary": "the seam --json warnings face rendered the from-stdin next-action count as a hardcoded plural 'from-stdin: %d next actions %s' while its text sibling (mode_seam's 'From stdin: %d next action%s recorded.') already pluralizes on the count, so exactly one piped next action made the two faces render the SAME quantity len(extra_nexts) two ways: JSON 'from-stdin: 1 next actions recorded', text 'From stdin: 1 next action recorded.' (and under --dry-run the JSON warning read '1 next actions would be recorded'). This is the singular/plural family of r281-r288, on the JSON warnings surface: the machine face and the human face project one value so they must agree by construction (r254/r259 enumerate-every-projector), so the JSON warning now pluralizes the noun on the same count ('' if len(extra_nexts) == 1 else 's'), keeping the r203 dry-run tense branch ('would be recorded'/'recorded'). Only exactly 1 becomes '1 next action'; 0 and >=2 stay 'next actions', and the dry-run gate/tense contract from r203/r183 is unchanged",
      "default": True},
 )
 

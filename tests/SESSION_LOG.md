@@ -8050,3 +8050,55 @@ import-verified the catalog grew to len 139, since>=170 count 109, max since
 Suite after r288: 3067 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
 
+### Round 289 (test r289)
+
+mode_seam's --json warnings face (mindseam.py:6452) rendered the from-stdin
+next-action count as a hardcoded plural "from-stdin: %d next actions %s"
+while its text sibling (mindseam.py:6568, "From stdin: %d next action%s
+recorded.") already pluralizes on the count. So exactly one piped next
+action made the two faces project the SAME quantity — len(extra_nexts) on
+the JSON warning, rows_written on the text line — two ways.
+
+Live before-fix (fresh workspace, one Core note, exactly one non-blank line
+on stdin):
+  seam --from-stdin --json           -> warnings ["from-stdin: 1 next actions recorded"]
+  seam --from-stdin --dry-run --json -> "... from-stdin: 1 next actions would be recorded"
+  seam --from-stdin (text)           -> "From stdin: 1 next action recorded."
+The machine face and the human face disagreed on the noun for the same
+single value.
+
+This is the singular/plural family of r281 history --domains, r282
+history --dedup, r283 history --span, r285 bytes, r287 entries and r288
+ledger-stagnation, now on the JSON warnings surface. The machine face and
+the human face project one value so they must agree by construction (the
+r254/r259 enumerate-every-projector discipline). The fix pluralizes the
+JSON warning's noun on the same count — "from-stdin: %d next action%s %s"
+with "" if len(extra_nexts) == 1 else "s" — keeping the r203 dry-run tense
+branch ("would be recorded"/"recorded") untouched. After-fix the JSON
+warning reads "from-stdin: 1 next action recorded" (and "1 next action
+would be recorded" under --dry-run), matching the text sibling; 0 and >=2
+stay "next actions" byte-for-byte, and the r203/r183 dry-run gate is
+unchanged.
+
+New test file tests/test_r289_from_stdin_warning_noun.py (15 tests, 5
+classes): FromStdinWarningSingularTests pins the JSON warning at "1 next
+action recorded" for one line (and for one non-blank line among blanks),
+with no "1 next actions" substring; DryRunTenseTests pins the r203
+conditional tense with the agreeing noun ("1 next action would be
+recorded"), that the dry-run marker still coexists, and that two lines
+under --dry-run stay plural; PluralUnchangedTests pins 0/2/3 all keeping
+"next actions"; FacesAgreeTests drives both the JSON and text faces on the
+same workspace and pins that they carry the same noun for one line and for
+two lines; CatalogTests pins the r289 entry (max 289, len 140, recent 110,
+id present, default true).
+
+Pins: r175 recent-count 109 -> 110; r200 empty-window bracket
+`--index-since r289 --index-until r289` -> r290/r290; r288's three exact
+head pins retired to `>=` floors (max >= 288, len >= 139, recent >= 109).
+Catalog entry from-stdin-warning-agrees-noun (since r289); import-verified
+the catalog grew to len 140, since>=170 count 110, max since 289, module
+loads.
+
+Suite after r289: 3082 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
