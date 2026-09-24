@@ -7206,6 +7206,53 @@ is now `_oneline`-routed. r272 must probe a fresh live defect.
 Suite after r271: 2774 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
 
+### Round 272 (test r272)
+
+The untrusted-framing / tag-stranding family (r239-r271) is exhausted: every
+line-oriented model-authored echo surface now routes through `_oneline` with
+its `[untrusted: …]` tag on one physical line. r271 closed with no
+pre-identified carrier, so r272 turned to a different KIND of defect — a
+slicing-correctness bug on `history`'s own window selectors, not a framing gap.
+
+`mode_history` borrows `head -n N` / `tail -n N`: `--head N` keeps the first N
+rows, `--tail N` (aliased by `-n` / `--limit`) keeps the last N. r217 already
+refuses every negative value with exit 2 BEFORE the read (mindseam.py:7453), so
+the branch guards only ever see 0 or a positive. The head branch was correct —
+`hist[:0]` empties — but the tail branch did
+`hist = hist[-tail_n:] if hist else []`, and `hist[-0:]` is `hist[0:]`, the
+WHOLE list.
+
+Live on `history` with a five-row `history.json`: `--tail 0` / `-n 0` /
+`--limit 0` printed all five rows at exit 0, the exact opposite of coreutils
+`tail -n 0` (which prints nothing) and of the correct `--head 0` (which
+empties). A host that asked for a zero-width tail window got every row and an
+exit code that said the call worked — the same silent-full-result lie r214/r217
+closed for the negative case, one value (zero) further in. The inconsistency
+made it a genuine defect, not a design choice: the `--keep` rotation sibling a
+few lines up already guards `truncated = hist[-keep_n:] if keep_n > 0 else []`,
+and `--head 0` already empties, so tail was the one selector letting the
+negative-zero slice through.
+
+Fix (mindseam.py:7578): `hist = hist[-tail_n:] if (hist and tail_n) else []` —
+guard `tail_n` too so the zero window empties the way the head and keep siblings
+do. Live-confirmed after the fix: `--tail 0` / `-n 0` / `--limit 0` → count 0
+and `--json` `history_count == 0`, `rows == []`; `--head 0` still empties;
+`--tail 2` / `--head 2` / `-n 3` still work; no selector at all still shows every
+row; `--tail -1` still refused with exit 2 and "non-negative" (r217 preserved).
+
+Pins moved the usual way: r175 count 92 -> 93, r200 empty-window bracket
+r272 -> r273 (r272 is now the highest catalog entry), and r271's exact
+`max == 271` head retired to `>= 271` (`test_catalog_floor` `>= 122`,
+`test_recent_window_floor` `>= 92`).
+
+Catalog entry history-tail-zero (since r272); import-verified the catalog grew
+to len 123, since>=170 count 93, max since 272, module loads.
+
+No pre-identified r273 carrier is named. r273 must probe a fresh live defect.
+
+Suite after r272: 2791 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
 
 
 

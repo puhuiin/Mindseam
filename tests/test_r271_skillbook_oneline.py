@@ -235,16 +235,20 @@ class CatalogPinTests(unittest.TestCase):
         self.assertIn("skillbook-oneline", ids)
 
     def test_r271_is_the_highest_round(self):
-        # Only the newest round owns the exact max; retired to a floor
-        # when r272 lands.
-        self.assertEqual(max(self._since_ints()), 271)
+        # The newest round owns the exact ``max == NNN`` head; it retires
+        # to a ``>=`` floor once its successor lands. Retired to a floor
+        # when r272 landed.
+        self.assertGreaterEqual(max(self._since_ints()), 271)
 
-    def test_catalog_grew_to_122(self):
-        self.assertEqual(len(mindseam._FEATURE_CATALOG), 122)
+    def test_catalog_floor(self):
+        # Was the exact ``grew_to_122`` snapshot; retired to a floor when
+        # r272 landed. The authoritative live count lives in the r175
+        # recent-window pin, which moves deliberately per round.
+        self.assertGreaterEqual(len(mindseam._FEATURE_CATALOG), 122)
 
-    def test_recent_window_is_92(self):
+    def test_recent_window_floor(self):
         recent = [i for i in self._since_ints() if i >= 170]
-        self.assertEqual(len(recent), 92)
+        self.assertGreaterEqual(len(recent), 92)
 
 
 if __name__ == "__main__":
