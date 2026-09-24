@@ -8952,6 +8952,9 @@ _FEATURE_CATALOG = (
     {"id": "discover-counts-colonless-domains", "since": "r279",
      "summary": "discover and history --domains are sibling read-only reflections that both rank the domain prefix of every recorded next action — discover's own docstring says 'count the domain prefix of every recorded next action'. But history --domains groups by nxt.split(':', 1)[0].strip().lower() with an empty prefix bucketed to '(none)' and drops only rows whose next is entirely blank (if not nxt: continue), whereas discover carried a stricter guard: 'if not nxt or \":\" not in nxt: continue', which silently dropped every next that had no colon. So a session that recorded bare actions ('refactor the loop') had those rows counted by history --domains yet invisible to discover — and suggested_next, the single next-action a host actually acts on, could name a colon'd domain while an equally- or more-visited colonless action never surfaced at all. Live on a four-row history.json (two 'build: ...' nexts, two identical 'refactor the loop' nexts with no colon): history --domains --json ranked {build:2, refactor the loop:2} but discover --json ranked only {build:2} and set suggested_next to 'build', omitting the equally-visited bare action. The fix removes the '\":\" not in nxt' clause and groups by nxt.split(':', 1)[0].strip().lower() or '(none)' — 'the prefix before the first colon' of a colonless string is the whole string — so the two sibling reflections now agree on which rows exist and discover's ranking (and its suggested_next) no longer omits bare next actions",
      "default": True},
+    {"id": "discover-empty-message-distinguishes-no-history", "since": "r280",
+     "summary": "discover's empty-ranking text face printed one message — 'No history yet — run a seam and the domain map appears.' — for TWO different states: a truly empty history.json AND a history that has recorded seams but no row carries a next action to rank. The second is a false statement: the session HAS history, so a host reading 'No history yet' concludes nothing has happened and may re-run work that already ran. The sibling history --domains never made this claim — its empty face says 'no rows with a next action', accurate whether or not history exists, because it distinguishes the count from the cause. Live on a two-row history.json whose rows both have an empty next: discover printed 'No history yet — run a seam and the domain map appears.' while history --domains printed 'history (no rows with a next action)'. The fix branches on whether hist is non-empty inside the not-ranked block: history-with-no-next now prints 'No next actions recorded yet — note a next and the domain map appears.' and only a truly empty history keeps 'No history yet'. The --json face is untouched ({'domains': []} is accurate for both, matching history --domains --json), so this is a text-face correctness fix that brings discover's empty message to parity with its sibling",
+     "default": True},
 )
 
 def _resolve_path(payload, path):
@@ -10160,7 +10163,18 @@ def mode_discover(json_flag=False, format_path=None):
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
     if not ranked:
-        print("No history yet — run a seam and the domain map appears.")
+        # r280: distinguish "no history" from "history exists but no row
+        # carries a next action". discover's ranking is empty in BOTH
+        # cases, but the single message "No history yet" is FALSE the
+        # moment any seam has been recorded -- a host reads it as
+        # "nothing has happened" and re-runs work that already ran. The
+        # sibling ``history --domains`` never made this claim: its empty
+        # face says "no rows with a next action". Mirror that split so
+        # the two reflections agree on what an empty domain map means.
+        if hist:
+            print("No next actions recorded yet — note a next and the domain map appears.")
+        else:
+            print("No history yet — run a seam and the domain map appears.")
         return 0
     print("── mindseam ─ discover")
     for d in ranked:

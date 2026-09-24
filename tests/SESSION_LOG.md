@@ -7611,6 +7611,49 @@ No pre-identified r280 carrier is named. r280 must probe a fresh live defect.
 Suite after r279: 2919 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
 
+### Round 280 (test r280)
+
+Live probe on `discover`. `discover` ranks the domain prefix of every recorded
+next action, so its ranking is empty in TWO different states: a truly empty
+`history.json`, and a history that HAS recorded seams but no row carries a next
+action to rank. The empty-ranking text face printed one message for both —
+"No history yet — run a seam and the domain map appears." — which is a FALSE
+statement in the second state: the session HAS history, so a host reading
+"No history yet" concludes nothing has happened and may re-run work that
+already ran. The sibling `history --domains` never made this claim — its empty
+face says "no rows with a next action", accurate whether or not history exists,
+because it distinguishes the empty COUNT from the CAUSE.
+
+Live before the fix: a `history.json` of two rows each with an empty `next`
+made `discover` print "No history yet — run a seam and the domain map appears."
+while `history --domains` on the same ledger printed
+"── mindseam ─ history (no rows with a next action)".
+
+Fix branches on whether `hist` is non-empty inside the not-ranked block: a
+history with rows but no next now prints "No next actions recorded yet — note a
+next and the domain map appears.", and only a truly empty history (or a missing
+`history.json`) keeps "No history yet — run a seam and the domain map appears."
+The `--json` face is untouched — `{"domains": []}` is accurate for both empty
+states, matching `history --domains --json` — so this is a text-face parity
+fix, not a machine-face change. A history with a real domain still ranks and
+suggests it, unaffected.
+
+Pins moved the usual way: r175 recent count 100 -> 101, r200 empty-window
+bracket r280 -> r281 (r280 is now the highest catalog entry), and r279's
+exact `max == 279` head retired to `>= 279` (`test_r279_is_the_highest_round`
+`>= 279`, `test_catalog_grew_to_130` `>= 130`, `test_recent_window_is_100`
+`>= 100`).
+
+Catalog entry discover-empty-message-distinguishes-no-history (since r280);
+import-verified the catalog grew to len 131, since>=170 count 101, max since
+280, module loads.
+
+No pre-identified r281 carrier is named. r281 must probe a fresh live defect.
+
+Suite after r280: 2932 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
 
 
 
