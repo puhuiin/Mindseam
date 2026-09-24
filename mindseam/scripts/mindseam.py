@@ -3646,6 +3646,26 @@ def _bytes_noun(count):
     return "%d byte%s" % (count, "" if count == 1 else "s")
 
 
+def _entries_noun(count):
+    """Render a history-row count with a correctly-pluralized noun.
+
+    r287: "entry" is an IRREGULAR plural (entry -> entries, not a
+    bare ``+s``), so the r285 ``_bytes_noun`` trick of appending
+    ``"s"`` cannot spell it. Two human faces project the SAME
+    quantity ``len(hist)`` as a bare "N entries" — the ``history``
+    header ("── mindseam ─ history (N entries...)") and the ``info``
+    report ("History: N entries") — and both hardcoded the plural
+    stem, so a one-row history read "1 entries" on both. Because the
+    two faces render one value they must agree by construction (the
+    r254/r259 enumerate-every-projector discipline): route both
+    through this one chokepoint. "0 entries" and every count >= 2
+    stay byte-identical; only exactly 1 becomes "1 entry". The
+    ``--json`` faces expose the raw integer ``history_count`` with no
+    noun and are untouched.
+    """
+    return "%d entr%s" % (count, "y" if count == 1 else "ies")
+
+
 def _humanize_bytes(size_bytes):
     """Render a file size in the most natural unit, the way
     ``ls -lh`` / ``du -h`` / ``free -m`` do. The renderer picks
@@ -8269,7 +8289,7 @@ def mode_history(args):
         if msg:
             print("  msg:      %s" % msg)
         return 0
-    label = "── mindseam ─ history (%d entries" % len(hist)
+    label = "── mindseam ─ history (" + _entries_noun(len(hist))
     if since_seconds is not None and since_seconds >= 0:
         label += ", last %d s" % since_seconds
     if grep_text:
@@ -9046,6 +9066,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "humanize-bytes-unit-promotion", "since": "r286",
      "summary": "_humanize_bytes scales a file size through a byte/KB/MB/GB ladder and is the size word behind info --memory. It picked each rung by comparing the raw float to 1024 (if size_kb < 1024, if size_mb < 1024) but printed the value with %.1f, one decimal. A size in the top sliver of a rung — size_kb in [1023.95, 1024) — is below 1024 as a raw float yet rounds up to the string '1024.0', so the guard kept the KB rung and the surface printed '1024.0 KB' for a size ls -lh would promote to '1.0 MB'; the same dead zone one rung up printed '1024.0 MB' instead of '1.0 GB'. Live before-fix: a single ~1 MB blob (1048540 bytes) in .mindseam made info --memory print 'size: 1024.0 KB (1048540 bytes)' and info --memory --json carry 'human': '1024.0 KB'. This is the units-ladder cousin of the r284 second-ladder handoff bug: there the guard and its branch used different divisors, here the guard tests the raw float but the branch prints a rounded one. The fix chooses each rung by the value the reader actually sees — float('%.1f' % value) < 1024.0, the exact number the branch would print, the ls -lh promotion rule — so the displayed number is always < 1024 of its unit, only each rung's [1023.95, 1024) dead zone changes, and every other size (including the r285 sub-1024 byte rung and exact-unit values like 1024->1.0 KB) stays byte-identical. The --json face's raw bytes integer is untouched",
+     "default": True},
+    {"id": "entries-noun-irregular-plural", "since": "r287",
+     "summary": "the history-row count is projected as a bare 'N entries' on two human faces that read the SAME quantity len(hist): the history header ('── mindseam ─ history (N entries...)') and the info report ('History: N entries'). 'entry' pluralizes irregularly (entry->entries, not a bare +s), so the r285 _bytes_noun 'append s' spelling cannot render it and both sites hardcoded the plural stem 'entries'. Live before-fix: a fresh workspace with one seam made info print 'History: 1 entries' and history print '── mindseam ─ history (1 entries)', and history --limit 1 over a longer log printed the same wrong singular header. This is the singular/plural family of r281 history --domains, r282 history --dedup, r283 history --span and r285 bytes, but with the first IRREGULAR plural. Because the two faces render one value they must agree by construction (the r254/r259 enumerate-every-projector discipline), so both route through one chokepoint _entries_noun(count) returning '%d entr' + ('y' if count == 1 else 'ies'); '0 entries' and every count >= 2 stay byte-identical, only exactly 1 becomes '1 entry'. The --json faces expose the raw integer history_count with no noun and are untouched",
      "default": True},
 )
 
@@ -9895,7 +9918,7 @@ def mode_info(book, json_flag=False, warnings_only=False,
     print("  Open:     %d" % payload["ledger"]["open_count"])
     print("  Next:     %s" % (_mark_untrusted(nxt) or "(not set)"))
     print()
-    print("History: %d entries" % len(hist))
+    print("History: %s" % _entries_noun(len(hist)))
     if last_seam_t is None:
         print("Last seam: never")
     else:

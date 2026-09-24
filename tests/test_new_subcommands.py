@@ -92,7 +92,9 @@ class NewSubcommandTests(unittest.TestCase):
         result = self._run("info")
         self.assertEqual(result.returncode, 0)
         # seam appends one history entry; earlier note calls do not write history.
-        self.assertIn("History: 1 entries", result.stdout)
+        # r287: a single history row reads "1 entry" (irregular singular),
+        # not "1 entries".
+        self.assertIn("History: 1 entry", result.stdout)
 
     def test_info_json_is_valid(self):
         self._run("note", "--goal", "g", "--next", "dom: task")

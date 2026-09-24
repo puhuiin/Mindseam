@@ -7948,5 +7948,57 @@ Suite after r286: 3035 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
 
 
+### Round 287 (test r287)
+
+The history-row count is projected as a bare "N entries" on two human faces
+that read the SAME quantity `len(hist)`: the `history` header
+("── mindseam ─ history (N entries...)", mindseam.py:8272) and the `info`
+report ("History: N entries", mindseam.py:9898). "entry" pluralizes
+irregularly (entry -> entries, not a bare `+s`), so the r285 `_bytes_noun`
+"append s" spelling cannot render it, and both sites hardcoded the plural
+stem "entries".
+
+Live before-fix (fresh workspace, one `seam`): `info` printed
+"History: 1 entries" and `history` printed
+"── mindseam ─ history (1 entries)"; `history --limit 1` over a three-row
+log printed the same wrong singular header (`--limit` narrows `hist` before
+the header is built).
+
+This is the singular/plural family of the r281 `history --domains`, r282
+`history --dedup`, r283 `history --span` and r285 bytes headers, but with
+the first IRREGULAR plural — the +s trick spells "byte"/"bytes" but not
+"entry"/"entries". Because the two faces render one value they must agree
+by construction (the r254/r259 enumerate-every-projector discipline), so
+both route through one chokepoint `_entries_noun(count)` (mindseam.py:3649,
+beside r285's `_bytes_noun`) returning `"%d entr" + ("y" if count == 1 else
+"ies")`. "0 entries" (documented empty history) and every count >= 2 stay
+byte-identical; only exactly 1 becomes "1 entry". The `--json` faces expose
+the raw integer `history_count` with no noun and are untouched. Live
+after-fix: the same one-seam workspace prints "History: 1 entry" and
+"── mindseam ─ history (1 entry)".
+
+New test file tests/test_r287_entries_noun_irregular_plural.py (18 tests, 6
+classes): EntriesNounHelperTests pins 0->"0 entries", 1->"1 entry",
+2->"2 entries", a many-count sweep, and that across 0..199 only the count 1
+reads singular; HistoryHeaderPluralTests and InfoHistoryLinePluralTests drive
+the live `history` and `info` faces at zero/one/two rows plus `--limit 1`
+over a longer log; FacesAgreeTests pins the two faces never disagree about
+the noun for one workspace; JsonFaceUntouchedTests pins `history_count`
+stays a raw integer with no English noun in the JSON; CatalogTests pins the
+r287 entry. Two pre-existing tests that pinned the bug were corrected:
+test_new_subcommands.py ("History: 1 entries" -> "History: 1 entry") and
+test_history_subcommand_baseline.py ("(1 entries)" -> "(1 entry)").
+
+Pins: r175 recent-count 107 -> 108; r200 empty-window bracket
+`--index-since r287 --index-until r287` -> r288/r288; r286's three exact head
+pins retired to `>=` floors (max >= 286, len >= 137, recent >= 107).
+Catalog entry entries-noun-irregular-plural (since r287); import-verified the
+catalog grew to len 138, since>=170 count 108, max since 287, module loads and
+`_resolve_path` is intact.
+
+Suite after r287: 3053 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
 
 
