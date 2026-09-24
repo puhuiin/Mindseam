@@ -5166,7 +5166,19 @@ def detect_ledger_stagnation(hist, book):
     if len(hist) < LEDGER_STALE_SEAMS:
         return []
     if hist[-LEDGER_STALE_SEAMS].get("verified", 0) == hist[-1].get("verified", 0):
-        return ["%d core item(s) have gone unverified across %d seams." % (stale, LEDGER_STALE_SEAMS)]
+        # r288: this fact was the one count-render in the tool using the
+        # "(s)" lazy plural — "%d core item(s) have gone" — and the only
+        # one whose VERB also disagreed at exactly one item: "1 core
+        # item(s) have gone" read with a plural verb for a single subject.
+        # Route the noun through the same "item%s" idiom every sibling
+        # health fact uses and agree the verb, so a lone stale item reads
+        # "1 core item has gone …" while two or more keep "N core items
+        # have gone …". "gone unverified" (the remediation key at line
+        # 6143) is unchanged, so the advice mapping still fires.
+        noun = "item" if stale == 1 else "items"
+        verb = "has" if stale == 1 else "have"
+        return ["%d core %s %s gone unverified across %d seams." % (
+            stale, noun, verb, LEDGER_STALE_SEAMS)]
     return []
 
 
@@ -9069,6 +9081,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "entries-noun-irregular-plural", "since": "r287",
      "summary": "the history-row count is projected as a bare 'N entries' on two human faces that read the SAME quantity len(hist): the history header ('── mindseam ─ history (N entries...)') and the info report ('History: N entries'). 'entry' pluralizes irregularly (entry->entries, not a bare +s), so the r285 _bytes_noun 'append s' spelling cannot render it and both sites hardcoded the plural stem 'entries'. Live before-fix: a fresh workspace with one seam made info print 'History: 1 entries' and history print '── mindseam ─ history (1 entries)', and history --limit 1 over a longer log printed the same wrong singular header. This is the singular/plural family of r281 history --domains, r282 history --dedup, r283 history --span and r285 bytes, but with the first IRREGULAR plural. Because the two faces render one value they must agree by construction (the r254/r259 enumerate-every-projector discipline), so both route through one chokepoint _entries_noun(count) returning '%d entr' + ('y' if count == 1 else 'ies'); '0 entries' and every count >= 2 stay byte-identical, only exactly 1 becomes '1 entry'. The --json faces expose the raw integer history_count with no noun and are untouched",
+     "default": True},
+    {"id": "ledger-stagnation-agrees-noun-and-verb", "since": "r288",
+     "summary": "the seam ledger-stagnation fact (detect_ledger_stagnation, surfaced by observations() on every seam) rendered a stale-core-item count as '%d core item(s) have gone unverified across %d seams' — the ONLY count-render in the tool still using the '(s)' lazy plural, and the only one whose VERB also disagreed at exactly one item. Live before-fix on a seam over a workspace with one stale Core item and a flat 8-seam verified window: the fact read '1 core item(s) have gone unverified across 8 seams' — a plural verb ('have') and the parenthetical '(s)' for a single subject, where every sibling health fact and the codebase idiom pluralize cleanly with 'item%s'. This is the singular/plural family of r281-r287, but the FIRST to fix subject-verb agreement (the verb, not only the noun): the noun routes through the same 'item' vs 'items' split every sibling uses and the verb agrees ('has' for one, 'have' for two or more), so a lone stale item reads '1 core item has gone unverified across 8 seams' while two or more read '2 core items have gone ...'. The 'across N seams' clause is unchanged (LEDGER_STALE_SEAMS is the constant 8, never singular) and the 'gone unverified' remediation key (mindseam.py:6143) survives verbatim, so the advice mapping still fires. The --json seam payload carries the same fact list; a host reads the corrected sentence there too",
      "default": True},
 )
 

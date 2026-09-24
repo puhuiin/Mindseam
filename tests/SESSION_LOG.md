@@ -8002,3 +8002,51 @@ verify_suite 9/9, run bare, exit 0.
 
 
 
+### Round 288 (test r288)
+
+The seam ledger-stagnation observation (detect_ledger_stagnation, mindseam.py:5156,
+surfaced by observations() on every seam) rendered its stale-core-item count
+as "%d core item(s) have gone unverified across %d seams" — the ONLY count-render
+left in the tool still using the "(s)" lazy plural, and the only one whose VERB
+also disagreed at exactly one item: "1 core item(s) have gone" reads a plural
+verb for a single subject.
+
+Live before-fix (a workspace with one stale Core item and a flat 8-seam
+verified window — one core note, no Verified item, nine flat seams): the seam
+fact read "· 1 core item(s) have gone unverified across 8 seams." — a plural
+verb and the parenthetical "(s)" for a single subject, where every sibling
+health fact and the codebase idiom pluralize cleanly.
+
+This is the singular/plural family of r281 history --domains, r282
+history --dedup, r283 history --span, r285 bytes and r287 entries, but the
+FIRST to fix subject-verb agreement — the verb, not only the noun. The noun
+routes through the same "item" vs "items" split every sibling health fact
+uses and the verb agrees ("has" for one, "have" for two or more), so a lone
+stale item reads "1 core item has gone unverified across 8 seams" while two
+or more read "2 core items have gone ...". The "across N seams" clause is
+unchanged (LEDGER_STALE_SEAMS is the constant 8, never singular) and the
+"gone unverified" remediation key (mindseam.py:6143) survives verbatim, so
+the advice mapping still fires. The --json seam payload carries the same
+corrected sentence in its fact list; a host reads it there too.
+
+New test file tests/test_r288_ledger_stagnation_agreement.py (14 tests, 4
+classes): StagnationHelperTests pins the detector output at stale 1
+(singular "item"/"has") vs stale 2 (plural "items"/"have"), that "item(s)"
+never appears across counts 1..5, that the verb tracks the noun, and that the
+"across 8 seams" clause is always plural; SeamSurfaceTests drives the live
+seam --dry-run text face and seam --dry-run --json payload at one vs two
+stale core items and pins the remediation line still fires on the surviving
+"gone unverified" substring; FacesAgreeTests pins the text and JSON faces
+carry the identical corrected sentence; CatalogTests pins the r288 entry
+(max 288, len 139, recent 109, id present, default true).
+
+Pins: r175 recent-count 108 -> 109; r200 empty-window bracket
+`--index-since r288 --index-until r288` -> r289/r289; r287's three exact head
+pins retired to `>=` floors (max >= 287, len >= 138, recent >= 108).
+Catalog entry ledger-stagnation-agrees-noun-and-verb (since r288);
+import-verified the catalog grew to len 139, since>=170 count 109, max since
+288, module loads and _resolve_path is intact.
+
+Suite after r288: 3067 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
