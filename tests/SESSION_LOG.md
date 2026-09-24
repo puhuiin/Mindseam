@@ -8102,3 +8102,61 @@ loads.
 Suite after r289: 3082 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
 
+### Round 290 (test r290)
+
+r214 gave the destructive history --keep rotation an honesty branch: when
+atomic_write_text cannot persist the truncated history, the run keeps the
+full in-memory list and warns on stderr rather than presenting a truncated
+view it never wrote (mindseam.py:7661-7665). The warning's second line
+hardcoded the plural stem "  the on-disk history is unchanged; this run
+reports the full %d rows." % len(hist), so a one-row history whose rotation
+write failed read "reports the full 1 rows." — a singular/plural hole on a
+stderr WARNING attached to an I/O-failure branch, not a happy-path human or
+machine face.
+
+Reachability is deterministic, no timing involved: a one-row ledger and
+history --keep 0 satisfy the len(hist) > keep_n guard (1 > 0), so the
+rotation write is attempted; with atomic_write_text monkeypatched to fail
+on history.json (the r214 mechanism) the run falls into the honesty branch
+with len(hist) == 1.
+
+Live before-fix (temp workspace, single-row history.json, failing
+atomic_write_text):
+  history --keep 0 --count -> stdout "1", stderr last line
+    "  the on-disk history is unchanged; this run reports the full 1 rows."
+The buggy singular. A 5-row / --keep 2 failure correctly read "5 rows",
+proving the stem was plural-only.
+
+This is the singular/plural family of r281 history --domains, r282
+history --dedup, r283 history --span, r285 bytes, r287 entries, r288
+ledger-stagnation and r289 the from-stdin JSON warning — now on a stderr
+WARNING on a write-failure branch, showing the family is not confined to
+normal-path projectors: any face that renders a count, including
+diagnostics on I/O-failure paths, must agree with it. The fix pluralizes
+the noun on the same count — "reports the full %d row%s." with "" if
+len(hist) == 1 else "s" — matching the humanize idiom the siblings use
+(r283-r287). After-fix a one-row failure reads "reports the full 1 row.";
+2+ rows stay "N rows" byte-for-byte. The r214 honesty contract (keep the
+full list, report the full count on a failed write, refuse negative --keep
+with exit 2) is unchanged.
+
+New test file tests/test_r290_keep_rotation_warning_noun.py (12 tests, 3
+classes): KeepRotationWarningNounTests pins the failed-rotation warning at
+"reports the full 1 row." for one row (with no "1 rows" substring) and at
+"2 rows"/"10 rows" for the plural cases, plus the r214 WARNING header still
+present; KeepRotationHonestyPreservedTests re-pins the r214 contract under
+the fix (a failed --keep 3 on 10 rows still --counts 10, negative --keep
+still exits 2, the on-disk single row is genuinely untouched after a failed
+rotation); CatalogPinTests pins the r290 entry (max 290, len 141, recent
+111, id present, default true).
+
+Pins: r175 recent-count 110 -> 111; r200 empty-window bracket
+`--index-since r290 --index-until r290` -> r291/r291; r289's three exact
+head pins retired to `>=` floors (max >= 289, len >= 140, recent >= 110).
+Catalog entry keep-rotation-warning-agrees-noun (since r290); import-verified
+the catalog grew to len 141, since>=170 count 111, max since 290, module
+loads.
+
+Suite after r290: 3094 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+

@@ -206,13 +206,14 @@ class IndexSinceContractTests(unittest.TestCase):
         # humanize-bytes-unit-promotion, r286,
         # entries-noun-irregular-plural, r287,
         # ledger-stagnation-agrees-noun-and-verb, r288,
-        # from-stdin-warning-agrees-noun, r289). The
+        # from-stdin-warning-agrees-noun, r289,
+        # keep-rotation-warning-agrees-noun, r290). The
         # count is stable
         # because the catalog is static; it moves only when a
         # new round lands, and the move is a deliberate pin
         # update, the way the r167 catalog count moved when
         # r169 landed.
-        self.assertEqual(len(recent), 110)
+        self.assertEqual(len(recent), 111)
         for line in recent:
             self.assertIn(line, full)
 

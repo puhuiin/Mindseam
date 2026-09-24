@@ -7661,7 +7661,8 @@ def mode_history(args):
             print("WARNING: could not rotate history.json — "
                   + problem, file=sys.stderr)
             print("  the on-disk history is unchanged; this run "
-                  "reports the full %d rows." % len(hist),
+                  "reports the full %d row%s." % (
+                      len(hist), "" if len(hist) == 1 else "s"),
                   file=sys.stderr)
         else:
             hist = truncated
@@ -9098,6 +9099,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "from-stdin-warning-agrees-noun", "since": "r289",
      "summary": "the seam --json warnings face rendered the from-stdin next-action count as a hardcoded plural 'from-stdin: %d next actions %s' while its text sibling (mode_seam's 'From stdin: %d next action%s recorded.') already pluralizes on the count, so exactly one piped next action made the two faces render the SAME quantity len(extra_nexts) two ways: JSON 'from-stdin: 1 next actions recorded', text 'From stdin: 1 next action recorded.' (and under --dry-run the JSON warning read '1 next actions would be recorded'). This is the singular/plural family of r281-r288, on the JSON warnings surface: the machine face and the human face project one value so they must agree by construction (r254/r259 enumerate-every-projector), so the JSON warning now pluralizes the noun on the same count ('' if len(extra_nexts) == 1 else 's'), keeping the r203 dry-run tense branch ('would be recorded'/'recorded'). Only exactly 1 becomes '1 next action'; 0 and >=2 stay 'next actions', and the dry-run gate/tense contract from r203/r183 is unchanged",
+     "default": True},
+    {"id": "keep-rotation-warning-agrees-noun", "since": "r290",
+     "summary": "the history --keep failed-rotation warning (r214's honesty branch: when atomic_write_text can't persist the truncated history, the run keeps the full in-memory list and says so on stderr) rendered its row count with a hardcoded plural stem — 'this run reports the full %d rows.' % len(hist) — so a single-row history whose rotation write fails printed 'reports the full 1 rows.' A one-row ledger reaches it deterministically: 'history --keep 0' with 1 row on disk satisfies the len(hist) > keep_n guard (1 > 0), attempts the write, fails, and falls into the warning with len(hist) == 1. This is the singular/plural family of r281-r289 on yet another surface — a stderr WARNING attached to a write-failure branch, not a normal-path human or machine face — confirming the family is not confined to happy-path projectors: any face that renders a count, including diagnostic warnings on I/O-failure paths, must agree with it. The warning now pluralizes the noun on the same count ('' if len(hist) == 1 else 's'), matching the humanize idiom (r283-r287); the r214 honesty contract (keep the full list, report the full count on a failed write, refuse negative --keep with exit 2) is unchanged",
      "default": True},
 )
 
