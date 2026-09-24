@@ -7533,6 +7533,41 @@ No pre-identified r278 carrier is named. r278 must probe a fresh live defect.
 Suite after r277: 2889 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
 
+### Round 278 (test r278)
+
+Live probe on `history --empty`. r275 relocated head/tail truncation to run
+AFTER every content filter, so a positional selector picks from the rows the
+filters survived. But `--empty` is itself a content filter — it keeps only the
+blank-`next` rows, the sibling of `--grep`/`--exclude`/`--since` — and its
+predicate still ran in the RENDERER block below the relocated truncation. So
+`history --empty --tail 2` sliced the two newest rows of the raw window first,
+then kept the empties among them. On a window whose two newest rows both carry
+a `next`, the live probe returned "no empty-next rows" at exit 0 — the exact
+r275 lie (an empty result for a query that had matches), surfacing through
+`--empty` in a direction no test covered.
+
+Fix lifts the empty predicate into the filter chain right after
+`--grep`/`--exclude` (before the r275 truncation), so `--empty --tail 2`
+filters to the blank-`next` rows and then keeps the two newest of THOSE
+(filter-then-truncate, the `git log --grep X -n 2` order). The renderer block
+no longer re-filters — it owns only the output, and its `--json` face still
+carries the r277 untrusted map over the correct surviving rows.
+
+Pins moved the usual way: r175 recent count 98 -> 99, r200 empty-window
+bracket r278 -> r279 (r278 is now the highest catalog entry), and r277's
+exact `max == 277` head retired to `>= 277` (`test_r277_is_the_highest_round`
+`>= 277`, `test_catalog_grew_to_128` `>= 128`, `test_recent_window_is_98`
+`>= 98`).
+
+Catalog entry history-empty-filter-before-truncation (since r278);
+import-verified the catalog grew to len 129, since>=170 count 99, max since
+278, module loads.
+
+No pre-identified r279 carrier is named. r279 must probe a fresh live defect.
+
+Suite after r278: 2906 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
 
 
 
