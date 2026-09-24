@@ -7419,6 +7419,67 @@ Suite after r275: 2850 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
 
 
+### Round 276 (test r276)
+
+r275 fixed operator ORDER on `history`'s pipeline — the positional head/tail
+truncation ran on the wrong side of the filters. r276 stays in `mode_history`
+but on the LOCATOR family (r207 `--row-id` vs `--first-match`, r208
+truncation-selector exclusivity, and the sibling `audit --at` guards r188/r201):
+the `--row-id N` detail branch silently indexed the NARROWED slice instead of
+the full log it documents.
+
+`history --row-id N` names a 1-based index into the log, and its documented
+contract (r207) is that it indexes the FULL history (1..N). But the row-id
+detail branch (mindseam.py:~7679, indexing `hist[n-1]` and reporting range
+`1..len(hist)`) runs AFTER every narrowing and reordering step in the pipeline —
+`--filter`, the `--since`/`--until` window, `--grep`/`--exclude`, the r275
+head/tail truncation, and `--reverse`. So `--row-id` composed with any of those
+addressed a row in the reshaped `hist`, not the row the host counted in the log.
+
+Live before the fix on a six-row `history.json` (three old rows DONE, three new
+rows OPEN): `--row-id 2 --grep new` returned the *first new* row (row 2 of the
+grep-narrowed slice) rather than refusing or indexing the full log; `--row-id 2
+--since 3600`, `--row-id 2 --head 1`, `--row-id 2 --tail 1`, `--row-id 2
+--reverse` each indexed a different row than seam 2 of the full log; worst,
+`--row-id 2 --keep 1` rotated the ledger to one row FIRST (a destructive write)
+and then indexed the survivor. This is the class the sibling `audit --at`
+locator already refuses: r188 refuses `--at` with `--since`/`--until` (the
+at-branch slices and never applied the window), r201 refuses `--at` with
+`--baseline-write` (a sliced write under-gates later audits). A 1-based index
+composed with anything that changes which rows exist or their order silently
+addresses a different row than the operator meant.
+
+Fix: a guard in `mode_history` inserted after the r208 truncation-selector
+exclusivity `return 2` (~7462) and BEFORE `keep_n = getattr(args, "keep", None)`
+— so it fires ahead of the destructive `--keep` rotation. If `--row-id` is set
+alongside any of `--filter`/`--since`/`--until`/`--grep`/`--exclude`/`--head`/
+`--tail`/`--limit`/`--reverse`/`--keep`, the call is refused with exit 2 naming
+the clash (`CANNOT: --row-id N composes with none of …`) plus a second line
+explaining the index would silently address a different row and to run the
+narrowing query first, then `--row-id` its output.
+
+Live-confirmed after the fix: every one of the ten narrowing/reordering flags
+refuses `--row-id 2` with exit 2 naming the clash; `--row-id 2 --keep 1` refuses
+WITHOUT rotating (the file stays six rows); `--row-id 2` alone still returns
+`next: "a: old one"` (row 2 of the full log); `--row-id 2` with each renderer
+(`--json`/`--human`/`--quiet`/`--count`) still composes at exit 0 because those
+only reshape the one row it names; the narrowing flags alone are unchanged.
+
+Pins moved the usual way: r175 recent count 96 -> 97, r200 empty-window bracket
+r276 -> r277 (r276 is now the highest catalog entry), and r275's exact
+`max == 275` head retired to `>= 275` (`test_r275_is_the_highest_round`
+`>= 275`, `test_catalog_grew_to_126` `>= 126`, `test_recent_window_is_96`
+`>= 96`).
+
+Catalog entry history-row-id-refuses-narrowing (since r276); import-verified the
+catalog grew to len 127, since>=170 count 97, max since 276, module loads.
+
+No pre-identified r277 carrier is named. r277 must probe a fresh live defect.
+
+Suite after r276: 2874 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
 
 
 

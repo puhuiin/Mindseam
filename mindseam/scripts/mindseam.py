@@ -7460,6 +7460,44 @@ def mode_history(args):
               "the front and --tail from the end. A host that needs "
               "both ends runs two invocations.", file=sys.stderr)
         return 2
+    # r276: --row-id names a 1-based index into the log, and its
+    # documented contract (r207) is that it indexes the FULL history
+    # (1..N). But the row-id detail branch runs AFTER every narrowing
+    # and reordering step below — --filter, the --since/--until window,
+    # --grep/--exclude, the r275 head/tail truncation, and --reverse —
+    # so ``history --row-id 2 --grep new`` returned row 2 of the grep
+    # survivors while the JSON still reported ``row_id: 2``, and
+    # ``history --row-id 5 --grep new`` reported "out of range (1..3)"
+    # against the filtered count, not the real N. The index silently
+    # addressed a different row set than the one a host counts from the
+    # docs — the r188/r200/r201/r207 silent-wrong-at-exit-0 family, here
+    # on the row-id locator. Refuse the combination with exit 2 naming
+    # the clash, before the destructive --keep rotation, the way --at
+    # refuses the window (r188). The renderers (--json / --human /
+    # --quiet / --count) still compose: they present the located row,
+    # they do not move it (r197's precedence pin).
+    if getattr(args, "row_id", None) is not None:
+        narrowing = [name for name, picked in (
+            ("--filter", bool(getattr(args, "filter", None))),
+            ("--since", getattr(args, "since", None) is not None),
+            ("--until", getattr(args, "until", None) is not None),
+            ("--grep", bool(getattr(args, "grep", None))),
+            ("--exclude", bool(getattr(args, "exclude", None))),
+            ("--head", getattr(args, "head", None) is not None),
+            ("--tail", getattr(args, "tail", None) is not None),
+            ("--limit", getattr(args, "limit", None) is not None),
+            ("--reverse", bool(getattr(args, "reverse", False))),
+            ("--keep", getattr(args, "keep", None) is not None),
+        ) if picked]
+        if narrowing:
+            print("CANNOT: --row-id %s composes with none of %s."
+                  % (args.row_id, ", ".join(narrowing)), file=sys.stderr)
+            print("  --row-id indexes the whole log (1..N); a filter, "
+                  "window, truncation, --reverse or --keep changes which "
+                  "rows exist or their order, so the index would silently "
+                  "address a different row. Run the narrowing query, then "
+                  "--row-id its output.", file=sys.stderr)
+            return 2
     keep_n = getattr(args, "keep", None)
     # r214: refuse a negative --keep the way audit --since and
     # note --extra-steps refuse negatives. The old
@@ -8868,6 +8906,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "history-truncation-after-filters", "since": "r275",
      "summary": "r274 closed the last renderer-exclusivity gap; r275 returns to the slicing/order-correctness family (r272 zero-width tail, r273 order-dependent span) with an operator-ORDER bug on history's own pipeline. mode_history composes filters and selectors in a fixed sequence: --keep rotation, --filter key=value, then head/tail truncation, then --since/--until window, then --grep/--exclude, then --reverse. The head/tail truncation ran ABOVE the since/until and grep/exclude filters, so a positional selector sliced the RAW history and the filters then dropped whatever the slice happened to grab. history --head 2 --since 30m borrows git log -n 2 --since / journalctl --since -n 2, where the host means 'the first two rows WITHIN the window'; instead --head took the two OLDEST rows of the full log (almost always outside a recent window) and --since dropped them, returning an empty result at exit 0 for a query that had matching rows. Live on a six-row history.json (three old rows outside a 1h window, three recent inside): --head 2 --since 3600 -> [] (should be the two oldest recent rows), --tail 2 --grep old -> [] (should be the last two 'old' matches), --head 2 --grep new -> [] — each a silent empty at exit 0. The tell it was an accidental split and not a design choice: --filter (also a filter) already ran BEFORE truncation and composed correctly; only since/until and grep/exclude were left on the wrong side. The fix moves the head/tail block to run AFTER --filter, --since/--until and --grep/--exclude and BEFORE --reverse, so every filter narrows the set first, then the positional selector picks from the survivors, then --reverse flips the presentation — the git log --grep X -n 2 order. --head/--tail alone (the r208/r272 pins: head 2 -> first two, tail 2 -> last two, tail 0 -> empty, tail 2 --reverse) are byte-identical because with no filter the narrowed set is the full set",
+     "default": True},
+    {"id": "history-row-id-refuses-narrowing", "since": "r276",
+     "summary": "r275 fixed the ORDER of history's filter/selector pipeline; r276 fixes the CONTRACT of the --row-id locator that now sits at the end of it. --row-id N returns the single row at the 1-based index N, and its r207 documentation promises it 'indexes the FULL history (1..N)'. But the row-id detail branch (7668) runs AFTER every narrowing and reordering step — --filter, the --since/--until window, --grep/--exclude, the r275-relocated head/tail truncation, and --reverse — so it silently indexed the NARROWED, possibly REORDERED slice instead of the full log. Live on a six-row ledger (three old DONE rows, three recent OPEN): history --row-id 2 --grep new returned 'a: new one' (row 2 of the three grep survivors) while the JSON still reported row_id: 2 — a host reading the docs expects 'a: old one' (row 2 of the full six-row log); history --row-id 5 --grep new reported 'out of range (1..3)' against the filtered count, not the real N; --since 3600, --head 3, --tail 3, --filter marker=DONE, --exclude old and --reverse each silently changed which physical row N addressed, all at exit 0. This is the sibling of the audit --at locator, which REFUSES to compose with --since/--until (r188) and --baseline-write (r201) for exactly this reason — the silent-wrong-at-exit-0 family (r188/r200/r201/r207) on history's row-id. The fix adds a guard after the r208 truncation-exclusivity check and BEFORE the destructive --keep rotation: if --row-id is set alongside any of --filter/--since/--until/--grep/--exclude/--head/--tail/--limit/--reverse/--keep, refuse with exit 2 naming the clash (--row-id 2 --keep 1 refuses without rotating the file, verified 6 rows intact). The renderers (--json/--human/--quiet/--count) still compose because they present the located row without moving it (r197's before-every-render precedence pin), and --row-id 2 alone still returns 'a: old one' — row 2 of the whole log",
      "default": True},
 )
 
