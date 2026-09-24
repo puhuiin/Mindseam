@@ -8949,6 +8949,9 @@ _FEATURE_CATALOG = (
     {"id": "history-empty-filter-before-truncation", "since": "r278",
      "summary": "r275 moved history's head/tail truncation to run AFTER every content filter (--since/--until/--grep/--exclude/--filter), so a positional selector picks from the rows that SURVIVED the filters — the git log --grep X -n 2 / journalctl --since -n 2 order. But --empty is itself a content filter (keep rows whose next action is blank, the sibling of --grep/--exclude, as its own docstring says: 'a post-filter on the existing filter chain, so --grep, --since and the rest all narrow the candidate set before the empty check runs, the way --exclude does'), and its filter step lived in the renderer block BELOW the relocated truncation. So the empty predicate ran truncate-then-filter, the exact order r275 had just moved the other filters off of. Live on a five-row history.json (three empty-next rows at the old end, two with a next action at the new end): history --empty returned all three, but history --empty --tail 2 sliced the two NEWEST rows of the full window (both non-empty) and then kept the empties among them — 'no empty-next rows' at exit 0, the r275 lie (an empty result for a query that plainly had matches); --empty --head 2 looked right only because the empties happened to sit at the head, and flipped to the same lie once the non-empty rows were moved there. The fix lifts the empty predicate into the filter chain right after --grep/--exclude (before the r275 truncation), so head/tail slices the rows that survived the empty check: --empty --tail 2 now returns the last two of the three empty rows, --empty --head 2 the first two, order-invariant to where the empties sit; the renderer keeps only the output and its --json face still carries the r277 untrusted map over the correct surviving rows",
      "default": True},
+    {"id": "discover-counts-colonless-domains", "since": "r279",
+     "summary": "discover and history --domains are sibling read-only reflections that both rank the domain prefix of every recorded next action — discover's own docstring says 'count the domain prefix of every recorded next action'. But history --domains groups by nxt.split(':', 1)[0].strip().lower() with an empty prefix bucketed to '(none)' and drops only rows whose next is entirely blank (if not nxt: continue), whereas discover carried a stricter guard: 'if not nxt or \":\" not in nxt: continue', which silently dropped every next that had no colon. So a session that recorded bare actions ('refactor the loop') had those rows counted by history --domains yet invisible to discover — and suggested_next, the single next-action a host actually acts on, could name a colon'd domain while an equally- or more-visited colonless action never surfaced at all. Live on a four-row history.json (two 'build: ...' nexts, two identical 'refactor the loop' nexts with no colon): history --domains --json ranked {build:2, refactor the loop:2} but discover --json ranked only {build:2} and set suggested_next to 'build', omitting the equally-visited bare action. The fix removes the '\":\" not in nxt' clause and groups by nxt.split(':', 1)[0].strip().lower() or '(none)' — 'the prefix before the first colon' of a colonless string is the whole string — so the two sibling reflections now agree on which rows exist and discover's ranking (and its suggested_next) no longer omits bare next actions",
+     "default": True},
 )
 
 def _resolve_path(payload, path):
@@ -10119,16 +10122,26 @@ def mode_discover(json_flag=False, format_path=None):
     visits = {}
     for h in hist:
         nxt = _row_next(h)
-        if not nxt or ":" not in nxt:
+        if not nxt:
             continue
         # r224: lowercase the domain the way ``history --domains``
         # does. The old code kept the raw prefix, so ``Build`` /
         # ``build`` / ``BUILD`` counted as three domains (probe:
         # discover listed 3 entries for 3 casings of one domain;
         # history --domains already merged them into one).
-        domain = nxt.split(":", 1)[0].strip().lower()
-        if domain:
-            visits[domain] = visits.get(domain, 0) + 1
+        # r279: group by the SAME rule as ``history --domains`` --
+        # ``nxt.split(":", 1)[0]`` with an empty prefix bucketed to
+        # ``(none)``. The old ``":" not in nxt: continue`` guard
+        # silently dropped every next with no colon, so a session
+        # that recorded bare actions (``refactor the loop``) had
+        # those rows counted by ``history --domains`` yet invisible
+        # to ``discover`` -- and ``suggested_next``, the pass a host
+        # acts on, could name a colon'd domain while an equally- or
+        # more-visited bare action never surfaced. "The prefix before
+        # the first colon" of a colonless string is the whole string,
+        # so the two sibling reflections now agree on which rows exist.
+        domain = nxt.split(":", 1)[0].strip().lower() or "(none)"
+        visits[domain] = visits.get(domain, 0) + 1
     ranked = [
         {"name": name, "visits": count}
         for name, count in sorted(visits.items(),

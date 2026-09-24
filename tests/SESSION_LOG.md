@@ -7569,6 +7569,49 @@ Suite after r278: 2906 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
 
 
+### Round 279 (test r279)
+
+Live probe on `discover`. `discover` and `history --domains` are sibling
+read-only reflections that both rank the domain prefix of every recorded next
+action — discover's own docstring says "count the domain prefix of every
+recorded next action". `history --domains` groups by
+`nxt.split(":", 1)[0].strip().lower()` with an empty prefix bucketed to
+`(none)` and drops only rows whose next is entirely blank (`if not nxt:
+continue`). But `discover` carried a stricter guard — `if not nxt or ":" not
+in nxt: continue` — that silently dropped every next with NO colon. So a
+session that recorded bare actions (`refactor the loop`) had those rows counted
+by `history --domains` yet invisible to `discover`, and `suggested_next` — the
+single next action a host actually acts on — could name a colon'd domain while
+an equally- or more-visited colonless action never surfaced.
+
+Live on a four-row `history.json` (two `build:` nexts, two identical `refactor
+the loop` nexts): `history --domains --json` ranked `{build:2, refactor the
+loop:2}` while `discover --json` ranked only `{build:2}` and set
+`suggested_next` to `build`, omitting the equally-visited bare action.
+
+Fix removes the `":" not in nxt` clause and groups by
+`nxt.split(":", 1)[0].strip().lower() or "(none)"` — "the prefix before the
+first colon" of a colonless string is the whole string — so the two sibling
+reflections agree on which rows exist and discover's ranking (and its
+`suggested_next`) no longer omits bare next actions. A blank next is still
+dropped by both faces (the shared `if not nxt` guard); an empty-prefix next
+(`: ship`) buckets to `(none)` the way `history --domains` does.
+
+Pins moved the usual way: r175 recent count 99 -> 100, r200 empty-window
+bracket r279 -> r280 (r279 is now the highest catalog entry), and r278's
+exact `max == 278` head retired to `>= 278` (`test_r278_is_the_highest_round`
+`>= 278`, `test_catalog_grew_to_129` `>= 129`, `test_recent_window_is_99`
+`>= 99`).
+
+Catalog entry discover-counts-colonless-domains (since r279); import-verified
+the catalog grew to len 130, since>=170 count 100, max since 279, module loads.
+
+No pre-identified r280 carrier is named. r280 must probe a fresh live defect.
+
+Suite after r279: 2919 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
 
 
 

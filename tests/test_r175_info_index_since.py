@@ -195,13 +195,14 @@ class IndexSinceContractTests(unittest.TestCase):
         # history-truncation-after-filters, r275,
         # history-row-id-refuses-narrowing, r276,
         # history-dedup-empty-json-untrusted, r277,
-        # history-empty-filter-before-truncation, r278). The
+        # history-empty-filter-before-truncation, r278,
+        # discover-counts-colonless-domains, r279). The
         # count is stable
         # because the catalog is static; it moves only when a
         # new round lands, and the move is a deliberate pin
         # update, the way the r167 catalog count moved when
         # r169 landed.
-        self.assertEqual(len(recent), 99)
+        self.assertEqual(len(recent), 100)
         for line in recent:
             self.assertIn(line, full)
 
