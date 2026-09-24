@@ -3655,15 +3655,24 @@ def _humanize_bytes(size_bytes):
     also exposes the raw ``bytes`` count for hosts that need
     it. Returns the literal string ``"0 bytes"`` for an empty
     workspace, and ``"1 byte"`` (singular) for a one-byte one.
+
+    r286: the rung is chosen by the value the reader actually
+    sees, not the raw float. ``%.1f`` rounds to one decimal, so a
+    size in the top sliver of a unit (``size_kb`` in ``[1023.95,
+    1024)``) rounds up to the string ``"1024.0"`` — ``ls -lh``
+    promotes that to the next unit rather than print "1024.0 KB",
+    and so does this. Each guard tests ``float("%.1f" % value)``,
+    the exact number the branch would print, so the displayed
+    value stays ``< 1024`` of its unit.
     """
     if size_bytes < 1024:
         return _bytes_noun(size_bytes)
 
     size_kb = size_bytes / 1024.0
-    if size_kb < 1024:
+    if float("%.1f" % size_kb) < 1024.0:
         return "%.1f KB" % size_kb
     size_mb = size_kb / 1024.0
-    if size_mb < 1024:
+    if float("%.1f" % size_mb) < 1024.0:
         return "%.1f MB" % size_mb
     size_gb = size_mb / 1024.0
     return "%.1f GB" % size_gb
@@ -9034,6 +9043,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "humanize-bytes-singular-byte", "since": "r285",
      "summary": "_humanize_bytes scales a file size through a units ladder (byte, KB, MB, GB) and is the size word behind info --memory; the KB/MB/GB rungs are %.1f floats (plural-neutral the way ls -lh writes 1.0K), so the sub-1K byte rung is the only integer-rendered unit that can read a wrong singular. Three human surfaces print a raw byte count and all three hardcoded %d bytes: _humanize_bytes's sub-1K branch (the info --memory size word), the info --memory raw parenthetical (%d bytes), and the info --mtime Files per-artefact line %d bytes. Live before-fix: a one-byte .mindseam made info --memory print 'size: 1 byte (1 bytes)' — the ladder word already singular but the parenthetical still plural — and a one-byte skillbook.md made info --mtime print 'skillbook.md 1 bytes'. This is the same missing singular the r281 history --domains, r282 history --dedup and r283 history --span headers carry. The fix routes every raw byte render through one chokepoint _bytes_noun(count) that pluralizes the noun the same way (empty suffix when the count is exactly 1, s otherwise); '0 bytes' (documented empty workspace) and every count >= 2 stay byte-identical, only exactly 1 becomes '1 byte'. The --json faces expose the raw integer bytes/size with no noun and are untouched",
+     "default": True},
+    {"id": "humanize-bytes-unit-promotion", "since": "r286",
+     "summary": "_humanize_bytes scales a file size through a byte/KB/MB/GB ladder and is the size word behind info --memory. It picked each rung by comparing the raw float to 1024 (if size_kb < 1024, if size_mb < 1024) but printed the value with %.1f, one decimal. A size in the top sliver of a rung — size_kb in [1023.95, 1024) — is below 1024 as a raw float yet rounds up to the string '1024.0', so the guard kept the KB rung and the surface printed '1024.0 KB' for a size ls -lh would promote to '1.0 MB'; the same dead zone one rung up printed '1024.0 MB' instead of '1.0 GB'. Live before-fix: a single ~1 MB blob (1048540 bytes) in .mindseam made info --memory print 'size: 1024.0 KB (1048540 bytes)' and info --memory --json carry 'human': '1024.0 KB'. This is the units-ladder cousin of the r284 second-ladder handoff bug: there the guard and its branch used different divisors, here the guard tests the raw float but the branch prints a rounded one. The fix chooses each rung by the value the reader actually sees — float('%.1f' % value) < 1024.0, the exact number the branch would print, the ls -lh promotion rule — so the displayed number is always < 1024 of its unit, only each rung's [1023.95, 1024) dead zone changes, and every other size (including the r285 sub-1024 byte rung and exact-unit values like 1024->1.0 KB) stays byte-identical. The --json face's raw bytes integer is untouched",
      "default": True},
 )
 

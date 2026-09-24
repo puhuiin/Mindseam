@@ -217,7 +217,7 @@ the task workspace as the current directory.
 <python-command> <skill-root>/scripts/mindseam.py info --version
 <python-command> <skill-root>/scripts/mindseam.py info --human
 <python-command> <skill-root>/scripts/mindseam.py info --check
-<python-command> <skill-root>/scripts/mindseam.py info --memory                        # report workspace disk size in human units (like free -m / du -h); r285: the size word and its raw byte parenthetical read `1 byte` (singular) for a one-byte workspace, plural otherwise
+<python-command> <skill-root>/scripts/mindseam.py info --memory                        # report workspace disk size in human units (like free -m / du -h); r285: the size word and its raw byte parenthetical read `1 byte` (singular) for a one-byte workspace, plural otherwise; r286: each KB/MB/GB rung is chosen by the rounded value the reader sees (`float("%.1f" % value) < 1024.0`), so a size in a rung's top sliver (1048540 bytes) reads "1.0 MB" the way `ls -lh` promotes it, never "1024.0 KB"
 <python-command> <skill-root>/scripts/mindseam.py info --list-fields
 <python-command> <skill-root>/scripts/mindseam.py history
 <python-command> <skill-root>/scripts/mindseam.py history --head 5

@@ -7894,4 +7894,59 @@ Suite after r285: 3022 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
 
 
+### Round 286 (test r286)
+
+`_humanize_bytes` (mindseam.py:3649) scales a file size through a byte/KB/MB/GB
+ladder and is the size word behind `info --memory`. It picked each rung by
+comparing the raw float to 1024 (`if size_kb < 1024`, `if size_mb < 1024`) but
+printed the value with `%.1f` — one decimal. A size in the top sliver of a
+rung, `size_kb` in `[1023.95, 1024)`, is below 1024 as a raw float yet rounds
+up to the *string* `"1024.0"`, so the guard kept the KB rung and the surface
+printed "1024.0 KB" for a size `ls -lh` would promote to "1.0 MB"; the same
+dead zone one rung up printed "1024.0 MB" instead of "1.0 GB".
+
+Live before-fix (real subprocess, a single ~1 MB blob of 1048540 bytes in
+`.mindseam`): `info --memory` printed `size:      1024.0 KB (1048540 bytes)`
+and `info --memory --json` carried `"human": "1024.0 KB"`.
+
+This is the units-ladder cousin of the r284 second-ladder handoff bug: there
+the guard and the branch it guarded used different divisors (a 30-day month
+vs a 365-day year); here the guard tests the raw float but the branch prints
+a rounded one, and the two disagree exactly across each rung's `[1023.95,
+1024)` dead zone.
+
+The fix chooses each rung by the value the reader actually sees —
+`float("%.1f" % value) < 1024.0`, the exact number the branch would print,
+which is the `ls -lh` promotion rule. So the displayed number is always
+`< 1024` of its unit, only each rung's `[1023.95, 1024)` dead zone changes,
+and every other size stays byte-identical: the r285 sub-1024 byte rung,
+exact-unit values (1024 -> "1.0 KB", 1024**2 -> "1.0 MB", 1024**3 -> "1.0 GB"),
+and mid-rung values (1536 -> "1.5 KB", 1072693248 -> "1023.0 MB",
+1610612736 -> "1.5 GB"). `info --memory` is the only live caller; the `--json`
+face's raw `bytes` integer is untouched. Live after-fix: `info --memory` on the
+same 1048540-byte workspace prints `size:      1.0 MB (1048540 bytes)` at RC 0,
+and `--json human` reads "1.0 MB".
+
+New test file tests/test_r286_humanize_bytes_unit_promotion.py (13 tests, 4
+classes): UnitPromotionTests pins both dead zones promote (KB->MB 1048525/
+1048540/1048560/1048575, MB->GB 1073741300/1073741600/1073741823) and that a
+289+1000-value sweep across both boundaries never renders "1024.0", plus the
+unchanged mid-rung and sub-1024 byte regressions; DisplayedValueStaysUnderUnit
+Tests asserts the numeric prefix of any KB/MB/GB render across the swept range
+is strictly `< 1024.0`; InfoMemoryPromotionTests drives the live `info
+--memory` text and `--json` faces on a dead-zone workspace and an ordinary
+1.5 KB one; CatalogTests pins the r286 entry.
+
+Pins: r175 recent-count 106 -> 107; r200 empty-window bracket
+`--index-since r286 --index-until r286` -> r287/r287; r285's three exact head
+pins retired to `>=` floors (max >= 285, len >= 136, recent >= 106).
+Catalog entry humanize-bytes-unit-promotion (since r286); import-verified the
+catalog grew to len 137, since>=170 count 107, max since 286, module loads and
+`_resolve_path` is intact.
+
+Suite after r286: 3035 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+
 

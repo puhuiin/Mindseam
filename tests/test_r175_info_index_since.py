@@ -202,13 +202,14 @@ class IndexSinceContractTests(unittest.TestCase):
         # dedup-headers-pluralize, r282,
         # span-duration-pluralizes, r283,
         # humanize-year-boundary, r284,
-        # humanize-bytes-singular-byte, r285). The
+        # humanize-bytes-singular-byte, r285,
+        # humanize-bytes-unit-promotion, r286). The
         # count is stable
         # because the catalog is static; it moves only when a
         # new round lands, and the move is a deliberate pin
         # update, the way the r167 catalog count moved when
         # r169 landed.
-        self.assertEqual(len(recent), 106)
+        self.assertEqual(len(recent), 107)
         for line in recent:
             self.assertIn(line, full)
 

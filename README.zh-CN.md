@@ -214,7 +214,7 @@ loop 三种 pass，以及可选控制器负责记录长任务状态而不负责�
 <python-command> <skill-root>/scripts/mindseam.py info --version
 <python-command> <skill-root>/scripts/mindseam.py info --human
 <python-command> <skill-root>/scripts/mindseam.py info --check
-<python-command> <skill-root>/scripts/mindseam.py info --memory                        # 以人类可读单位报告 workspace 磁盘大小（类似 free -m / du -h）；r285：单字节 workspace 的大小词与其原始字节括注显示为 `1 byte`（单数），其余数量为复数
+<python-command> <skill-root>/scripts/mindseam.py info --memory                        # 以人类可读单位报告 workspace 磁盘大小（类似 free -m / du -h）；r285：单字节 workspace 的大小词与其原始字节括注显示为 `1 byte`（单数），其余数量为复数；r286：每个 KB/MB/GB 档位按读者实际看到的四舍五入值来选（`float("%.1f" % value) < 1024.0`），所以落在某档位顶端一小片区间的大小（如 1048540 字节）会像 `ls -lh` 那样进位显示为「1.0 MB」，而不再是「1024.0 KB」
 <python-command> <skill-root>/scripts/mindseam.py info --list-fields
 <python-command> <skill-root>/scripts/mindseam.py history
 <python-command> <skill-root>/scripts/mindseam.py history --head 5
