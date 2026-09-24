@@ -215,15 +215,15 @@ class DedupEmptyCatalogTests(unittest.TestCase):
 
     def test_r274_is_the_highest_round(self):
         # The newest round owns the exact ``max == NNN`` head; it retires
-        # to a ``>=`` floor once its successor lands.
-        self.assertEqual(max(self._since_ints()), 274)
+        # to a ``>=`` floor once its successor lands (r275 landed).
+        self.assertGreaterEqual(max(self._since_ints()), 274)
 
     def test_catalog_grew_to_125(self):
-        self.assertEqual(len(mindseam._FEATURE_CATALOG), 125)
+        self.assertGreaterEqual(len(mindseam._FEATURE_CATALOG), 125)
 
     def test_recent_window_is_95(self):
         recent = [i for i in self._since_ints() if i >= 170]
-        self.assertEqual(len(recent), 95)
+        self.assertGreaterEqual(len(recent), 95)
 
 
 if __name__ == "__main__":

@@ -7579,25 +7579,12 @@ def mode_history(args):
         hist = [row for row in hist
                 if str(row.get(key, "") if row.get(key) is not None else "").strip()
                 == value]
-    # Borrowed from ``head -n N`` / ``tail -n N``: ``--head N`` keeps
-    # the first N rows, ``--tail N`` keeps the last N. ``-n N`` /
-    # ``--limit N`` aliases ``--tail`` so the older ``-n`` flag
-    # keeps working unchanged. Mutual exclusivity of the three
-    # selectors is refused up top (r208), before the --keep rotation.
-    head_n = getattr(args, "head", None)
-    tail_n = args.limit if args.limit is not None else getattr(args, "tail", None)
-    if head_n is not None and head_n >= 0:
-        hist = hist[:head_n] if hist else []
-    elif tail_n is not None and tail_n >= 0:
-        # r272: ``hist[-0:]`` is ``hist[0:]`` — the whole list — so a
-        # bare ``if hist`` guard handed ``--tail 0`` / ``-n 0`` /
-        # ``--limit 0`` every row, the opposite of ``tail -n 0`` (which
-        # prints nothing). ``--head 0`` was already correct (``hist[:0]``
-        # empties) and the ``--keep`` sibling above already guards
-        # ``keep_n > 0 else []``; the tail branch was the one selector
-        # that let the negative-zero slice through. Guard ``tail_n`` too
-        # so the zero window empties the way the head and keep siblings do.
-        hist = hist[-tail_n:] if (hist and tail_n) else []
+    # r275: the head/tail truncation MOVED below the since/until and
+    # grep/exclude filters (see the relocated block after --exclude).
+    # A positional selector must slice the FILTERED set, not the raw
+    # history — ``--head N`` keeps the first N rows, ``--tail N`` the
+    # last N, ``-n N`` / ``--limit N`` alias ``--tail``, and mutual
+    # exclusivity of the three is refused up top (r208).
     # r220: since_seconds / until_seconds were parsed once at the
     # top via parse_window_value (seconds, span, or ISO date).
     if since_seconds is not None:
@@ -7636,6 +7623,29 @@ def mode_history(args):
         hist = [row for row in hist
                 if needle not in (row.get("next") or "").lower()
                 and needle not in (row.get("msg") or "").lower()]
+    # r275: apply the head/tail truncation HERE, after --filter,
+    # --since/--until and --grep/--exclude have narrowed the set, so a
+    # positional selector picks from the rows that SURVIVED the filters.
+    # It ran ABOVE the window and grep filters before, so ``history
+    # --head 2 --since 30m`` sliced the two OLDEST rows of the FULL
+    # history and the window then dropped them — an empty result at
+    # exit 0 for a query that had matching rows, and ``--tail 2 --grep
+    # old`` did the same. ``--filter`` already ran before truncation
+    # (correct); the window and grep filters were the two left on the
+    # wrong side. Now every filter runs first, then the selector, then
+    # ``--reverse`` (presentation) — the ``git log --grep X -n 2`` /
+    # ``journalctl --since -n 2`` order.
+    head_n = getattr(args, "head", None)
+    tail_n = args.limit if args.limit is not None else getattr(args, "tail", None)
+    if head_n is not None and head_n >= 0:
+        hist = hist[:head_n] if hist else []
+    elif tail_n is not None and tail_n >= 0:
+        # r272: ``hist[-0:]`` is ``hist[0:]`` — the whole list — so a
+        # bare ``if hist`` guard handed ``--tail 0`` / ``-n 0`` /
+        # ``--limit 0`` every row, the opposite of ``tail -n 0`` (which
+        # prints nothing). Guard ``tail_n`` too so the zero window
+        # empties the way the head and keep siblings do.
+        hist = hist[-tail_n:] if (hist and tail_n) else []
     if getattr(args, "reverse", False):
         # Borrowed from ``git log --reverse``: the default ``history``
         # walks the file in append order (oldest first) because
@@ -8855,6 +8865,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "history-renderers-dedup-empty", "since": "r274",
      "summary": "r272/r273 stayed on correctness (a zero-width tail slice, an order-dependent span clamp); r274 returns to the winner-by-branch-order renderer-exclusivity family (r188/r197/r198/r207) with the two renderers that family's own completeness round missed. mode_history builds a mutual-exclusion set of terminal renderers and refuses any pair with exit 2 before the destructive --keep rotation. r197 named four ({--csv, --domains, --format, --quiet}); r198 extended it to six by adding --span and --count and its docstring called the set complete — 'six mutually exclusive renderers'. But --dedup / --dedup-by-msg (the sort -u / uniq collapse, terminal at 7852 with its own --json face) and --empty (the find -empty post-filter, terminal at 7902 with its own --json face) are ALSO print-and-return renderers, and neither was ever added to the set. The runtime branch order is --csv < --domains < --span < --dedup < --empty < plain --json < --quiet < --count < --format, so whichever branch printed first won and the later flag was silently dropped at exit 0. Live on history over a three-row ledger: --dedup --quiet, --dedup --count, --empty --count, --empty --quiet, --csv --dedup, --csv --empty, --dedup --empty, --dedup --format %n, --span --dedup, --span --empty, --dedup --domains all returned 0 with one renderer's output and the other silently ignored — the exact ambiguity a host cannot reason about that r197/r198/r207 refuse. The fix extends the renderers list at 7384 to eight slots: --empty gets its own slot, and --dedup / --dedup-by-msg share ONE slot (they compose with each other by design — line 7866 'both are honoured if both are passed' — so they must not self-refuse) named via a dedup_name computation ('--dedup', '--dedup-by-msg', or '--dedup/--dedup-by-msg') so the refusal message stays accurate. --json stays OUT of the set (it rides dedup/empty/span via each branch's own json face, the r170 two-faces rule), --dedup --dedup-by-msg still composes to exit 0, and every one of the six prior renderers still refuses each other and still works alone (r197/r198 byte-identical)",
+     "default": True},
+    {"id": "history-truncation-after-filters", "since": "r275",
+     "summary": "r274 closed the last renderer-exclusivity gap; r275 returns to the slicing/order-correctness family (r272 zero-width tail, r273 order-dependent span) with an operator-ORDER bug on history's own pipeline. mode_history composes filters and selectors in a fixed sequence: --keep rotation, --filter key=value, then head/tail truncation, then --since/--until window, then --grep/--exclude, then --reverse. The head/tail truncation ran ABOVE the since/until and grep/exclude filters, so a positional selector sliced the RAW history and the filters then dropped whatever the slice happened to grab. history --head 2 --since 30m borrows git log -n 2 --since / journalctl --since -n 2, where the host means 'the first two rows WITHIN the window'; instead --head took the two OLDEST rows of the full log (almost always outside a recent window) and --since dropped them, returning an empty result at exit 0 for a query that had matching rows. Live on a six-row history.json (three old rows outside a 1h window, three recent inside): --head 2 --since 3600 -> [] (should be the two oldest recent rows), --tail 2 --grep old -> [] (should be the last two 'old' matches), --head 2 --grep new -> [] — each a silent empty at exit 0. The tell it was an accidental split and not a design choice: --filter (also a filter) already ran BEFORE truncation and composed correctly; only since/until and grep/exclude were left on the wrong side. The fix moves the head/tail block to run AFTER --filter, --since/--until and --grep/--exclude and BEFORE --reverse, so every filter narrows the set first, then the positional selector picks from the survivors, then --reverse flips the presentation — the git log --grep X -n 2 order. --head/--tail alone (the r208/r272 pins: head 2 -> first two, tail 2 -> last two, tail 0 -> empty, tail 2 --reverse) are byte-identical because with no filter the narrowed set is the full set",
      "default": True},
 )
 

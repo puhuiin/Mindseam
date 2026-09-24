@@ -7358,7 +7358,64 @@ catalog grew to len 125, since>=170 count 95, max since 274, module loads.
 
 No pre-identified r275 carrier is named. r275 must probe a fresh live defect.
 
-Suite after r274: 2834 passed, 0 failed.
+Suite after r274: 2830 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 275 (test r275)
+
+r272/r273 fixed slicing-correctness on `history`'s window selectors (a
+zero-width tail slice, an order-dependent span clamp); r274 returned to the
+renderer-exclusivity family. r275 stays on `history` but on operator ORDER: the
+pipeline applied its positional head/tail truncation on the wrong side of the
+time and text filters.
+
+`mode_history` composes its steps in a fixed sequence — `--keep` rotation,
+`--filter key=value`, head/tail truncation, `--since`/`--until` window,
+`--grep`/`--exclude`, then `--reverse`. The head/tail truncation (formerly at
+mindseam.py:~7587) ran ABOVE the since/until (~7601) and grep/exclude (~7614)
+filters, so a positional selector sliced the RAW history and those filters then
+dropped whatever the slice happened to grab.
+
+`history --head 2 --since 30m` borrows `git log -n 2 --since` /
+`journalctl --since -n 2`, where the host means "the first two rows WITHIN the
+window". Instead `--head 2` took the two OLDEST rows of the full log (almost
+always outside a recent window) and `--since` dropped them — an empty result at
+exit 0 for a query that had matching rows. `--tail 2 --grep old` did the same.
+
+Live before the fix on a six-row `history.json` (three old rows outside a 1h
+window, three recent inside): `--head 2 --since 3600` -> `[]` (should be the two
+oldest recent rows), `--tail 2 --grep old` -> `[]` (should be the last two
+`old` matches), `--head 2 --grep new` -> `[]` — each a silent empty at exit 0.
+The tell it was an accidental split, not a design choice: `--filter` (also a
+filter) already ran BEFORE truncation and composed correctly; only the window
+and grep filters were left on the wrong side.
+
+Fix: move the head/tail block to run AFTER `--filter`, `--since`/`--until` and
+`--grep`/`--exclude` and BEFORE `--reverse`, so every filter narrows the set
+first, then the positional selector picks from the survivors, then `--reverse`
+flips the presentation — the `git log --grep X -n 2` / `journalctl --since -n 2`
+order. `--head`/`--tail` alone (the r208/r272 pins: head 2 -> first two, tail 2
+-> last two, tail 0 -> empty, tail 2 --reverse) are byte-identical because with
+no filter the narrowed set is the full set.
+
+Live-confirmed after the fix: `--head 2 --since 3600` -> the two oldest recent
+rows, `--tail 2 --grep old` -> the last two `old` matches, `--head 2 --grep new`
+-> the first two `new` matches; `--filter marker=OPEN --head 2` still narrows
+before truncation; `--head 2 --reverse` truncates then flips.
+
+Pins moved the usual way: r175 count 95 -> 96, r200 empty-window bracket
+r275 -> r276 (r275 is now the highest catalog entry), and r274's exact
+`max == 274` head retired to `>= 274` (`test_r274_is_the_highest_round`
+`>= 274`, `test_catalog_grew_to_125` `>= 125`, `test_recent_window_is_95`
+`>= 95`).
+
+Catalog entry history-truncation-after-filters (since r275); import-verified the
+catalog grew to len 126, since>=170 count 96, max since 275, module loads.
+
+No pre-identified r276 carrier is named. r276 must probe a fresh live defect.
+
+Suite after r275: 2850 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
 
 
