@@ -7868,7 +7868,20 @@ def mode_history(args):
                 payload["untrusted"] = untrusted
             print(json.dumps(payload, indent=2, ensure_ascii=False))
             return 0
-        print("── mindseam ─ history (%d domains across %d seams)" % (len(counts), total))
+        # r281: the non-empty header used to read "%d domains across %d
+        # seams" % (len(counts), total), but ``total`` counts rows WITH a
+        # next action (a blank-next row is skipped by the ``if not nxt``
+        # guard above), not seams -- so on a window holding a blank-next
+        # seam the header said "across 2 seams" while ``history --count``
+        # reported 3, and this command's OWN empty face already names the
+        # unit correctly ("no rows with a next action"). Call the ranked
+        # unit "next action" so the two faces of ``--domains`` agree with
+        # each other and with the guard, and pluralize both nouns the way
+        # ``discover`` does ("%d visit%s") so a single row no longer reads
+        # "1 domains across 1 seams".
+        print("── mindseam ─ history (%d domain%s across %d next action%s)"
+              % (len(counts), "" if len(counts) == 1 else "s",
+                 total, "" if total == 1 else "s"))
         for name, count in ranked:
             share = count * 100.0 / total
             # r261: the domain label is model-authored ledger text
@@ -8954,6 +8967,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "discover-empty-message-distinguishes-no-history", "since": "r280",
      "summary": "discover's empty-ranking text face printed one message — 'No history yet — run a seam and the domain map appears.' — for TWO different states: a truly empty history.json AND a history that has recorded seams but no row carries a next action to rank. The second is a false statement: the session HAS history, so a host reading 'No history yet' concludes nothing has happened and may re-run work that already ran. The sibling history --domains never made this claim — its empty face says 'no rows with a next action', accurate whether or not history exists, because it distinguishes the count from the cause. Live on a two-row history.json whose rows both have an empty next: discover printed 'No history yet — run a seam and the domain map appears.' while history --domains printed 'history (no rows with a next action)'. The fix branches on whether hist is non-empty inside the not-ranked block: history-with-no-next now prints 'No next actions recorded yet — note a next and the domain map appears.' and only a truly empty history keeps 'No history yet'. The --json face is untouched ({'domains': []} is accurate for both, matching history --domains --json), so this is a text-face correctness fix that brings discover's empty message to parity with its sibling",
+     "default": True},
+    {"id": "domains-header-names-next-actions", "since": "r281",
+     "summary": "history --domains ranks the domain prefix of every recorded next action; the loop skips a blank-next row with 'if not nxt: continue' and counts the survivors in 'total'. But the NON-EMPTY text header read '%d domains across %d seams' % (len(counts), total) — it borrowed the word 'seams' for a count that is actually rows WITH a next action, not the seam count. So on a window holding a blank-next seam the header claimed 'across 2 seams' while history --count reported 3 (a blank-next row is still a seam), and the noun 'seams' disagreed with this command's OWN empty face, which names the unit accurately: 'no rows with a next action'. The header also never pluralized, so a single row read '1 domains across 1 seams' while the sibling discover already pluralizes ('%d visit%s'). Live on a three-row history.json (two 'build:' nexts + one blank-next row): history --count printed 3 but history --domains printed 'history (1 domains across 2 seams)'; on a single-row history it printed 'history (1 domains across 1 seams)'. The fix renames the ranked unit to 'next action' so both faces of --domains agree with each other and with the 'if not nxt' guard, and pluralizes both nouns: the header now reads '1 domain across 2 next actions' / '2 domains across 3 next actions' / '1 domain across 1 next action'. The --json face never carried this header and is untouched",
      "default": True},
 )
 

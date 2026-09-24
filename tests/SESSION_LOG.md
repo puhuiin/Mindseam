@@ -7653,6 +7653,48 @@ No pre-identified r281 carrier is named. r281 must probe a fresh live defect.
 Suite after r280: 2932 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
 
+### Round 281 (test r281)
+
+Live probe on `history --domains`. It ranks the domain prefix of every
+recorded next action; the loop skips a blank-next row with `if not nxt:
+continue` and counts the survivors in `total`. But the NON-EMPTY text header
+read `"── mindseam ─ history (%d domains across %d seams)" % (len(counts),
+total)` — it borrowed the word "seams" for `total`, which is the count of rows
+WITH a next action, not the seam count. So on a window holding a blank-next
+seam the header claimed "across 2 seams" while `history --count` reported 3 (a
+blank-next row is still a seam), and the noun "seams" disagreed with this
+command's OWN empty face, which names the unit accurately: "no rows with a next
+action". The header also never pluralized — the sibling `discover` already
+pluralizes its per-line count ("%d visit%s").
+
+Live before-fix on a three-row `history.json` (two `build:` nexts + one
+blank-next row): `history --count` printed `3`, but `history --domains` printed
+`── mindseam ─ history (1 domains across 2 seams)`. On a single-row history it
+printed `── mindseam ─ history (1 domains across 1 seams)` — "1 domains", "1
+seams".
+
+Fix renames the ranked unit to "next action" so both faces of `--domains` agree
+with each other and with the `if not nxt` guard, and pluralizes both nouns via
+the inline `"" if n == 1 else "s"` idiom `discover` uses. The header now reads
+`1 domain across 2 next actions` (blank-next window), `2 domains across 3 next
+actions`, `1 domain across 1 next action`. The empty face
+("no rows with a next action") is untouched, and the `--json` face never
+carried this header so it is unchanged.
+
+Pins moved the usual way: r175 recent count 101 -> 102, r200 empty-window
+bracket r281 -> r282 (r281 is now the highest catalog entry), and r280's exact
+`max == 280` head retired to `>= 280` (`test_r280_is_the_highest_round`
+`>= 280`, `test_catalog_grew_to_131` `>= 131`, `test_recent_window_is_101`
+`>= 101`).
+
+Catalog entry domains-header-names-next-actions (since r281); import-verified
+the catalog grew to len 132, since>=170 count 102, max since 281, module loads.
+
+No pre-identified r282 carrier is named. r282 must probe a fresh live defect.
+
+Suite after r281: 2948 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
 
 
 
