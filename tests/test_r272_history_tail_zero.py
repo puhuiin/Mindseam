@@ -213,15 +213,16 @@ class HistoryTailZeroCatalogTests(unittest.TestCase):
 
     def test_r272_is_the_highest_round(self):
         # The newest round owns the exact ``max == NNN`` head; it retires
-        # to a ``>=`` floor once its successor lands.
-        self.assertEqual(max(self._since_ints()), 272)
+        # to a ``>=`` floor once its successor lands. r273 has landed, so
+        # r272 is now a floor guard, not the head.
+        self.assertGreaterEqual(max(self._since_ints()), 272)
 
     def test_catalog_grew_to_123(self):
-        self.assertEqual(len(mindseam._FEATURE_CATALOG), 123)
+        self.assertGreaterEqual(len(mindseam._FEATURE_CATALOG), 123)
 
     def test_recent_window_is_93(self):
         recent = [i for i in self._since_ints() if i >= 170]
-        self.assertEqual(len(recent), 93)
+        self.assertGreaterEqual(len(recent), 93)
 
 
 if __name__ == "__main__":

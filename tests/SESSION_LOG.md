@@ -7253,6 +7253,59 @@ No pre-identified r273 carrier is named. r273 must probe a fresh live defect.
 Suite after r272: 2791 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
 
+### Round 273 (test r273)
+
+r272 pivoted the family off the exhausted untrusted-framing work and onto
+slicing-correctness on `history`'s window selectors. r273 stays on correctness
+but moves to a DIFFERENT operator — a `min`/`max` clamp that lied when the rows
+were reordered, not a slice.
+
+`history --span` reports the time extent of the surviving window (first seam,
+last seam, duration), the way `git log --stat` reports a diffstat. The span
+branch (mindseam.py:~7803) read positional endpoints —
+`first_t = int(hist[0].get("t") or 0)`, `last_t = int(hist[-1].get("t") or 0)`,
+`duration = max(0, last_t - first_t)`. The default walk is append order (oldest
+first), so `hist[0]` is the earliest and `hist[-1]` the latest and the
+difference is positive. But `--reverse` (`hist[::-1]`, applied at
+mindseam.py:7617, well BEFORE the span branch) walks the same rows newest-first,
+which swapped the endpoints, made `last_t - first_t` negative, and the
+`max(0, ...)` floor then reported `Duration: 0 seconds` for a window that
+plainly spanned time. Any hand-written `history.json` whose rows are not in
+ascending `t` hit the same lie even without `--reverse`.
+
+Live on `history` with a ten-row `history.json` spanning 9000 seconds:
+`--span` alone → `Duration: 9000 seconds`; `--span --reverse` → `Duration: 0
+seconds` over the identical rows, and the `--json` face agreed
+(`duration_seconds: 0`). The floor masked a negative interval as "no time
+passed", so a host asking "how long did this window take, newest-first?" was
+told zero.
+
+Fix (mindseam.py:~7810): compute the extent from the window's timestamps rather
+than its positional ends — `span_times = [int(row.get("t") or 0) for row in
+hist]`, `first_t = min(span_times) if span_times else 0`, `last_t =
+max(span_times) if span_times else 0`, and drop the `max(0, ...)` floor because
+`min <= max` can never go negative. Applied to BOTH faces (`duration_seconds =
+last_t - first_t` in JSON, `duration = last_t - first_t` in text). The span is
+now order-invariant the way `git log --stat` gives the same diffstat whatever
+the walk order. Live-confirmed after the fix: `--span --reverse` → `Duration:
+9000 seconds` (matching default), `--json` first 1000000 / last 1009000 /
+duration_seconds 9000; the non-reversed round-trip and grep-narrowed span pins
+(r-baseline duration 100) stay byte-identical.
+
+Pins moved the usual way: r175 count 93 -> 94, r200 empty-window bracket
+r273 -> r274 (r273 is now the highest catalog entry), and r272's exact
+`max == 272` head retired to `>= 272` (`test_r272_is_the_highest_round`
+`>= 272`, `test_catalog_grew_to_123` `>= 123`, `test_recent_window_is_93`
+`>= 93`).
+
+Catalog entry history-span-order (since r273); import-verified the catalog grew
+to len 124, since>=170 count 94, max since 273, module loads.
+
+No pre-identified r274 carrier is named. r274 must probe a fresh live defect.
+
+Suite after r273: 2810 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
 
 
 

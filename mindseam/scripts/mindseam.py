@@ -7809,17 +7809,29 @@ def mode_history(args):
         # so a host can ask "how long did the TODO burst last"
         # with ``--grep TODO --span``. A single-row window has
         # no duration to speak of; the renderer says so.
+        # r273: the span is the time EXTENT of the surviving window, so
+        # its endpoints are the earliest and latest timestamps in it, not
+        # the positional first and last rows. ``--reverse`` walks the same
+        # rows newest-first, which flipped ``hist[0]``/``hist[-1]`` and made
+        # ``last_t - first_t`` negative -- the ``max(0, ...)`` floor then
+        # reported a 0-second duration for a window that plainly spanned
+        # time (and a hand-written history.json whose rows are not in
+        # ascending ``t`` hit the same lie). ``min()``/``max()`` over the
+        # window's timestamps make the span order-invariant, the way
+        # ``git log --stat`` reports the same diffstat whatever the walk
+        # order, so reordering the rows never changes the interval.
+        span_times = [int(row.get("t") or 0) for row in hist]
+        first_t = min(span_times) if span_times else 0
+        last_t = max(span_times) if span_times else 0
         if args.json:
             if not hist:
                 print(json.dumps({"span": None}, indent=2))
                 return 0
-            first_t = int(hist[0].get("t") or 0)
-            last_t = int(hist[-1].get("t") or 0)
             print(json.dumps({
                 "span": {
                     "first": first_t,
                     "last": last_t,
-                    "duration_seconds": max(0, last_t - first_t),
+                    "duration_seconds": last_t - first_t,
                     "rows": len(hist),
                 },
             }, indent=2))
@@ -7827,9 +7839,7 @@ def mode_history(args):
         if not hist:
             print("── mindseam ─ history span (no rows)")
             return 0
-        first_t = int(hist[0].get("t") or 0)
-        last_t = int(hist[-1].get("t") or 0)
-        duration = max(0, last_t - first_t)
+        duration = last_t - first_t
         first_when = time.strftime(
             "%Y-%m-%d %H:%M:%S", time.localtime(first_t)) if first_t else "(none)"
         last_when = time.strftime(
@@ -8817,6 +8827,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "history-tail-zero", "since": "r272",
      "summary": "The untrusted-framing / tag-stranding family (r239-r271) was exhausted: every line-oriented model-authored echo surface now routes through _oneline with its [untrusted: ...] tag on one physical line. r272 turns to a different KIND of defect — a slicing-correctness bug on history's own window selectors. mode_history borrows head -n N / tail -n N: --head N keeps the first N rows, --tail N (aliased by -n / --limit) keeps the last N. r217 already refuses every negative value with exit 2 before the read, so the branch guards only ever see 0 or a positive. The head branch was correct — hist[:0] empties — but the tail branch did hist = hist[-tail_n:] if hist else [], and hist[-0:] is hist[0:], the WHOLE list. Live on history: a five-row history.json queried with --tail 0 / -n 0 / --limit 0 printed all five rows at exit 0, the exact opposite of coreutils tail -n 0 (which prints nothing) and of the correct --head 0 (which empties). A host that asked for a zero-width tail window got every row and an exit code that said the call worked — the same silent-full-result lie r214/r217 closed for the negative case, one value (zero) further in. The internal inconsistency made it a genuine defect and not a design choice: the --keep rotation sibling a few lines up already guards truncated = hist[-keep_n:] if keep_n > 0 else [], and --head 0 already empties, so tail was the one selector letting the negative-zero slice through. The fix guards tail_n too — hist = hist[-tail_n:] if (hist and tail_n) else [] — so --tail 0 / -n 0 / --limit 0 empty the way the head and keep siblings do; a clean positive window (--tail 2 -> 2 rows) and the r217 negative refusal (exit 2) are both untouched",
+     "default": True},
+    {"id": "history-span-order", "since": "r273",
+     "summary": "r272 pivoted from the exhausted untrusted-framing family to slicing-correctness on history's window selectors; r273 stays on correctness but on a different operator — a min/max clamp that lied when the rows were reordered. history --span borrows git log --stat / journalctl --list-boots: a one-line summary of the surviving window's first seam, last seam and the duration between them. The endpoints were read positionally — first_t = hist[0]['t'], last_t = hist[-1]['t'] — and the duration was floored, duration = max(0, last_t - first_t). The default walk is append order (oldest first), so hist[0] is the earliest and hist[-1] the latest and the subtraction is positive. But --span composes with --reverse (git log --reverse, applied a few lines up at the hist[::-1] flip), which walks the same rows newest-first; that swapped hist[0] and hist[-1], made last_t - first_t negative, and the max(0, ...) floor reported Duration: 0 seconds for a window that plainly spanned time — the JSON face emitted first > last with duration_seconds 0 to match. Live on history: a three-row history.json spanning 9000 seconds printed 'Duration: 9000 seconds' under --span but 'Duration: 0 seconds' under --span --reverse over the identical rows, and the --span --json face reported first 1009000 / last 1000000 / duration_seconds 0. A hand-written history.json whose rows are not in ascending t hit the same lie without --reverse at all. The span is the time EXTENT of the window, an interval that reordering the rows must not change; positional endpoints plus a sign-swallowing floor made it order-dependent. The fix reads the endpoints as span_times = [int(row.get('t') or 0) for row in hist] then first_t = min(span_times), last_t = max(span_times), and drops the max(0, ...) floor because min/max make last_t - first_t provably non-negative — so --span is order-invariant (--reverse is now a no-op for it, the way git log --stat's diffstat is the same whatever the walk order), the earliest/latest labels are correct under any row order, and every non-reversed pin (the r47/baseline 100-second round-trips, the --grep TODO --span burst window) is byte-identical because append order already had hist[0] == min and hist[-1] == max",
      "default": True},
 )
 

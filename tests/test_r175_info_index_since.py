@@ -189,13 +189,14 @@ class IndexSinceContractTests(unittest.TestCase):
         # trend-untrusted, r267
         # risk-untrusted, r268
         # message-untrusted, r269, gate-untrusted, r270,
-        # skillbook-oneline, r271, history-tail-zero, r272). The
+        # skillbook-oneline, r271, history-tail-zero, r272,
+        # history-span-order, r273). The
         # count is stable
         # because the catalog is static; it moves only when a
         # new round lands, and the move is a deliberate pin
         # update, the way the r167 catalog count moved when
         # r169 landed.
-        self.assertEqual(len(recent), 93)
+        self.assertEqual(len(recent), 94)
         for line in recent:
             self.assertIn(line, full)
 
