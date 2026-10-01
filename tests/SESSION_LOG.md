@@ -10233,3 +10233,81 @@ round-note tables both take the r332 row.
 
 Suite after r332: 3571 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
+
+### Round 333 (test r333)
+
+THE DEFECT. read_history returns (rows, changed, repair_reasons), and a
+history that cannot be READ at all comes back as an EMPTY list plus a
+reason. mode_seam and mode_resume surface those reasons through
+state_repairs, but FIVE other commands took only [0] and threw the
+reason away:
+
+    mode_ship      hist = read_history()[0]
+    mode_history   hist = read_history()[0]
+    mode_info      hist = read_history()[0]
+    mode_skillbook hist = read_history()[0]
+    mode_discover  hist = read_history()[0]
+
+For a ledger that holds rows, that turned a read failure into a
+plausible empty result. The worst is info, because --check is the
+documented gate — "the exit code is 0 only if the ledger passes;
+otherwise 2" — and it answered valid: true, exit 0, for a file it could
+not read at all. The classifier walked hist, and an empty hist has no
+bad rows to find.
+
+Live before-fix, on a workspace with four history rows:
+
+  history.json is a DIRECTORY   -> info --check rc=0, "ledger: ok"
+  history.json is CORRUPT JSON  -> info --check rc=0, "ledger: ok"
+  history root is NOT A LIST    -> info --check rc=0, "ledger: ok"
+
+and info --json said "no seams recorded yet — the first seam will
+populate the digest" with history_count 0 — indistinguishable from a
+workspace that has never run a seam. Every count derived from hist was
+quietly zero on all five commands.
+
+This is the r188/r205 silent-wrong-at-exit-0 family in its worst form:
+not a dropped flag inside a call but a failed READ reported as a
+successful empty one, on the one face that is documented as a gate.
+
+THE FIX. mode_info now keeps the repair reasons and threads them into
+its two classifiers. _info_check_issues reports them first, so the gate
+fires; _info_warnings reports them AND drops the fresh-workspace promise
+("no seams recorded yet — the first seam will populate the digest"),
+which is false for a damaged file — a host reading the digest can no
+longer mistake a corrupt history for a new one.
+
+The genuinely fresh workspace is unchanged: no history file means no
+repair reasons, so --check still exits 0 and the warning is still the
+original one. That control is pinned, so the fix cannot over-reach into
+refusing a clean workspace.
+
+Scope: mode_info only. history/ship/skillbook/discover still discard the
+reasons — each is a separate disclosure decision with its own face
+shape, and the gate is where the wrong answer had teeth.
+
+New test file tests/test_r333_unreadable_history_disclosed.py (19 tests,
+4 classes): CheckGateTests drives all three damage shapes through
+--check and --check --json and pins the gate fires, the issue names the
+failure, and a healthy and a fresh workspace still pass;
+InfoWarningsTests pins the warning on the JSON, text and --warnings-only
+faces, that the fresh-start promise is gone, and the two controls;
+HelperContractTests pins the classifiers' new parameter and its
+default-to-none behaviour; CatalogPinTests pins the r333 entry.
+
+Two fixture lessons from this round's own first cut: rows stamped in
+1970 trip the long-gap issue, so the "healthy" case must re-stamp them
+as recent or it fails for an unrelated reason; and an empty history is
+ITSELF a warning, so the helper's no-repairs case still returns one
+line — assert that line, not [].
+
+Pins: r175 recent-count 153 -> 154; r200 empty-window bracket
+r333/r333 -> r334/r334. Catalog entry unreadable-history-disclosed
+(since r333): import-verified catalog len 184, max since 333,
+recent(>=170) 154, r332's entry survived the append, module loads.
+
+Docs: SKILL.md's info --version line, README.md and README.zh-CN.md
+round-note tables both take the r333 row.
+
+Suite after r333: 3590 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.

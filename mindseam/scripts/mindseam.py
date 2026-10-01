@@ -3809,7 +3809,7 @@ def _humanize_bytes(size_bytes):
     return "%.1f GB" % size_gb
 
 
-def _info_check_issues(book, hist, gap_seconds):
+def _info_check_issues(book, hist, gap_seconds, hist_repairs=None):
     """Return the list of issues that ``info --check`` would surface.
 
     Borrowed from ``git fsck``'s plain-text issue list: a host
@@ -3821,8 +3821,20 @@ def _info_check_issues(book, hist, gap_seconds):
     fixed. A CI hook that wants the gate semantics runs
     ``mindseam info --check`` and treats a non-zero exit as a
     failure, the way ``git fsck --strict`` does.
+
+    r333: ``hist_repairs`` closes the classifier's worst hole. A history
+    that could not be read at all came back as ``[]``, and the row loop
+    below then had nothing to inspect — so ``info --check`` answered
+    ``valid: true``, exit 0, for a file that is corrupt JSON, a
+    directory, or a non-list root. The gate that is documented as "0 only
+    if the ledger passes" passed on a ledger it could not read. The
+    repair reasons are the evidence the read failed, so they are the
+    first thing this classifier reports.
     """
     issues = []
+    if hist_repairs:
+        for reason in hist_repairs:
+            issues.append("history: %s" % reason)
     if not book.get("Goal"):
         issues.append("ledger: no goal set")
     if not book.get("Next"):
@@ -3848,20 +3860,38 @@ def _info_check_issues(book, hist, gap_seconds):
     return issues
 
 
-def _info_warnings(book, hist, gap_seconds):
+def _info_warnings(book, hist, gap_seconds, hist_repairs=None):
     """Collect the human-meaningful alerts the ``info`` digest surfaces.
 
     Kept separate from the renderer so the JSON payload can carry the
     same list, and so adding a new warning is a one-liner instead of a
     branch in the text path.
+
+    r333: ``hist_repairs`` carries ``read_history``'s repair reasons. A
+    history that could not be READ at all (a corrupt file, a directory
+    where the file belongs, a non-list root) comes back as an empty list
+    plus a reason — so without this the digest reports "no seams recorded
+    yet" and every count derived from ``hist`` is quietly zero for a
+    ledger that actually holds rows. That is the r188/r205
+    silent-wrong-at-exit-0 family in its worst form: the reader cannot
+    tell a fresh workspace from a damaged one.
     """
     out = []
+    if hist_repairs:
+        for reason in hist_repairs:
+            out.append("history could not be read cleanly — %s" % reason)
     if not one(book, "Goal"):
         out.append("no goal set — open a ledger with `note --goal ... --next ...`")
     if not one(book, "Next"):
         out.append("next action is not set")
     if not hist:
-        out.append("no seams recorded yet — the first seam will populate the digest")
+        if hist_repairs:
+            # A damaged history is NOT a fresh one: say the read failed
+            # rather than promising the first seam will populate it.
+            out.append("the history digest is empty because the file "
+                       "could not be read (see the warning above)")
+        else:
+            out.append("no seams recorded yet — the first seam will populate the digest")
     elif gap_seconds is not None and gap_seconds > RESUME_GAP:
         out.append("last seam is older than the resume gap (run `resume`)")
     return out
@@ -9825,6 +9855,9 @@ _FEATURE_CATALOG = (
     {"id": "stdin-spec-repetition-refused", "since": "r332",
      "summary": "r327 registered every note write flag with action=append and moved the refusal into mode_note, which is the ONE guard that kept a per-command call after r328 consolidated the rest into a single hook in main(). The reason it survives consolidation is that note --from-stdin builds its spec through a SECOND parse_args inside read_note_stdin_spec (r199), which the universal hook never sees, and mode_note receives that merged namespace whatever produced it. Probed live and correct: a repeated flag smuggled in through stdin is refused with exit 2 naming both values, nothing is written, and a single flag still applies. But NOTHING PINNED IT — r199 has eight tests and r210 six, and none drives a repeated flag through the stdin spec, so a later round that moved the guard to the argv namespace only (the natural simplification, since that is where every other command is guarded) would make the stdin path silently last-win again with the suite still green. Pinned here: a repeated --goal/--next/--open/--core, a repeated TYPED flag (--extra-steps, whose values render as bare ints), a repeated --close, three repeats reporting the count, the refusal naming both stdin values, WORKSPACE.md byte-identical after a refused call, and the negative half — a single goal/open/close/dry-run through stdin still applies and writes nothing — so the pin cannot be satisfied by a guard that refuses everything. Also pinned, verified live in the same probe: a bad confidence, a no-separator core, an empty and a whitespace-only stdin spec, an unparseable shell split, and the r199 argv-alongside-stdin refusal naming the dropped flag",
      "default": True},
+    {"id": "unreadable-history-disclosed", "since": "r333",
+     "summary": "read_history returns (rows, changed, repair_reasons), and a history that cannot be READ at all — corrupt JSON, a directory where the file belongs, a non-list root — comes back as an EMPTY list plus a reason. mode_seam and mode_resume surface those reasons through state_repairs, but FIVE other commands took only [0] and threw the reason away (mode_ship, mode_history, mode_info, mode_skillbook, mode_discover), turning a read failure into a plausible empty result for a ledger that holds rows. The worst is info, because --check is the documented gate — the exit code is 0 only if the ledger passes, otherwise 2 — and it answered valid: true, exit 0, for a file it could not read: the classifier walked hist, and an empty hist has no bad rows to find. Live before-fix on a workspace with four rows: history.json as a directory, as corrupt JSON, and as a non-list root each made info --check print ledger: ok at exit 0, while info --json said no seams recorded yet — the first seam will populate the digest with history_count 0, indistinguishable from a workspace that has never run a seam. The fix threads the repair reasons into mode_info's two classifiers: _info_check_issues reports them first (so the gate fires) and _info_warnings reports them while DROPPING the fresh-workspace promise, which is false for a damaged file. The genuinely fresh workspace is unchanged — no history file means no repair reasons, so --check still exits 0 and the warning is still the original one, pinned by a control test. Scope: mode_info only; history/ship/skillbook/discover still discard the reasons, each a separate disclosure decision with its own face shape, and the gate is where the wrong answer had teeth",
+     "default": True},
 )
 
 def _resolve_path(payload, path):
@@ -10103,7 +10136,7 @@ def mode_info(book, json_flag=False, warnings_only=False,
         print("  since:   %s" % entry["since"])
         print("  default: %s" % ("yes" if entry["default"] else "no"))
         return 0
-    hist = read_history()[0]
+    hist, _, hist_repairs = read_history()
     meta = read_meta() or {}
     goal = one(book, "Goal")
     nxt = one(book, "Next")
@@ -10125,7 +10158,8 @@ def mode_info(book, json_flag=False, warnings_only=False,
             "gap_seconds": gap_seconds,
             "long_gap": bool(gap_seconds is not None and gap_seconds > RESUME_GAP),
         },
-        "warnings": _info_warnings(book, hist, gap_seconds),
+        "warnings": _info_warnings(book, hist, gap_seconds,
+                                   hist_repairs=hist_repairs),
         "skillbook_entries": len(read_skillbook()),
         "risk": ((meta.get("risk") or {}).get("level", "unknown")
                  if isinstance(meta.get("risk"), dict) else "unknown"),
@@ -10473,7 +10507,8 @@ def mode_info(book, json_flag=False, warnings_only=False,
         # is 0 only if the ledger passes; otherwise 2, the
         # same code ``mindseam ship --strict`` uses to turn a
         # report into a gate.
-        issues = _info_check_issues(book, hist, gap_seconds)
+        issues = _info_check_issues(book, hist, gap_seconds,
+                                    hist_repairs=hist_repairs)
         if json_flag:
             print(json.dumps({
                 "valid": not issues,
