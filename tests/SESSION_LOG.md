@@ -9822,3 +9822,78 @@ survived the append, module loads.
 
 Suite after r326: 3443 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
+
+### Round 327 (test r327)
+
+r326 closed the read/selector flags and named the rest as carriers. This
+round takes the ones where the harm is highest: the flags that WRITE.
+
+note records one value per ledger field and seam records one message,
+and every one registered with argparse's default "store" action, which
+keeps only the LAST value. The consequence is not a wrong projection but
+a wrong RECORD — the ledger holds something different from what was
+asked, with no way to tell afterwards.
+
+Live before-fix (fresh workspace, ledger already open):
+
+  note --next nx --open "Q1?" --settled-by s1 --open "Q2?" --settled-by s2
+    rc=0
+    stdout: "Open:     ?01 Q2? — settled by: s2"
+    ledger opens: ["?01 Q2? — settled by: s2"]     # Q1 gone
+
+  note --goal a --goal b              -> rc=0, Goal "b"
+  note --core "a — f" --core "b — f"  -> rc=0, one core item
+  note --check c1 --check c2          -> rc=0, one checkpoint
+  seam --dry-run --message a --message b -> rc=0
+
+The --open case is the sharpest: the tool prints a single "?01" line, so
+a model queuing two questions in one call silently loses the first and
+reads the output as success.
+
+The fix reuses r326's mechanism unchanged. The sixteen note write flags
+and seam's --message register with action="append" so the repetition is
+visible at all; refuse_repeated_single_use refuses with exit 2 naming
+every value given and unwraps the single value back to the scalar
+clean_scalar expects.
+
+The refusal runs BEFORE clean_scalar reads any dest — a list where a
+string was expected is the classic silent break — and covers the r199
+--from-stdin path too, because mode_note receives the merged namespace
+whatever produced it. Seam's --message is refused in the dispatcher,
+matching audit's window flags, since mode_seam takes unpacked
+parameters.
+
+Nothing is written on a refused call: WORKSPACE.md is byte-identical
+after a refused "--goal a --goal b", and .mindseam/history.json is
+untouched after a refused "seam --message a --message b" — both pinned
+by tests rather than assumed.
+
+Scope: note's sixteen ledger-writing flags plus seam's --message. The
+remaining read-path store flags (--format on seven commands, info
+--field/--explain/--index-since/--index-until/--audit-baseline, audit
+--intensity/--tag/--at/--baseline/--baseline-write) still last-win —
+each chooses a different projection or read parameter, so nothing is
+RECORDED wrongly, which is the distinction that ranked the write path
+first.
+
+New test file tests/test_r327_write_flag_repetition_refused.py (23
+tests, 7 classes): WriteFlagRepetitionRefusedTests runs all sixteen note
+flags one probe each and pins the count, the named values, ints vs
+strings, and that WORKSPACE.md is untouched; TheOpenQuestionCarrierTests
+pins the carrier itself (refused, nothing recorded, one question still
+records, the guidance names the loss); SeamMessageTests pins the
+refusal, the single-message acceptance, the --msg alias sharing the
+dest, and that history.json is untouched; SingleUseUnchangedTests pins
+single values recording, --core-slot 2 reachable in a second call, the
+dry-run preview, the r199 stdin spec, and the empty-needle/bad-confidence
+refusals not being shadowed; TableTests pins the table covers every
+write dest, the seam table, all four commands present, and the helper's
+unwrap/report; CatalogPinTests pins the r327 entry.
+
+Pins: r175 recent-count 147 -> 148; r200 empty-window bracket
+r327/r327 -> r328/r328. Catalog entry write-flag-repetition-refused
+(since r327): import-verified catalog len 178, max since 327,
+recent(>=170) 148, r326's entry survived the append, module loads.
+
+Suite after r327: 3466 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.

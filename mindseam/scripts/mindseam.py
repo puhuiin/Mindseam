@@ -6977,6 +6977,26 @@ def mode_note(book, args):
     applying it.
     """
     dry_run = getattr(args, "dry_run", False)
+    # r327 FIRST: a repeated write flag was silently dropped. note
+    # records one value per ledger field and argparse's ``store`` action
+    # kept only the LAST, so "note --open Q1? --settled-by s1 --open Q2?
+    # --settled-by s2" recorded only Q2 and reported "Open: ?01 Q2?" as
+    # though one question had been opened, and "note --goal a --goal b"
+    # recorded "b". The r188/r205 silent-wrong-at-exit-0 family on the
+    # WRITE path: the ledger holds something different from what was
+    # asked, with no way to tell after the fact.
+    #
+    # Every flag registers with ``action="append"`` so the repetition is
+    # visible at all; the refusal AND the unwrap-to-scalar run here,
+    # BEFORE clean_scalar reads any of them (a list where a string was
+    # expected is the classic silent break). This also covers the r199
+    # --from-stdin path, because mode_note receives the merged namespace
+    # whatever produced it.
+    repeated = refuse_repeated_single_use(args, _SINGLE_USE_FLAGS["note"])
+    if repeated is not None:
+        for line in repeated:
+            print(line, file=sys.stderr)
+        return 2
     original = {k: list(v) for k, v in book.items()} if dry_run else None
     changed = False
     refused = []
@@ -7681,8 +7701,35 @@ def _render_format_lines(hist, template, row_no=None):
 # ``--head 2 --head 5`` answer "5" (this round). A flag passed once
 # unwraps back to the scalar every reader expects.
 _SINGLE_USE_FLAGS = {
-    "history": (
-        ("--head", "head",
+    # r327: the WRITE path. note records one value per ledger field and
+    # seam records one message, so a repeated flag means the tool writes
+    # something different from what was asked — silently, at exit 0.
+    # Live before-fix: "note --open Q1? --settled-by s1 --open Q2?
+    # --settled-by s2" recorded only Q2 and reported "Open: ?01 Q2?" as
+    # though one question had been opened; "note --goal a --goal b"
+    # recorded "b". --filter is genuinely repeatable and stays out.
+    "note": (
+        ("--goal", "goal", "the recorded goal is not the one you asked for"),
+        ("--next", "next", "the recorded next action is not the one you asked for"),
+        ("--core", "core", "a core item you asked to record is lost"),
+        ("--core-slot", "core_slot", "the slot assignment is not the one you asked for"),
+        ("--check", "check", "a checkpoint you asked to record is lost"),
+        ("--memory", "memory", "the recorded memory is not the one you asked for"),
+        ("--by", "by", "the recorded verifier is not the one you asked for"),
+        ("--open", "open", "an open question you asked to record is lost"),
+        ("--settled-by", "settled_by", "the settle path is not the one you asked for"),
+        ("--close", "close", "the closed question is not the one you asked for"),
+        ("--marker", "marker", "the recorded marker is not the one you asked for"),
+        ("--confidence", "confidence", "the recorded confidence is not the one you asked for"),
+        ("--verifier", "verifier", "the recorded verifier is not the one you asked for"),
+        ("--error", "error", "the recorded error is not the one you asked for"),
+        ("--outcome", "outcome", "the recorded outcome is not the one you asked for"),
+        ("--extra-steps", "extra_steps", "the recorded step count is not the one you asked for"),
+    ),
+    "seam": (
+        ("--message", "message", "the recorded message is not the one you asked for"),
+    ),
+    "history": (        ("--head", "head",
          "the kept rows are not the ones you asked for"),
         ("--tail", "tail",
          "the kept rows are not the ones you asked for"),
@@ -9689,6 +9736,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "single-use-flag-repetition-refused", "since": "r326",
      "summary": "r325 fixed history's --grep/--exclude, which was never a filter-specific bug: every single-value flag in the tool registered with argparse's default store action, which keeps only the LAST value. Live before-fix on a four-row history: 'history --head 2 --head 5' -> rc=0, 5 rows; '--tail 4 --tail 2' -> 2 rows; '--row-id 4 --row-id 2' -> 'row 2 of 4'; '--fields msg --fields next' -> header 'next'; '--format %t --format %next' -> renders %next; '--since 200000 --since 100000' -> last 100000 s; '--until 2 --until 1' -> older than 1 s; '--keep 1 --keep 2' -> rotated to 2 rows; '--limit 1 --limit 4' -> 4 rows; '-n 4 -n 1' -> 1 row; 'audit --since 7200 --since 3600' -> window 3600. The contrast that proved it was a defect rather than a convention: --head and --tail were ALREADY refused when given TOGETHER (r208, 'mutually exclusive truncation selectors'), so the tool refused two different selectors while silently dropping a repeated one — the same ambiguity, two different answers. --keep is the worst of the set because it is destructive: '--keep 100 --keep 0' would rotate the file to nothing while the host believed it had asked to keep 100 rows. The fix is ONE shared table (_SINGLE_USE_FLAGS, per command) and ONE shared helper (refuse_repeated_single_use): each flag registers with action='append' so the repetition is visible at all — under store the earlier value is already gone by the time the mode runs — then the mode refuses with exit 2 naming every value given and unwraps the surviving single value back to the scalar every reader expects. The refusal and the unwrap run at the TOP of mode_history, before any other reader of those dests and before the destructive --keep rotation; that ordering is LOAD-BEARING rather than stylistic, because args.row_id reaches the r276 --row-id refusal message as a formatted value and the r214/r217 negative-count check compares args.keep/--head to an integer — a list in either place crashes or mis-reports (r326's first cut placed the unwrap just above the negative check, which left '--row-id 1 --head 2' printing \"--row-id ['1']\" and '--keep 2' raising TypeError). Audit's two window flags are refused in the dispatcher, which keeps mode_audit's parameter style intact. Every single-value call is byte-identical: the text faces, the JSON payload scalars and key set, --head 0 (a real value, not a false positive since the default is None), the --limit/-n shared dest, the r310/r222/r276/r208 refusals that must not be shadowed, and the filter-then-truncate order. Scoped out as the family's remaining carriers: the other subcommands' store flags (note --message, seam --marker, info --field and the rest) still last-win — each is a one-shot value with no selector semantics, so the harm is lower, and they need the same treatment later",
+     "default": True},
+    {"id": "write-flag-repetition-refused", "since": "r327",
+     "summary": "r326 closed the read/selector flags and named the rest as carriers; this round takes the ones where the harm is highest — the flags that WRITE. note records one value per ledger field and seam records one message, and every one registered with argparse's default store action, which keeps only the LAST value, so the ledger ended up holding something different from what was asked with no way to tell afterwards. Live before-fix on an open ledger: 'note --next nx --open Q1? --settled-by s1 --open Q2? --settled-by s2' -> rc=0, printed 'Open: ?01 Q2? — settled by: s2' and recorded exactly one open question, the second; 'note --goal a --goal b' -> Goal 'b'; 'note --core a --core b' -> one core item; 'note --check c1 --check c2' -> one checkpoint; 'seam --dry-run --message a --message b' -> rc=0. The --open case is the sharpest because the tool prints a single '?01' line, so a model queuing two questions in one call silently loses the first and reads the output as success. The fix reuses r326's mechanism unchanged (action='append' so the repetition is visible at all, refuse_repeated_single_use to refuse with exit 2 naming every value given and unwrap the single value back to the scalar clean_scalar expects). The refusal runs BEFORE clean_scalar reads any dest — a list where a string was expected is the classic silent break — and covers the r199 --from-stdin path too, because mode_note receives the merged namespace whatever produced it. Seam's --message is refused in the dispatcher, matching audit's window flags, since mode_seam takes unpacked parameters. Nothing is written on a refused call: WORKSPACE.md is byte-identical after a refused --goal/--goal, and .mindseam/history.json is untouched after a refused seam --message/--message. Scoped out as the remaining carriers: the read-path store flags (--format on seven commands, info --field/--explain/--index-since/--index-until/--audit-baseline, audit --intensity/--tag/--at/--baseline/--baseline-write) still last-win — each chooses a different projection or read parameter, so nothing is RECORDED wrongly, which is the distinction that ranked the write path first",
      "default": True},
 )
 
@@ -12025,7 +12075,8 @@ def main(argv=None):
                     help="run the analysis without appending to history.json (like terraform plan)")
     sm.add_argument("--quiet", dest="quiet", action="store_true",
                     help="suppress banner, ledger, telemetry, trend, remediation and heal; print only the observation facts (like pytest -q)")
-    sm.add_argument("--message", "--msg", dest="message", default=None,
+    sm.add_argument("--message", "--msg", dest="message",
+                    action="append", default=None,
                     help="attach a human-meaningful annotation to the recorded row (like git commit -m / kubectl annotate)")
     sm.add_argument("--from-stdin", dest="from_stdin", action="store_true",
                     help="read one next action per line from standard input (like kubectl apply -f - / xargs)")
@@ -12040,22 +12091,26 @@ def main(argv=None):
                     help="compute the reentry report without appending the history row or compacting history (like terraform plan / the same flag on seam and note); the JSON face carries a dry_run marker so a host can tell a preview from a real resume")
 
     n = sub.add_parser("note", help="record something in the ledger")
-    n.add_argument("--goal")
-    n.add_argument("--core")
-    n.add_argument("--core-slot", dest="core_slot", type=int, choices=(1, 2))
-    n.add_argument("--next")
-    n.add_argument("--check")
-    n.add_argument("--memory")
-    n.add_argument("--by")
-    n.add_argument("--open")
-    n.add_argument("--settled-by", dest="settled_by")
-    n.add_argument("--close", type=int)
-    n.add_argument("--marker")
-    n.add_argument("--confidence")
-    n.add_argument("--verifier")
-    n.add_argument("--error", help="what failed on this step, as 'domain: what broke'")
-    n.add_argument("--outcome", help="how the step actually landed (ok, failed, blocked, ...)")
+    n.add_argument("--goal", action="append")
+    n.add_argument("--core", action="append")
+    n.add_argument("--core-slot", dest="core_slot", type=int,
+                    choices=(1, 2), action="append")
+    n.add_argument("--next", action="append")
+    n.add_argument("--check", action="append")
+    n.add_argument("--memory", action="append")
+    n.add_argument("--by", action="append")
+    n.add_argument("--open", action="append")
+    n.add_argument("--settled-by", dest="settled_by", action="append")
+    n.add_argument("--close", type=int, action="append")
+    n.add_argument("--marker", action="append")
+    n.add_argument("--confidence", action="append")
+    n.add_argument("--verifier", action="append")
+    n.add_argument("--error", action="append",
+                    help="what failed on this step, as 'domain: what broke'")
+    n.add_argument("--outcome", action="append",
+                    help="how the step actually landed (ok, failed, blocked, ...)")
     n.add_argument("--extra-steps", dest="extra_steps", type=int,
+                    action="append",
                    help="how many unplanned sub-steps this step cost")
     n.add_argument("--from-stdin", dest="from_stdin", action="store_true",
                    help="read the flag/value spec from standard input instead of argv (like kubectl apply -f - / git config --file -); the payload is shlex-split and re-parsed by the note parser, so the edit semantics are identical to a command-line call. r199: exclusive with argv edit flags — a combined call is refused with exit 2 naming the flags the stdin spec would drop; --dry-run composes")
@@ -12436,6 +12491,14 @@ def main(argv=None):
             format_path=getattr(args, "format_path", None),
             explain=getattr(args, "explain", None))
     if args.cmd == "seam":
+        # r327: --message is a WRITE flag (it is recorded into the history
+        # row), so a repeated one silently recorded only the last value —
+        # the same class as note's fields. Refuse before the seam runs.
+        repeated = refuse_repeated_single_use(args, _SINGLE_USE_FLAGS["seam"])
+        if repeated is not None:
+            for line in repeated:
+                print(line, file=sys.stderr)
+            return 2
         return mode_seam(
             book,
             json_flag=getattr(args, "json", False),
