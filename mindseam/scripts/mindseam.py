@@ -9941,6 +9941,9 @@ _FEATURE_CATALOG = (
     {"id": "unimplemented-flag-refused", "since": "r336",
      "summary": "Found by an AST sweep: collect every add_argument dest, then collect every dest actually READ (args.X / getattr(args, \"X\")). One dest was registered and read by NOTHING — note --memory. It has never been read in any commit (git log -S'args.memory' is empty), the ledger has no Memory section (SECTIONS is the five info --list-fields documents), and no test drove it, so 'note --memory \"a durable fact\"' exited 0 having recorded nothing — the ledger was byte-identical afterwards. r327 called this the write path's lie (the caller believes a durable fact is in the ledger and it is not) and its own guard even listed --memory in the single-use table, so a REPEATED --memory was refused while a single one was silently discarded. The fix REFUSES the flag rather than implementing it: a sixth ledger section is a schema change (read_ledger / write_ledger / validate_book / every face / the untrusted echo surface), which is a feature, and the honest minimal fix for a flag that does nothing is to say so instead of inventing one — the r188/r205 idiom of never accepting an instruction you do not carry out. The refusal names where a durable fact actually goes (--check for a checkpoint, --marker/--confidence/--verifier for telemetry), fires before any other edit so a mixed call cannot apply half of itself, and is covered on the r199 --from-stdin path too. Scope: mode_note only; the flag stays registered so the error explains itself, the r327 repetition refusal still fires first, and the same probe confirms every OTHER note flag changes something. A test re-runs the AST sweep so a future registered-but-unread flag fails the suite",
      "default": True},
+    {"id": "info-face-refuses-payload-blocks", "since": "r337",
+     "summary": "mode_info's short-circuit faces answer from their own narrow source (--version the version, --check the issues, --memory the size, --list-fields the schema, --index the flat index) and each returns before the full report renders, so every payload BLOCK asked for alongside one was silently dropped. r200 closed the face/face pairs, r172 the renderer pairs, r202/r205 --explain and --warnings-only against the blocks — but the five faces that predate those rounds kept swallowing --health / --manifest / --mtime / --features / --aliases / --human / --workspace-id / --audit-baseline / --content-hash / --changed, and --text with them. Live before-fix: info --version --health exited 0 printing only the version; info --index --features exited 0 with no feature table; info --memory --content-hash exited 0 with no hashes. --text was the sharpest, because its documented contract is 'force a plain-text report even if --json is also set' and with a face it was dropped rather than honoured or refused. The fix adds the missing THIRD guard in the dispatcher, before any face branch runs, so a face never gets the chance to drop a block. Two deliberate exclusions keep every earlier contract intact: --explain and --warnings-only are left to their own r202/r205 refusals inside mode_info, which name the reason more specifically ('answers from the static catalog', 'prints the warning lines only'), and --warnings-only --json is exempt entirely because it prints the FULL payload (the r161 no-suppression pin) so a block alongside it is honoured, not dropped. Scope: the dispatcher guard only — --index's own modifiers (--index-since/--index-until) are not payload blocks and still compose, --json still rides every face as its machine sub-face, blocks still compose with each other, and r200/r172 are re-pinned in the same test file",
+     "default": True},
 )
 
 def _resolve_path(payload, path):
@@ -12606,6 +12609,47 @@ def main(argv=None):
                   % (", ".join(renderers), verb, ", ".join(faces)),
                   file=sys.stderr)
             return 2
+        # r337: the short-circuit faces are mutually exclusive with
+        # each other and with the renderers, but NOT with the payload
+        # blocks — every one of those was silently dropped. The family
+        # closed the face/face pairs in r200 and the renderer pairs in
+        # r172, then r202/r205 closed --explain and --warnings-only
+        # against the blocks; the five faces that predate them kept
+        # swallowing --health / --manifest / --mtime / --features /
+        # --aliases / --human / --workspace-id / --audit-baseline /
+        # --content-hash / --changed, and --text with them. The check
+        # runs BEFORE the branches so a face never gets the chance to
+        # drop anything.
+        # r202/r205 already refuse their own block combinations inside
+        # mode_info with a more specific message, so this guard covers
+        # only the five faces that predate them. --warnings-only --json
+        # is exempt for the r161 reason above.
+        needs_guard = [f for f in faces
+                       if f not in ("--explain", "--warnings-only")]
+        if needs_guard:
+            blocks = [name for name, picked in (
+                ("--health", getattr(args, "health", False)),
+                ("--manifest", getattr(args, "manifest", False)),
+                ("--mtime", getattr(args, "mtime", False)),
+                ("--features", getattr(args, "features", False)),
+                ("--aliases", getattr(args, "aliases", False)),
+                ("--human", getattr(args, "human", False)),
+                ("--workspace-id", getattr(args, "workspace_id", False)),
+                ("--audit-baseline",
+                 getattr(args, "audit_baseline", None) is not None),
+                ("--content-hash", getattr(args, "content_hash", False)),
+                ("--changed", getattr(args, "changed", False)),
+                ("--text", getattr(args, "text_only", False)),
+            ) if picked]
+            if blocks:
+                print("CANNOT: %s report from the full payload, and %s "
+                      "would be silently dropped; run them separately."
+                      % (", ".join(needs_guard), ", ".join(blocks)),
+                      file=sys.stderr)
+                print("  each of those faces answers on its own; the "
+                      "payload blocks belong to the full report (or to "
+                      "--json, which keeps every key).", file=sys.stderr)
+                return 2
 
     if args.cmd == "info" and getattr(args, "index", False):
         # r174: flat, line-oriented index. Borrowed from

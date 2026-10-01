@@ -10497,3 +10497,72 @@ round-note tables both take the r336 row.
 
 Suite after r336: 3644 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
+
+### Round 337 (test r337)
+
+THE DEFECT. mode_info's short-circuit faces answer from their own narrow
+source — --version the version, --check the issues, --memory the size,
+--list-fields the schema, --index the flat index — and each returns
+before the full report renders, so every payload BLOCK asked for
+alongside one was silently dropped.
+
+r200 closed the face/face pairs, r172 the renderer pairs, and r202/r205
+closed --explain and --warnings-only against the blocks — but the five
+faces that PREDATE those rounds kept swallowing them. Live before-fix:
+
+  info --version --health      -> rc 0, the version, no health block
+  info --version --features    -> rc 0, the version, no feature table
+  info --check --mtime         -> rc 0, the issues, no file snapshot
+  info --memory --content-hash -> rc 0, the size, no hashes
+  info --list-fields --aliases -> rc 0, the schema, no aliases
+  info --index --features      -> rc 0, the index, no feature table
+
+and the same for --manifest, --workspace-id, --audit-baseline, --changed
+and --human. --text is the sharpest: its documented contract is "force a
+plain-text report even if --json is also set", and with a face it was
+dropped rather than honoured or refused. A 5x11 matrix showed all 55
+combinations dropped at exit 0, and no test pinned any of them.
+
+THE FIX. The missing THIRD guard in the dispatcher, before any face
+branch runs, so a face never gets the chance to drop a block. Two
+deliberate exclusions keep every earlier contract intact:
+
+  --explain and --warnings-only are left to their own r202/r205 refusals
+  inside mode_info, which name the reason more specifically ("answers
+  from the static catalog", "prints the warning lines only");
+  --warnings-only --json is exempt entirely, because it prints the FULL
+  payload (the r161 no-suppression pin) so a block alongside it is
+  honoured, not dropped.
+
+Scope: the dispatcher guard only. --index's own modifiers
+(--index-since/--index-until) are not payload blocks and still compose,
+--json still rides every face as its machine sub-face, blocks still
+compose with each other, and r200/r172 are re-pinned in the same file.
+
+This round's own first cut had two bugs, both caught by the suite: it
+referenced an undefined json_flag in main() (a NameError, not a
+refusal), and it re-refused the r202/r205 pairs with the new generic
+message, breaking four pins that assert their specific wording. Fixed by
+reading the flag off args and by scoping the guard to the five faces
+that predate those rounds.
+
+New test file tests/test_r337_info_face_refuses_payload_blocks.py (19
+tests, 5 classes): FaceBlocksRefusedTests sweeps the 5x11 matrix plus
+the valued --audit-baseline, pins the named face and blocks, and that
+order does not matter; EarlierContractsPreservedTests pins the three
+exclusions (r161's full payload, r205's and r202's own messages, and
+explain's unknown-id precedence); SingleFaceStillWorksTests pins that
+each face alone and with --json still answers, the index window
+modifiers still compose, blocks alone and two-at-once still work, and
+r200/r172 still refuse; CatalogPinTests pins the r337 entry.
+
+Pins: r175 recent-count 157 -> 158; r200 empty-window bracket
+r337/r337 -> r338/r338. Catalog entry info-face-refuses-payload-blocks
+(since r337): import-verified catalog len 188, max since 337,
+recent(>=170) 158, r336's entry survived the append, module loads.
+
+Docs: SKILL.md's info --index line, README.md and README.zh-CN.md
+round-note tables both take the r337 row.
+
+Suite after r337: 3663 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
