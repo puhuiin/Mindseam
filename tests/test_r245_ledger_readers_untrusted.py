@@ -566,8 +566,12 @@ class ExistingContractTests(LedgerWorkspace):
     def test_history_json_keys_only_grew_one(self):
         self.write_ledger()
         payload = json.loads(self.run_cli("history", "--json").stdout)
-        for key in ("history_count", "limit", "since", "grep", "reverse",
-                    "rows", "untrusted"):
+        # r324: the payload carries the disclosure for every row filter,
+        # not only the two it started with — --until and --exclude were
+        # applied but never reported, so a host could not tell a narrowed
+        # payload from a short history.
+        for key in ("history_count", "limit", "since", "until", "grep",
+                    "exclude", "reverse", "rows", "untrusted"):
             self.assertIn(key, payload)
 
     def test_row_id_json_row_is_unmodified(self):

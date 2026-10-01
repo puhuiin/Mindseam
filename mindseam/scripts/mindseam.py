@@ -8498,7 +8498,9 @@ def mode_history(args):
             "history_count": len(hist),
             "limit": args.limit,
             "since": since_seconds,
+            "until": until_seconds,
             "grep": grep_text,
+            "exclude": exclude_text,
             "reverse": bool(getattr(args, "reverse", False)),
             "rows": list(hist),
         }
@@ -8678,8 +8680,18 @@ def mode_history(args):
     label = "── mindseam ─ history (" + _entries_noun(len(hist))
     if since_seconds is not None and since_seconds >= 0:
         label += ", last %d s" % since_seconds
+    if until_seconds is not None and until_seconds >= 0:
+        # r324: --until drops the fresh rows, so the surviving window is
+        # strictly OLDER than the bound — the mirror of the "last N s"
+        # clause above, and the disclosure the face never carried.
+        label += ", older than %d s" % until_seconds
     if grep_text:
         label += ", grep %r" % grep_text
+    if exclude_text:
+        # r324: --exclude narrows the rows exactly as --grep does, and
+        # the two are validated as a pair (r310), so the face that names
+        # one names both.
+        label += ", exclude %r" % exclude_text
     if getattr(args, "reverse", False):
         label += ", newest first"
     print(label + ")")
@@ -9564,6 +9576,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "verification-depth-verifier-noun", "since": "r323",
      "summary": "observations() surfaces a shallow-verification fact on every seam — 'Verification depth is shallow (%d unique verifier name(s)); confidence may be over-claimed' — with the lazy '(s)' plural idiom the r281-r291 singular/plural family has been clearing one surface at a time. The guard is 'vd <= 1 and first_verified_val is not None' and verification_depth returns the number of distinct verifiers in the STALL_RUN window, so the fact only ever fires at 0 (the window's verifier fields are all blank) or 1 (one name carries the whole window) — and at 1 it read '1 unique verifier name(s)', the wrong noun for a count of one. Live before-fix on a STALL_RUN-sized ledger with verified=1 and one verifier name: the seam --quiet face, the seam --dry-run text face ('· Verification depth is shallow (1 unique verifier name(s))') and the seam --json facts array all carried the identical lazy string. This is the family's ninth surface and its second DETECTOR FACT (r288's ledger-stagnation fact was the first), showing the family is not confined to a command's own projectors — a health/score detector's sentence is a face too, and one a CI host reads in the same facts payload. The fix pluralizes the noun on the same count with the regular-plural idiom r281/r283 use ('\"\" if vd == 1 else \"s\"'): 'name' pluralizes regularly so no stem-swap chokepoint is needed, 0 stays '0 unique verifier names' and only exactly 1 becomes '1 unique verifier name'. One chokepoint, one string — the text face, the seam --json facts array and an in-process observations() caller all read the same 'found' list, so agreeing the string once agrees every face by construction (the r254/r259 precedent). The guard, verification_depth itself (which counts distinct names), and the score layer's separate 'shallow verification depth -5' reason are untouched. One pre-existing test pinned the buggy string at the 0 case (test_r58_fact_layer.py:105, 'quotes its real number' — corrected in the open, keeping its intent that the measured 0 rather than a hardcoded 1 is what gets rendered)",
+     "default": True},
+    {"id": "history-filter-disclosure", "since": "r324",
+     "summary": "mode_history narrows its row set with four filters parsed in one block — --since/--until (a time window, r220) and --grep/--exclude (text, validated as a pair by r310) — and its two reporting faces disclosed only HALF of them. history --json carried 'since' and 'grep' but had no key for 'until' or 'exclude', and the text header printed ', last N s' for --since and ', grep …' for --grep but nothing for the other two. There is no principled reason for the split: all four narrow the same rows, --grep/--exclude are refused together when empty, and --since/--until bracket one window. The consequence is that a host reading history --json --exclude deploy receives the surviving rows with no exclude key at all, which is indistinguishable from a history that simply holds that many rows — the narrowing is invisible on the machine face, the r245/r270 doctrine inverted (a host must be able to tell WHAT narrowed the rows it is about to act on) and the r254/r259 discipline violated per filter rather than per family. Live before-fix on a three-row history: history --exclude deploy printed '── mindseam ─ history (2 entries)' with JSON keys {grep, history_count, limit, reverse, rows, since, untrusted} and no exclude; history --until 7200 likewise had no until. The fix discloses the missing two on BOTH faces, mirroring the shape the existing clauses use: 'until' and 'exclude' keys in the payload (null when unset, so the key set is stable), and ', older than N s' and ', exclude …' clauses in the header. A call with neither flag renders byte-identically to before, and the r220 window grammar, r310 empty-needle refusal, r222 inverted-window refusal and r275/r278 filter-then-truncate order are all unchanged — this is a disclosure fix, not a filtering change. Scoped out and pre-identified as the next carrier: a repeated --grep/--exclude still takes the last value (argparse store), so --exclude a --exclude b silently drops the earlier needle; the new disclosure at least makes the applied value visible on both faces, but the silent drop itself is the r188/r205 family's refusal case",
      "default": True},
 )
 

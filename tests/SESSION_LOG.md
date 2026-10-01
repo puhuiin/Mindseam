@@ -9581,3 +9581,88 @@ tables both).
 
 Suite after r323: 3370 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
+
+### Round 324 (test r324)
+
+mode_history narrows its row set with four filters parsed in one block:
+--since/--until (a time window, r220) and --grep/--exclude (text,
+refused as a pair when empty, r310). Its two reporting faces disclosed
+only HALF of them.
+
+history --json carried "since" and "grep" but had no key for "until" or
+"exclude" (mindseam.py:8497). The text header printed ", last N s" for
+--since and ", grep '…'" for --grep but nothing for the other two
+(mindseam.py:8678).
+
+There is no principled reason for the split: all four narrow the same
+rows. The consequence is that a host reading
+
+  history --json --exclude deploy
+
+receives the surviving rows with no "exclude" key at all, which is
+indistinguishable from a history that simply holds that many rows. The
+narrowing is invisible on the machine face.
+
+This is the r245/r270 doctrine inverted — a host must be able to tell
+WHAT narrowed the rows it is about to act on — and the r254/r259
+discipline violated per filter rather than per family. Four filters,
+two faces, and the disclosure was enumerated two at a time.
+
+Live before-fix (fresh workspace, three hand-written history rows):
+
+  history --exclude deploy
+    stdout: "── mindseam ─ history (2 entries)"
+    --json keys: grep, history_count, limit, reverse, rows, since,
+                 untrusted      <- no "exclude"
+
+  history --until 7200
+    stdout: "── mindseam ─ history (3 entries)"
+    --json keys: same set       <- no "until"
+
+  history --grep build
+    stdout: "── mindseam ─ history (1 entry, grep 'build')"
+    --json:    "grep": "build"   <- the two that WERE disclosed
+
+The fix discloses the missing two on both faces, mirroring the shape the
+existing clauses already use: "until" and "exclude" keys in the payload
+(null when unset, so the key set is stable) and ", older than N s" /
+", exclude '…'" clauses in the header. A call with neither flag renders
+byte-identically to before.
+
+Scope: this is a disclosure fix, not a filtering change. The r220 window
+grammar, the r310 empty-needle refusal, the r222 inverted-window refusal
+and the r275/r278 filter-then-truncate order are all untouched —
+re-pinned by tests rather than assumed.
+
+Scoped out and pre-identified as the next carrier: a repeated
+--grep/--exclude still takes the last value (argparse "store"), so
+
+  history --exclude deploy --exclude build
+
+keeps the "deploy" rows and silently drops the earlier needle at exit 0.
+That is the r188/r205 family's silent-ignore case; the new disclosure at
+least makes the applied value visible on both faces, but the silent drop
+itself is a distinct behaviour change.
+
+New test file tests/test_r324_history_filter_disclosure.py (20 tests,
+4 classes): JsonDisclosureTests pins the new keys (null when unset, the
+seconds/text when set, all four present in one payload, and every filter
+key enumerated); HeaderDisclosureTests pins the new clauses, the
+existing "last N s" / "grep '…'" clauses unchanged, the no-filter header
+byte-identical, and that each face names the value the other reports;
+SemanticsPreservedTests re-pins the r220/r222/r310/r275/r278 contracts
+under the fix; CatalogPinTests pins the r324 entry.
+
+One pre-existing test enumerated the old key set
+(test_r245_ledger_readers_untrusted.py's
+"test_history_json_keys_only_grew_one", which asserts the payload
+carries its disclosure keys) — extended in the open to include "until"
+and "exclude" rather than loosened.
+
+Pins: r175 recent-count 144 -> 145; r200 empty-window bracket
+r324/r324 -> r325/r325. Catalog entry history-filter-disclosure
+(since r324): import-verified catalog len 175, max since 324,
+recent(>=170) 145, r323's entry survived the append, module loads.
+
+Suite after r324: 3390 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
