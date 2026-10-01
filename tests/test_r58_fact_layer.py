@@ -102,7 +102,11 @@ class WordingAccuracyTests(unittest.TestCase):
         facts = mindseam.observations(hist)
         line = next((f for f in facts if "Verification depth" in f), None)
         self.assertIsNotNone(line, facts)
-        self.assertIn("(0 unique verifier name(s))", line)
+        # r323 corrected the noun the count renders with: the lazy "(s)"
+        # idiom read "0 unique verifier name(s)", now "(0 unique
+        # verifier names)". The number this test exists for — the real
+        # 0 rather than a hardcoded 1 — is unchanged.
+        self.assertIn("(0 unique verifier names)", line)
 
     def test_error_diversity_clause_differs_from_convergence(self):
         hist = [step(i, verified=0, verifier="") for i in range(4)]

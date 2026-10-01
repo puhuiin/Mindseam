@@ -9493,3 +9493,91 @@ hist-row-type-guard (since r322).
 
 Suite after r322: 3354 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
+
+### Round 323 (test r323)
+
+The r281-r291 singular/plural family closed its ninth surface, on the
+pre-identified carrier the family left behind. `observations()` — the
+detector layer `mode_seam` runs on every seam — surfaces a
+shallow-verification fact with the lazy `(s)` plural idiom
+(mindseam.py:1216):
+
+    found.append("Verification depth is shallow (%d unique verifier
+                 name(s)); confidence may be over-claimed." % vd)
+
+The branch's guard is `vd <= 1 and first_verified_val is not None`, and
+`verification_depth` returns the number of distinct verifiers in the
+STALL_RUN window, so the fact only ever fires at 0 or 1: 0 when the
+window's verifier fields are all blank, 1 when one name carries the
+whole window. At 1 it read "1 unique verifier name(s)". The plural
+branch above one is unreachable by construction.
+
+Live before-fix (STALL_RUN-sized ledger, verified=1, one verifier
+name, via the seam text face, `seam --quiet`, `seam --json` facts, and
+the in-process `observations()` call):
+
+  · Verification depth is shallow (1 unique verifier name(s)); confidence
+    may be over-claimed.
+
+Unlike r281-r287 (command projectors) this is a DETECTOR FACT — the
+same surface class as r288's ledger-stagnation fact and r290's stderr
+warning. A health detector's own sentence is a face a CI host reads
+from the same `facts` payload as any command output, so it must agree
+with its count too. This is what the family's second detector-fact
+surface confirms: the family is not confined to a command's own
+projectors.
+
+The fix pluralizes the noun on the same count with the regular-plural
+idiom r281/r283 use:
+
+  "" if vd == 1 else "s"
+
+"name" pluralizes regularly, so no stem-swap chokepoint is needed
+(r287's `_entries_noun` was only required because entry -> entries is
+irregular). 0 stays "0 unique verifier names"; only exactly 1 becomes
+"1 unique verifier name".
+
+One chokepoint, one string. The fact is appended to `found` once, and
+`found` is what the `seam --quiet` listing prints, what the `seam`
+bullet listing prints, and what `seam --json` ships as `facts` — so
+agreeing the string once agrees every face by construction (the
+r254/r259 precedent). No face-by-face sweep was needed.
+
+Scope kept deliberately narrow. The guard, `verification_depth` itself
+(which counts distinct names), and the score layer's separate reason
+"shallow verification depth -5" (mindseam.py:5877, whose wording has no
+count noun) are all unchanged — only the fact sentence moved.
+
+One pre-existing test pinned the buggy string at the 0 case:
+test_r58_fact_layer.py:105's `test_verification_depth_quotes_its_real_
+number` asserted "(0 unique verifier name(s))". Its intent — that the
+fact renders the number it MEASURED rather than a hardcoded 1 — is
+preserved; only the noun it pins was corrected to
+"(0 unique verifier names)".
+
+New test file tests/test_r323_verification_depth_verifier_noun.py
+(16 tests, 4 classes): VerificationDepthNounTests pins the noun at both
+reachable counts (0 plural, 1 singular), that vd >= 2 never reaches the
+fact, that the lazy idiom is gone, that the zero window still quotes its
+real number, and that a window below STALL_RUN stays silent;
+FacesAgreeTests drives live `seam --quiet`, `seam` (bullet face) and
+`seam --json` at one and zero verifiers and pins that the quiet line and
+the JSON fact are byte-identical and the bullet line is the JSON fact
+behind its "· "; GuardAndScopeTests pins the guard's own precondition
+(all-zero verified never fires), `verification_depth` unchanged, and the
+health reason wording unchanged; CatalogPinTests pins the r323 entry.
+
+Pins: r175 recent-count 143 -> 144; r200 empty-window bracket
+r323/r323 -> r324/r324; r58's bug-pinning assertion corrected.
+Catalog entry verification-depth-verifier-noun (since r323):
+import-verified catalog len 174, max since 323, recent(>=170) 144,
+r322's entry survived the append, module loads.
+
+Also closed a documentation gap left by the r291-r322 backlog commit:
+the README round-note table had no rows for r292-r322, so it read as
+though nothing happened between r291 and r323. Added one compact
+backfill row covering that range plus the r323 row (English and Chinese
+tables both).
+
+Suite after r323: 3370 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.

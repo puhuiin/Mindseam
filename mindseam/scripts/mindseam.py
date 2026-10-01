@@ -1213,7 +1213,15 @@ def observations(hist, meta=None, book=None, run=None, health=None):
         found.append("Action drift is high (%.0f%%); next-action intent is unstable." % (dv * 100))
     vd = verification_depth(hist)
     if vd <= 1 and first_verified_val is not None:
-        found.append("Verification depth is shallow (%d unique verifier name(s)); confidence may be over-claimed." % vd)
+        # r323: agree the noun with the count. The lazy "(s)" idiom read
+        # "1 unique verifier name(s)" at the one-verifier case, the
+        # r281-r291 singular/plural family on a detector fact. "name"
+        # pluralizes regularly, so the same idiom the siblings use
+        # (r281 --domains, r283 --span) spells it; the guard caps vd at
+        # 0 or 1, so 0 stays plural and only exactly 1 is singular.
+        found.append("Verification depth is shallow (%d unique verifier "
+                     "name%s); confidence may be over-claimed."
+                     % (vd, "" if vd == 1 else "s"))
     pc = premature_convergence(hist, book=book, run=run,
                                health_result=health)
     found.extend(pc)
@@ -9553,6 +9561,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "hist-row-type-guard", "since": "r322",
      "summary": "r316 hardened the _row_* helpers against malformed row VALUES; r322 hardens the detectors against non-dict row ITEMS. A history list with [1, 'x', {...}] crashed every inline h.get() in the detector family (146 functions). The CLI is safe because read_history drops non-dicts, but the detectors are callable directly. The fix adds _dict_rows(hist) — the read_history filter as a shared helper — and calls it at the nine entry points (observations, session_health_score, heal_actions, assess_risk, extract_skillbook, detect_stall, detect_volatility, detect_recovery, detect_risk_escalation) so every CLI path and every direct entry-point call is safe. Internal sub-detectors still assume dicts (they are called from the entry points with clean data). Post-fix crash-hunt of the nine entry points: 0 crashes",
+     "default": True},
+    {"id": "verification-depth-verifier-noun", "since": "r323",
+     "summary": "observations() surfaces a shallow-verification fact on every seam — 'Verification depth is shallow (%d unique verifier name(s)); confidence may be over-claimed' — with the lazy '(s)' plural idiom the r281-r291 singular/plural family has been clearing one surface at a time. The guard is 'vd <= 1 and first_verified_val is not None' and verification_depth returns the number of distinct verifiers in the STALL_RUN window, so the fact only ever fires at 0 (the window's verifier fields are all blank) or 1 (one name carries the whole window) — and at 1 it read '1 unique verifier name(s)', the wrong noun for a count of one. Live before-fix on a STALL_RUN-sized ledger with verified=1 and one verifier name: the seam --quiet face, the seam --dry-run text face ('· Verification depth is shallow (1 unique verifier name(s))') and the seam --json facts array all carried the identical lazy string. This is the family's ninth surface and its second DETECTOR FACT (r288's ledger-stagnation fact was the first), showing the family is not confined to a command's own projectors — a health/score detector's sentence is a face too, and one a CI host reads in the same facts payload. The fix pluralizes the noun on the same count with the regular-plural idiom r281/r283 use ('\"\" if vd == 1 else \"s\"'): 'name' pluralizes regularly so no stem-swap chokepoint is needed, 0 stays '0 unique verifier names' and only exactly 1 becomes '1 unique verifier name'. One chokepoint, one string — the text face, the seam --json facts array and an in-process observations() caller all read the same 'found' list, so agreeing the string once agrees every face by construction (the r254/r259 precedent). The guard, verification_depth itself (which counts distinct names), and the score layer's separate 'shallow verification depth -5' reason are untouched. One pre-existing test pinned the buggy string at the 0 case (test_r58_fact_layer.py:105, 'quotes its real number' — corrected in the open, keeping its intent that the measured 0 rather than a hardcoded 1 is what gets rendered)",
      "default": True},
 )
 
