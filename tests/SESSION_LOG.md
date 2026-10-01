@@ -9897,3 +9897,78 @@ recent(>=170) 148, r326's entry survived the append, module loads.
 
 Suite after r327: 3466 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
+
+### Round 328 (test r328)
+
+r325/r326/r327 closed the last-wins family three times over and each
+named the rest as the carriers. This round finishes the family and
+consolidates its mechanism.
+
+Remaining live before-fix, every one at exit 0 with only the LAST value
+applied:
+
+  seam/resume/ship/info/skillbook/discover/audit --format  -> renders the 2nd
+  info --field A --field B                                 -> shows B
+  info --index-since A --since B / --index-until           -> 2nd value
+  info --audit-baseline A --B                              -> file B
+  audit --intensity/--tag/--at/--baseline/--baseline-write
+        /--explain                                         -> 2nd value
+
+None of these RECORDS anything wrongly (that was r327's write path,
+which is why it went first), but each one answers a different question
+than the caller asked, with no signal that it did.
+
+The fix extends r326's shared _SINGLE_USE_FLAGS table to the read-path
+commands and MOVES the refusal to ONE hook in main(), immediately after
+the parse and before the ledger is read. That placement is what makes
+the family impossible to leave half-finished: a new subcommand inherits
+the guard by adding a table entry, not by remembering a per-command
+call.
+
+The three per-command hooks r325/r326/r327 added are removed as dead
+code — the universal hook already unwrapped their dests — EXCEPT
+mode_note's, which is the one guard the universal hook cannot cover:
+the r199 --from-stdin spec is parsed by a SECOND parse_args inside
+read_note_stdin_spec that the universal hook never sees, and mode_note
+receives that merged namespace. A repeated flag smuggled in through
+stdin is caught only there, and is pinned by test.
+
+This round's own first cut shipped an ordering bug: the seam table entry
+was omitted when the table was extended, so seam --format kept arriving
+at mode_seam as a LIST and raised AttributeError in _format_paths.
+Eleven tests from r170/r202/r203/r204/r222/r241/r246 caught it before
+commit — the suite doing its job, and a reminder that extending a
+shared table means adding the entry, not just the registration.
+
+Single-value calls are byte-identical: the format faces still render,
+one --format still takes its documented comma-separated path list (the
+real repeat mechanism), info --field and the index window still work,
+the r202/r205/r222 composition refusals are not shadowed, and audit --at
+still refuses out-of-range rather than as a repetition.
+
+New test file tests/test_r328_read_flag_repetition_refused.py (27 tests,
+6 classes): ReadPathRefusalTests runs all sixteen read cases one probe
+each and pins the count, the named values, the per-flag harm sentence,
+and that --at 1 --at 2 is a repetition refusal not a range refusal;
+SingleReadCallUnchangedTests pins the format faces render, the
+comma-separated multi-path form, info --field / the index window / the
+audit flags, --at's range refusal, and the r202/r222 composition
+refusals; UniversalHookTests pins the hook runs before the ledger read
+(a corrupted ledger still gets the repetition refusal), that a command
+with no table entry is fine, that the unwrap reaches dispatch, and that
+history's and note's refusals still precede their writes; StdinPathTests
+pins the r199 path — repeated flags through stdin refused, single flags
+still preview; TableTests pins every command is covered, the read
+commands carry format_path, info's own set, the r326/r327 tables
+unchanged, --filter absent everywhere, and no flag twice in one command;
+CatalogPinTests pins the r328 entry.
+
+Pins: r175 recent-count 148 -> 149; r200 empty-window bracket
+r328/r328 -> r329/r329; r326's audit-table assertion widened to audit's
+whole set and r327's command-set assertion widened to all nine (both
+corrected in the open). Catalog entry read-flag-repetition-refused
+(since r328): import-verified catalog len 179, max since 328,
+recent(>=170) 149, r327's entry survived the append, module loads.
+
+Suite after r328: 3493 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.

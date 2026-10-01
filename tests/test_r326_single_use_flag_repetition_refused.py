@@ -398,8 +398,14 @@ class SharedHelperTests(unittest.TestCase):
             self.assertIn(dest, dests)
 
     def test_audit_table_covers_its_window(self):
+        # r326 shipped audit with its two window flags; r328 completed the
+        # command's whole single-use set. The window pair is still in.
         dests = {dest for _, dest, _ in mindseam._SINGLE_USE_FLAGS["audit"]}
-        self.assertEqual(dests, {"since", "until"})
+        self.assertIn("since", dests)
+        self.assertIn("until", dests)
+        self.assertEqual(dests, {"since", "until", "intensity", "tag", "at",
+                                 "baseline", "baseline_write", "format_path",
+                                 "explain"})
 
     def test_filter_is_deliberately_absent(self):
         # --filter is genuinely repeatable (ANDed); it must never join

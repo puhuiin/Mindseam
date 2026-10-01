@@ -6989,9 +6989,15 @@ def mode_note(book, args):
     # Every flag registers with ``action="append"`` so the repetition is
     # visible at all; the refusal AND the unwrap-to-scalar run here,
     # BEFORE clean_scalar reads any of them (a list where a string was
-    # expected is the classic silent break). This also covers the r199
-    # --from-stdin path, because mode_note receives the merged namespace
-    # whatever produced it.
+    # expected is the classic silent break).
+    #
+    # This is the ONE per-command hook that survives r328's universal
+    # hook in main(): main() parses argv once and covers every command's
+    # CLI path, but the r199 --from-stdin spec is parsed by a SECOND
+    # parse_args inside read_note_stdin_spec, which the universal hook
+    # never sees — and mode_note receives that merged namespace whatever
+    # produced it. A repeated flag smuggled in through stdin is caught
+    # only here.
     repeated = refuse_repeated_single_use(args, _SINGLE_USE_FLAGS["note"])
     if repeated is not None:
         for line in repeated:
@@ -7728,6 +7734,8 @@ _SINGLE_USE_FLAGS = {
     ),
     "seam": (
         ("--message", "message", "the recorded message is not the one you asked for"),
+        ("--format", "format_path",
+         "the rendered projection is not the one you asked for"),
     ),
     "history": (        ("--head", "head",
          "the kept rows are not the ones you asked for"),
@@ -7758,6 +7766,53 @@ _SINGLE_USE_FLAGS = {
          "the window is not the one you asked for"),
         ("--until", "until",
          "the window is not the one you asked for"),
+        ("--intensity", "intensity",
+         "the report you get is not the one you asked for"),
+        ("--tag", "tag",
+         "the findings you see are not the ones you asked for"),
+        ("--at", "at",
+         "the seam you audit is not the one you asked for"),
+        ("--baseline", "baseline",
+         "the baseline you are gated against is not the one you asked for"),
+        ("--baseline-write", "baseline_write",
+         "the baseline you write is not the one you asked for"),
+        ("--format", "format_path",
+         "the rendered projection is not the one you asked for"),
+        ("--explain", "explain",
+         "the tag you are told about is not the one you asked for"),
+    ),
+    # r328: the read-path flags. Nothing here is RECORDED wrongly (unlike
+    # r327's write flags), so they went last — but each one still answers
+    # a different question than the caller asked, at exit 0.
+    "info": (
+        ("--format", "format_path",
+         "the rendered projection is not the one you asked for"),
+        ("--field", "field_path",
+         "the field you are shown is not the one you asked for"),
+        ("--explain", "explain",
+         "the feature you are told about is not the one you asked for"),
+        ("--index-since", "index_since",
+         "the index window is not the one you asked for"),
+        ("--index-until", "index_until",
+         "the index window is not the one you asked for"),
+        ("--audit-baseline", "audit_baseline",
+         "the drift report you get is not the one you asked for"),
+    ),
+    "resume": (
+        ("--format", "format_path",
+         "the rendered projection is not the one you asked for"),
+    ),
+    "ship": (
+        ("--format", "format_path",
+         "the rendered projection is not the one you asked for"),
+    ),
+    "skillbook": (
+        ("--format", "format_path",
+         "the rendered projection is not the one you asked for"),
+    ),
+    "discover": (
+        ("--format", "format_path",
+         "the rendered projection is not the one you asked for"),
     ),
 }
 
@@ -7829,31 +7884,10 @@ def mode_history(args):
     flag is the destructive part: ``--keep`` is a write, the
     others are reads.
     """
-    # r325/r326 FIRST: a repeated single-use flag was silently dropped.
-    # argparse's ``store`` action kept only the last value, so
-    # ``history --exclude build --exclude deploy`` exited 0 with
-    # "exclude 'deploy'" and LEFT THE "build: alpha" ROW IN THE OUTPUT,
-    # ``history --head 2 --head 5`` answered "5", and
-    # ``history --keep 100 --keep 0`` rotated the file to nothing. The
-    # r188/r205 silent-wrong-at-exit-0 family: on a filter or a locator
-    # it produces a WRONG ANSWER the caller cannot detect, on --keep it
-    # is silent data loss, and on every other flag a quietly different
-    # question was answered.
-    #
-    # Every flag in _SINGLE_USE_FLAGS registers with
-    # ``action="append"`` purely so the repetition is visible at all;
-    # the refusal AND the unwrap-to-scalar happen here, at the top of
-    # the mode, BEFORE any other reader of these dests (the r276
-    # --row-id message interpolates args.row_id, and the r208
-    # truncation guard compares args.head/--tail/--limit) and before the
-    # destructive --keep rotation (the r276 placement doctrine), so a
-    # refused call never touches disk. A single value keeps its old
-    # scalar shape, so nothing downstream changes.
-    refused = refuse_repeated_single_use(args, _SINGLE_USE_FLAGS["history"])
-    if refused is not None:
-        for line in refused:
-            print(line, file=sys.stderr)
-        return 2
+    # r325/r326/r328: the repetition refusal for this command runs in
+    # main(), immediately after the parse and before every dispatch, so
+    # it already ran and already unwrapped every single value back to a
+    # scalar before this line. Nothing below sees a list.
     # r197/r198: the six renderers are mutually exclusive. The branch
     # order (--csv, --domains, --span, --row-id, --json, --quiet,
     # --count, --format) made the first one win and silently dropped
@@ -9739,6 +9773,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "write-flag-repetition-refused", "since": "r327",
      "summary": "r326 closed the read/selector flags and named the rest as carriers; this round takes the ones where the harm is highest — the flags that WRITE. note records one value per ledger field and seam records one message, and every one registered with argparse's default store action, which keeps only the LAST value, so the ledger ended up holding something different from what was asked with no way to tell afterwards. Live before-fix on an open ledger: 'note --next nx --open Q1? --settled-by s1 --open Q2? --settled-by s2' -> rc=0, printed 'Open: ?01 Q2? — settled by: s2' and recorded exactly one open question, the second; 'note --goal a --goal b' -> Goal 'b'; 'note --core a --core b' -> one core item; 'note --check c1 --check c2' -> one checkpoint; 'seam --dry-run --message a --message b' -> rc=0. The --open case is the sharpest because the tool prints a single '?01' line, so a model queuing two questions in one call silently loses the first and reads the output as success. The fix reuses r326's mechanism unchanged (action='append' so the repetition is visible at all, refuse_repeated_single_use to refuse with exit 2 naming every value given and unwrap the single value back to the scalar clean_scalar expects). The refusal runs BEFORE clean_scalar reads any dest — a list where a string was expected is the classic silent break — and covers the r199 --from-stdin path too, because mode_note receives the merged namespace whatever produced it. Seam's --message is refused in the dispatcher, matching audit's window flags, since mode_seam takes unpacked parameters. Nothing is written on a refused call: WORKSPACE.md is byte-identical after a refused --goal/--goal, and .mindseam/history.json is untouched after a refused seam --message/--message. Scoped out as the remaining carriers: the read-path store flags (--format on seven commands, info --field/--explain/--index-since/--index-until/--audit-baseline, audit --intensity/--tag/--at/--baseline/--baseline-write) still last-win — each chooses a different projection or read parameter, so nothing is RECORDED wrongly, which is the distinction that ranked the write path first",
+     "default": True},
+    {"id": "read-flag-repetition-refused", "since": "r328",
+     "summary": "r325/r326/r327 closed the last-wins family three times over and each named the rest as carriers; this round finishes the family and consolidates its mechanism. Remaining live before-fix, every one at exit 0 with only the LAST value applied: seam/resume/ship/info/skillbook/discover/audit --format each rendered the second path; info --field showed the second field; info --index-since/--index-until bracketed from the second value; info --audit-baseline used the second file; audit --intensity/--tag/--at/--baseline/--baseline-write/--explain each used the second value (audit --at 1 --at 2 reached the range check rather than a repetition refusal). None of these RECORDS anything wrongly — that was r327's write path, which is why it went first — but each answers a different question than the caller asked, with no signal that it did. The fix extends r326's shared _SINGLE_USE_FLAGS table to the read-path commands and MOVES the refusal to ONE hook in main(), immediately after the parse and before the ledger is read. That placement is what makes the family impossible to leave half-finished: a new subcommand inherits the guard by adding a table entry, not by remembering a per-command call. The three per-command hooks r325/r326/r327 added are removed as dead code — the universal hook already unwrapped their dests — EXCEPT mode_note's, which is the one guard the universal hook cannot cover, because the r199 --from-stdin spec is parsed by a SECOND parse_args inside read_note_stdin_spec that the universal hook never sees and mode_note receives that merged namespace (a repeated flag smuggled in through stdin is caught only there, pinned by test). The ordering bug this round's own first cut shipped: the seam table entry was omitted when the table was extended, so seam --format kept arriving at mode_seam as a LIST and raised AttributeError in _format_paths — caught by 11 r170/r202/r203/r204/r222/r241/r246 tests before commit, which is the suite doing its job. Single-value calls are byte-identical: the format faces still render, one --format still takes its documented comma-separated path list (the real repeat mechanism), info --field and the index window still work, the r202/r205/r222 composition refusals are not shadowed, and audit --at still refuses out-of-range rather than as a repetition. The last-wins family is now closed for all 46 store flags; --filter remains deliberately repeatable and ANDed everywhere",
      "default": True},
 )
 
@@ -12080,12 +12117,14 @@ def main(argv=None):
                     help="attach a human-meaningful annotation to the recorded row (like git commit -m / kubectl annotate)")
     sm.add_argument("--from-stdin", dest="from_stdin", action="store_true",
                     help="read one next action per line from standard input (like kubectl apply -f - / xargs)")
-    sm.add_argument("--format", dest="format_path", default=None,
+    sm.add_argument("--format", dest="format_path", action="append",
+                    default=None,
                     help="render only the values at the given dot-paths (comma-separated), like the same flag on info; the seam still records its history row, the way seam --json does")
     rs = sub.add_parser("resume", help="premise, invariants and full ledger, after a gap")
     rs.add_argument("--json", action="store_true",
                     help="emit machine-readable output for the discoverability layer")
-    rs.add_argument("--format", dest="format_path", default=None,
+    rs.add_argument("--format", dest="format_path", action="append",
+                    default=None,
                     help="render only the values at the given dot-paths (comma-separated), like the same flag on info (a missing path returns an empty string, not an error)")
     rs.add_argument("--dry-run", dest="dry_run", action="store_true",
                     help="compute the reentry report without appending the history row or compacting history (like terraform plan / the same flag on seam and note); the JSON face carries a dry_run marker so a host can tell a preview from a real resume")
@@ -12123,7 +12162,8 @@ def main(argv=None):
                    help="exit non-zero when a finding is reported (CI gate)")
     s.add_argument("--json", action="store_true",
                    help="emit machine-readable output for the discoverability layer")
-    s.add_argument("--format", dest="format_path", default=None,
+    s.add_argument("--format", dest="format_path", action="append",
+                    default=None,
                    help="render only the values at the given dot-paths; the exit contract is byte-identical across faces, so a host gating on the process exit code gets the same answer either way")
 
     info_p = sub.add_parser("info", help="print an aggregate digest of the workspace state")
@@ -12143,7 +12183,8 @@ def main(argv=None):
         help="describe the ledger schema (like kubectl explain / man page)")
     info_p.add_argument("--workspace-id", dest="workspace_id", action="store_true",
         help="emit a stable 16-hex workspace fingerprint (path + ledger mtime) so a host can verify it is in the right workspace (like direnv stdlib / poetry env info / pytest --test-environment)")
-    info_p.add_argument("--audit-baseline", dest="audit_baseline", default=None,
+    info_p.add_argument("--audit-baseline", dest="audit_baseline",
+                         action="append", default=None,
         help="path to a JSON baseline file (same shape as audit --baseline-write); info --json then carries an audit_baseline_diff block with fresh/baselined counts and a drift flag (like flutter analyze --baseline)")
     info_p.add_argument("--manifest", dest="manifest", action="store_true",
         help="emit an audit_manifest block listing every tag the audit can fire and how many findings each produced, including tags that did not fire (seen-but-clean) so a host can verify the audit actually ran the full detector set")
@@ -12161,18 +12202,23 @@ def main(argv=None):
         help="emit a features block listing every flag, block, and gate the controller can do, indexed by stable id and the round that introduced it (like the features list of `gh` / `rustup component list`)")
     info_p.add_argument("--aliases", dest="aliases", action="store_true",
         help="emit an aliases block listing built-in and user-defined short names; user aliases come from `.mindseam/aliases.json` (like the list output of `gh alias` / `git config` filter on `alias.`)")
-    info_p.add_argument("--format", dest="format_path", default=None,
+    info_p.add_argument("--format", dest="format_path", action="append",
+                         default=None,
         help="render only the values at the given dot-paths (comma-separated), the way `docker inspect --format` or `kubectl get -o jsonpath` does. A missing path returns an empty string (not an error); a list indexer uses `[N]` or `[*]`")
-    info_p.add_argument("--field", dest="field_path", default=None, metavar="PATH",
+    info_p.add_argument("--field", dest="field_path", action="append",
+                         default=None, metavar="PATH",
         help="single-key dot-path shorthand for `--format`: one token prints the value at that one key (the way `git rev-parse <ref>` or `kubectl get <obj>` does). Mutually exclusive with `--format`; r172 rounds out the dot-path surface the way `--format` did in r169")
-    info_p.add_argument("--explain", dest="explain", default=None,
+    info_p.add_argument("--explain", dest="explain", action="append",
+                         default=None,
         metavar="FEATURE-ID",
         help="print the static documentation for one capability id (summary, since, default) and exit, like kubectl explain; reads the built-in feature catalog, so it works in an empty workspace; unknown ids refuse with exit 2")
     info_p.add_argument("--index", dest="index", action="store_true",
         help="print a flat, line-oriented index of subcommand.flag names and their since round, the way pytest's fixture listing does; line-per-entry, greppable, exits 0, works in an empty workspace. r200: --json emits the same list as {\"index\": [...]}; mutually exclusive with the other short-circuit faces (--version/--check/--memory/--list-fields) and with --format/--field — combined calls are refused with exit 2")
-    info_p.add_argument("--index-since", dest="index_since", default=None, metavar="ROUND",
+    info_p.add_argument("--index-since", dest="index_since",
+                         action="append", default=None, metavar="ROUND",
         help="with --index, only list features introduced in this round or later; r175 borrows from the listing flag of `tldr` / `git log --since` (filter an index by recency), the way `git log --since` filters a log by date. Accepts the literal round tag (r156, r175) the SESSION_LOG and the commit subject use")
-    info_p.add_argument("--index-until", dest="index_until", default=None, metavar="ROUND",
+    info_p.add_argument("--index-until", dest="index_until",
+                         action="append", default=None, metavar="ROUND",
         help="with --index, the upper bound on --index-since: only list features introduced in this round or earlier. Together the two flags bracket a round window, the way the same flags do on `git log` / `journalctl`")
 
     hist_p = sub.add_parser("history", help="tail the seam audit log")
@@ -12251,21 +12297,25 @@ def main(argv=None):
     sk = sub.add_parser("skillbook", help="recurring patterns harvested from the seam history")
     sk.add_argument("--json", action="store_true",
                     help="emit machine-readable output for the discoverability layer")
-    sk.add_argument("--format", dest="format_path", default=None,
+    sk.add_argument("--format", dest="format_path", action="append",
+                    default=None,
                     help="render only the values at the given dot-paths; paths resolve against a dict root with one key, entries (like the same flag on info)")
     dv = sub.add_parser("discover", help="rank the visited next-action domains")
     dv.add_argument("--json", action="store_true",
                     help="emit machine-readable output for the discoverability layer")
-    dv.add_argument("--format", dest="format_path", default=None,
+    dv.add_argument("--format", dest="format_path", action="append",
+                    default=None,
                     help="render only the values at the given dot-paths (comma-separated), like the same flag on info (a missing path returns an empty string, not an error)")
     au = sub.add_parser("audit", help="report ledger waste, one tagged line per finding (report only)")
     au.add_argument("--json", action="store_true",
                     help="emit machine-readable output for the discoverability layer")
     au.add_argument("--strict", action="store_true",
                     help="exit non-zero when a finding is reported (CI gate)")
-    au.add_argument("--intensity", dest="intensity", default=None,
+    au.add_argument("--intensity", dest="intensity", action="append",
+                    default=None,
                     help="finding verbosity ladder: lite caps the report at 3 findings, full prints all (default), off refuses to run. Flag beats the MINDSEAM_INTENSITY environment variable (like PONYTAIL_DEFAULT_MODE)")
-    au.add_argument("--tag", dest="tag", default=None,
+    au.add_argument("--tag", dest="tag", action="append",
+                    default=None,
                     help="comma-separated list of audit tags to include (delete,stdlib,yagni,shrink,goal-stale,next-stall,core-drift); unknown tags are refused. The full audit still runs; only the listed tags appear in the report (like gh pr list --label)")
     au.add_argument("--since", dest="since", action="append",
                     default=None,
@@ -12273,18 +12323,50 @@ def main(argv=None):
     au.add_argument("--until", dest="until", action="append",
                     default=None,
                     help="the upper bound on --since, in the same three shapes. Composes with --since to bracket a window (like the same flag on journalctl / git log --until). Negative values are refused with exit 2")
-    au.add_argument("--at", dest="at", type=int, default=None,
+    au.add_argument("--at", dest="at", type=int, action="append",
+                    default=None,
                     help="audit as of the 1-based row N in history: slices the history to hist[:N] so the audit reflects everything that had happened by that seam (like git log -1 / gh pr view N). Out-of-range exits 2 to stderr. Exclusive with --since/--until: a combined call is refused with exit 2 (the at-branch slices, the window flags filter the live log — they never applied together)")
-    au.add_argument("--baseline", dest="baseline", default=None,
+    au.add_argument("--baseline", dest="baseline", action="append",
+                    default=None,
                     help="path to a JSON baseline file (produced by --baseline-write); findings whose (tag, what) fingerprint matches a baseline entry are marked baselined in the output and excluded from the --strict gate (like eslint --baseline / terraform plan -detailed-exitcode)")
-    au.add_argument("--baseline-write", dest="baseline_write", default=None,
+    au.add_argument("--baseline-write", dest="baseline_write",
+                    action="append", default=None,
                     help="write the current audit findings to a JSON file so the next run can use it as --baseline; the write happens before the report, so a single invocation can record and gate in one shot (like eslint --output-file)")
-    au.add_argument("--format", dest="format_path", default=None,
+    au.add_argument("--format", dest="format_path", action="append",
+                    default=None,
                     help="render only the values at the given dot-paths (comma-separated), like the same flag on info; the --strict exit contract is byte-identical across faces (a missing path returns an empty string, not an error)")
-    au.add_argument("--explain", dest="explain", default=None, metavar="TAG",
+    au.add_argument("--explain", dest="explain", action="append",
+                    default=None, metavar="TAG",
                     help="print the static documentation for one audit tag (trigger / fix / evidence) and exit, like git help or kubectl explain; works in an empty workspace, unknown tags refuse with exit 2")
 
     args = p.parse_args(argv)
+
+    # r326/r327/r328: ONE hook, every command. A single-use flag passed
+    # twice used to be silently dropped (argparse's ``store`` keeps only
+    # the last value), so every subcommand answered a question the caller
+    # did not ask at exit 0 — r325 history's text filters (a row the
+    # caller excluded stayed in the output), r326 history's selectors and
+    # audit's window, r327 note's ledger fields and seam's message.
+    #
+    # Registering each flag with ``action="append"`` makes the repetition
+    # VISIBLE at all (under ``store`` the earlier value is already gone
+    # by the time a mode runs), and this one call both refuses the
+    # repetition with exit 2 naming every value given AND unwraps the
+    # surviving single value back to the scalar every reader expects.
+    #
+    # The hook sits here — right after the parse, before the ledger is
+    # read and before any dispatch — so it precedes every command's own
+    # work, including history's destructive --keep rotation, and it can
+    # never be forgotten for a new subcommand. mode_note keeps its own
+    # call because the r199 --from-stdin spec is parsed by a SECOND
+    # parse_args this hook never sees, and mode_note receives that merged
+    # namespace.
+    repeated = refuse_repeated_single_use(
+        args, _SINGLE_USE_FLAGS.get(getattr(args, "cmd", ""), ()))
+    if repeated is not None:
+        for line in repeated:
+            print(line, file=sys.stderr)
+        return 2
 
     if args.cmd == "info":
         # r200: the short-circuit faces are mutually exclusive, and
@@ -12464,19 +12546,9 @@ def main(argv=None):
             json_flag=getattr(args, "json", False),
             format_path=getattr(args, "format_path", None))
     if args.cmd == "audit":
-        # r326: a repeated --since / --until was silently dropped. argparse's
-        # ``store`` action kept only the last value, so the run answered a
-        # window question the caller did not ask — the r188/r205
-        # silent-wrong-at-exit-0 family, which r325 hit on history's text
-        # filters and this round widens to every single-use flag. Both
-        # register with ``action="append"`` so the repetition is visible at
-        # all; audit writes nothing, so refusing here precedes every step.
-        refused = refuse_repeated_single_use(args,
-                                            _SINGLE_USE_FLAGS["audit"])
-        if refused is not None:
-            for line in refused:
-                print(line, file=sys.stderr)
-            return 2
+        # r326/r328: audit's repetition refusal runs in main() for every
+        # command, so it already ran and already unwrapped the single
+        # values before this dispatch.
         return mode_audit(
             book,
             json_flag=getattr(args, "json", False),
@@ -12491,14 +12563,9 @@ def main(argv=None):
             format_path=getattr(args, "format_path", None),
             explain=getattr(args, "explain", None))
     if args.cmd == "seam":
-        # r327: --message is a WRITE flag (it is recorded into the history
-        # row), so a repeated one silently recorded only the last value —
-        # the same class as note's fields. Refuse before the seam runs.
-        repeated = refuse_repeated_single_use(args, _SINGLE_USE_FLAGS["seam"])
-        if repeated is not None:
-            for line in repeated:
-                print(line, file=sys.stderr)
-            return 2
+        # r327/r328: seam's repetition refusal runs in main() for every
+        # command, so it already ran and already unwrapped the single
+        # value before this dispatch.
         return mode_seam(
             book,
             json_flag=getattr(args, "json", False),

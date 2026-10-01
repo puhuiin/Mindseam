@@ -275,13 +275,18 @@ class TableTests(unittest.TestCase):
             self.assertIn(dest, dests)
 
     def test_seam_table_covers_the_message(self):
+        # r327 shipped seam with just --message; r328 added --format.
         self.assertEqual({dest for _, dest, _
                           in mindseam._SINGLE_USE_FLAGS["seam"]},
-                         {"message"})
+                         {"message", "format_path"})
 
-    def test_all_four_commands_are_present(self):
+    def test_every_command_is_present(self):
+        # r327 shipped four commands (note, seam, history, audit); r328
+        # extended the same table to the read-path commands, so the
+        # single-use set now spans the whole tool.
         self.assertEqual(set(mindseam._SINGLE_USE_FLAGS),
-                         {"note", "seam", "history", "audit"})
+                         {"note", "seam", "history", "audit", "info",
+                          "resume", "ship", "skillbook", "discover"})
 
     def test_helper_unwraps_and_reports(self):
         import argparse
