@@ -145,6 +145,7 @@ def doc_check(tag):
         "goal-stale": "re-anchored",
         "next-stall": "3 or more of the last 5",
         "msg-stall": "non-empty seam message appears in 3 or more",
+        "thin-evidence": "names a coverage word and nothing else",
         "core-drift": "Next and Core disagree",
     }[tag]
 

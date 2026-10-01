@@ -84,27 +84,31 @@ class TagTaxonomyTests(unittest.TestCase):
     """Pin the tag set: every facet is enumerable and ranked."""
 
     def test_seven_tags_are_registered(self):
-        # r340: seven became eight when ``msg-stall`` landed. The four
-        # surface tags keep their r156 positions and the facet tags keep
-        # the order they were added, so the ``order`` map inside
-        # ``audit_findings`` still builds deterministically.
+        # r340: seven became eight (msg-stall); r341 makes nine
+        # (thin-evidence). The four surface tags keep their r156
+        # positions and the facet tags keep the order they were added,
+        # so the ``order`` map inside ``audit_findings`` still builds
+        # deterministically.
         self.assertEqual(
             mindseam.AUDIT_TAGS,
-            ("delete", "stdlib", "yagni", "shrink",
+            ("delete", "stdlib", "thin-evidence", "yagni", "shrink",
              "goal-stale", "next-stall", "msg-stall", "core-drift"))
 
     def test_tag_order_keeps_surface_first_then_facets(self):
-        # The four surface tags stay in their r156 positions; the
-        # facet tags follow in the order they were added. The
-        # ``order`` map inside ``audit_findings`` builds from this
-        # tuple, so a stray reorder would change the lite cap
-        # silently.
-        self.assertEqual(mindseam.AUDIT_TAGS[:4],
-                         ("delete", "stdlib", "yagni", "shrink"))
+        # The four r156 surface tags keep their positions; the later
+        # additions append after them. The ``order`` map inside
+        # ``audit_findings`` builds from this tuple, so a stray reorder
+        # would change the lite cap silently.
         # r340: next-stall and msg-stall are a PAIR — the same rule on
         # the planned action and on the reported outcome — and they sit
         # together for that reason, with core-drift last as before.
-        self.assertEqual(mindseam.AUDIT_TAGS[4:],
+        # r341: ``thin-evidence`` joined ``stdlib`` inside the surface
+        # block because both are Verified-section quality tags, so the
+        # surface block is now five wide.
+        self.assertEqual(mindseam.AUDIT_TAGS[:5],
+                         ("delete", "stdlib", "thin-evidence", "yagni",
+                          "shrink"))
+        self.assertEqual(mindseam.AUDIT_TAGS[5:],
                          ("goal-stale", "next-stall", "msg-stall",
                           "core-drift"))
 

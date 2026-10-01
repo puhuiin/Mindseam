@@ -181,6 +181,9 @@ COVERAGE = re.compile(
     # comparisons ("n <= 6", "n >= 1") — the old [<=] class took one
     # character and silently missed the ASCII spelling every host
     # types.
+    # r341: and the bare ">" was still missing while its mirror "<" was
+    # present, so "n > 8" was refused and "n < 8" recorded. An upper
+    # bound is a scope statement, exactly as a lower bound is.
     # r307: the same precision pass on the Chinese set and "up to".
     # 文件/记录/命令/分支/范围/全部/所有/目录/路径/路由 are everyday
     # prose ("已经验证了这个文件" matched on 文件), and bare "up to"
@@ -189,7 +192,7 @@ COVERAGE = re.compile(
     # (覆盖/用例/输入/边界/样本/…) stays.
     r"(?:\b(?:cases?|inputs?|samples?|bounds?|boundaries|edges?|"
     r"random(?:ized)?|including|up\s+to\s+\d+|Windows|Linux|macOS|Chrome|Firefox|Safari)\b|"
-    r"\b(?:Python|Node(?:\.js)?)\s*\d|\bn\s*(?:<=|>=|<|≤|=)\s*\d|"
+    r"\b(?:Python|Node(?:\.js)?)\s*\d|\bn\s*(?:<=|>=|<|>|≤|=)\s*\d|"
     r"(?:覆盖|每个|每条|各条|每项|逐一|逐条|边界|上下限|上限|下限|"
     r"输入|用例|行数|行号|场景|平台|环境|浏览器|"
     r"数据集|模块|章节|区段|分段|"
@@ -197,6 +200,53 @@ COVERAGE = re.compile(
     r"随机|样本|样例|截至))",
     re.I,
 )
+
+# r341: the words that quantify coverage without stating any. A verifier
+# built only from these plus a coverage keyword ("all cases") has named
+# that coverage exists without naming a single case.
+_COVERAGE_QUANTIFIERS = frozenset(
+    ("all", "every", "each", "both", "any", "the", "of", "and", "or",
+     "a", "an", "some", "various", "only", "just"))
+
+
+def verifier_names_coverage(text):
+    """True when ``text`` says what the verification covered.
+
+    r341: ``COVERAGE`` (r306/r307) implements INVARIANTS[5]'s letter —
+    refuse a verifier that names no coverage vocabulary at all. Its
+    purpose is the invariant's words: "Something was called verified
+    without stating what the verification covered", and that purpose is
+    defeated by a bare keyword, which is exactly what passes the gate.
+    Live before this round, on a fresh workspace::
+
+        note --check "done the thing" --by "cases"
+            -> exit 0, Verified: ✓01 done the thing — verified by: cases
+
+    The checkpoint records that coverage exists and names nothing: not a
+    case, a bound, a platform or a sample. ``inputs`` / ``samples`` /
+    ``bounds`` / ``edges`` / ``including`` / ``random`` / ``randomized``
+    / ``Windows`` / ``Chrome`` and ``all cases`` all pass the same way.
+    This is the reward-hacking shape SWE-Marathon (arXiv 2606.07682)
+    measured across 1,300 rollouts — 13.8% contain "exploit-shaped
+    action ... to bypass the intended workflow" — reproduced here
+    deterministically: satisfy the verifier, bypass the intent.
+
+    A verifier states coverage when it keeps MORE than the keyword. A
+    numeric bound is a statement about scope (``n<=6``, ``n = 3``,
+    ``up to 10 cases``), and so is any substantive word surviving after
+    the keywords are removed (``including empty and maximum``). The
+    Chinese set behaves the same way: ``验证方式与覆盖范围`` keeps
+    substantive words and ``覆盖`` alone does not.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return False
+    if not COVERAGE.search(text):
+        return False          # the r306/r307 gate owns this half
+    if any(ch.isdigit() for ch in text):
+        return True           # a bound is a scope statement
+    words = [w for w in re.split(r"\W+", COVERAGE.sub(" ", text).lower())
+             if w]
+    return [w for w in words if w not in _COVERAGE_QUANTIFIERS] != []
 
 
 # ------------------------------------------------------------------------- ledger
@@ -637,6 +687,27 @@ def _row_msg(row):
     """
     v = row.get("msg")
     return v if isinstance(v, str) else ""
+
+
+def _row_verifier_text(row):
+    """Return a Verified row's verifier tail, or "" when it has none.
+
+    r341: ``last_verifier`` reads only the LAST Verified row, and the new
+    ``thin-evidence`` audit tag needs every row's tail. Same split, same
+    closure-suffix strip (that is ledger bookkeeping, not part of the
+    verifier identity — r317), applied per row. A row with no
+    `` — verified by: `` separator is a checkpoint recorded without one,
+    which reads as no verifier at all.
+    """
+    if not isinstance(row, str):
+        return ""
+    if " — verified by: " in row:
+        name = row.split(" — verified by: ", 1)[1]
+    elif " — " in row:
+        name = row.split(" — ", 1)[1]
+    else:
+        return ""
+    return RESERVED_CLOSE_SUFFIX.sub("", name)
 
 
 def _row_error(row):
@@ -7247,7 +7318,13 @@ def mode_note(book, args):
                     "remove `— closes: ?NN`; the controller records it only after --close succeeds",
                 )
             )
-        elif not COVERAGE.search(args.by):
+        elif not verifier_names_coverage(args.by):
+            # r341: the predicate, not the raw keyword match. COVERAGE's
+            # own letter is unchanged — a verifier with no coverage
+            # vocabulary is still refused — but a value that is ONLY the
+            # vocabulary now is too, because INVARIANTS[5] promises
+            # "without stating what the verification covered" and
+            # ``--by cases`` states nothing. One check covers both halves.
             refused.append(
                 (
                     INVARIANTS[5],
@@ -9984,6 +10061,9 @@ _FEATURE_CATALOG = (
     {"id": "msg-stall-boilerplate-reflection", "since": "r340",
      "summary": "Borrowed from two 2026 results on what agent trajectories actually do. ReFlect (arXiv 2605.05737) measured in-trajectory self-critique at 70B scale and found '>= 90% boilerplate reflections, <= 1.7% course correction' — the model re-describes its situation instead of recording what changed — and SWE-Marathon (arXiv 2606.07682) names the same shape among long-horizon failure modes ('poor self-verification, self-reported infeasibility, and premature termination') across 1,300 real rollouts. Both papers land on Mindseam's own founding claim: reliability comes from the wrapper's deterministic checks, not the model's free-text self-report (ReFlect's prompt-level verifier hits a 76-98% false-positive ceiling while 'deterministic Python routing' is what breaks through). Mindseam already carried the ingredients for the deterministic half — every seam records a free-text msg alongside its next, and audit's next-stall tag fires when the same next appears in 3 of the last 5 seams — but a reflection that records nothing about what CHANGED was invisible, because next-stall measures the planned ACTION, not the reported OUTCOME. Live before-fix, a ledger whose last five seams each carried a DIFFERENT next but the identical msg answered 'Lean already. Ship.' at exit 0 with by_tag {} and no findings, while the mirror ledger (identical next, distinct msg) correctly reported next-stall — the axis with no detector was the one that matters for a self-report, and both axes stalled together produced only next-stall. The fix adds the missing half of the pair as a new audit tag msg-stall (id letter M, eighth tag, own audit --explain entry): the same rule on the same window (last 5) with the same bar (3) and the same evidence shape (msg value, seam_indices, count, window brackets), so a host that already reasons about next-stall reasons about this one for free. Blank messages are excluded — a blank message is absence, not boilerplate, and shrink already reports the blank-next family — so a workspace that never records msg (the common case) can never trip it and the finding cannot double-report; the count is keyed on the STRIPPED message via r338's _row_msg helper, so 'same' and '  same  ' are one key and only one finding is emitted, and a non-string msg is absent rather than a crash. Precision guards pinned by tests: 2-of-5 is below the bar, a repeat confined to rows older than the window does not fire, a short session cannot trip it, and all-distinct messages are clean. Audit-surface churn was measured: the three tests that failed were all pins on the tag TAXONOMY (r159's seven-tag tuple and r171's explain sweep), not on any detector's output, so no existing fixture accidentally fires the new finding — the detection is genuinely new coverage rather than a relabelled one. The finding rides every projector next-stall rides (--tag projection, --baseline write/read, --intensity, --strict exit 1, --format, --explain) and carries the r245 untrusted framing, so a planted directive inside a repeated message is tagged rather than echoed as a conclusion",
      "default": True},
+    {"id": "thin-evidence-reward-hacking", "since": "r341",
+     "summary": "Borrowed from SWE-Marathon (arXiv 2606.07682), which audited 1,300 real long-horizon agent rollouts and found 13.8% carrying an 'exploit-shaped action ... to bypass the intended workflow', 10.2% of them shipping a clear verifier bypass. Mindseam's coverage gate is exactly such a verifier: COVERAGE (r306/r307) refuses a --by value that names no coverage vocabulary, implementing INVARIANTS[5] ('Something was called verified without stating what the verification covered') — the letter enforced, the purpose not, because a value that is ONLY the vocabulary passes. Live before-fix on a fresh workspace: 'note --check \"done the thing\" --by \"cases\"' recorded '✓01 done the thing — verified by: cases' at exit 0, stating that coverage exists and naming nothing: not a case, a bound, a platform or a sample. inputs / samples / bounds / edges / including / random / randomized / Windows / Chrome and 'all cases' all passed the same way — the deterministic shape of 'satisfy the verifier, bypass the intent'. THE FIX has two halves. Write path: a new verifier_names_coverage() predicate replaces the raw keyword match at the gate, so a value that keeps only the keyword is refused with the SAME INVARIANTS[5] message; a numeric bound is a statement about scope (n<=6, n = 3, up to 10 cases, and r341 also adds the bare '>' to the operator branch, whose mirror '<' was present while '>' was missing so 'n > 8' was refused and 'n < 8' recorded), and so is any substantive word surviving after the keywords are removed ('including empty and maximum'); the Chinese set behaves identically (覆盖 alone is thin, 验证方式与覆盖范围 is not). Read path: a hand-written ledger was recorded under the old rule, so a ninth audit tag thin-evidence (id letter T) reports it — grouped by verifier text the way next-stall groups by the repeated value, so five checkpoints all reading 'by: cases' are ONE finding naming five rows, with row_text carried so the r245 untrusted framing rides it as the sibling Verified-section tags already do. SCOPE is load-bearing and pinned: the detector fires only on the reward-hacking shape — a verifier that MATCHED the gate and then stated nothing. A verifier with no coverage vocabulary at all (verified by: brute force) is a different, older defect r306 already refuses at the write path, so it is excluded rather than reported as though this round found it. That scope is what held the churn to five taxonomy pins and zero detector-output changes: no existing fixture carries the reward-hacking shape. A structural consequence worth naming: a verifier carrying a planted directive is substantive by the very rule that decides thinness (any surviving word counts), so the two concerns are disjoint on the verifier, and the finding quotes only the verifier plus the row pointer — pinned rather than assumed",
+     "default": True},
 )
 
 def _resolve_path(payload, path):
@@ -11261,7 +11341,7 @@ def mode_discover(json_flag=False, format_path=None):
 # ponytail audit considers how the code evolved, not only what the code
 # looks like in this commit.
 AUDIT_TAGS = (
-    "delete", "stdlib", "yagni", "shrink",
+    "delete", "stdlib", "thin-evidence", "yagni", "shrink",
     "goal-stale", "next-stall", "msg-stall", "core-drift",
 )
 
@@ -11284,6 +11364,11 @@ AUDIT_TAG_EXPLAIN = {
         "trigger": "a Verified entry is recorded twice; one canonical checkpoint would do",
         "fix": "keep one canonical checkpoint, drop the hand-rolled copy",
         "evidence": "row index, normalised row text, canonical row + index",
+    },
+    "thin-evidence": {
+        "trigger": "a Verified row's verifier names a coverage word and nothing else, so the coverage gate was satisfied in form only",
+        "fix": "record what the verification covered: a bound (n <= 6), or the cases it ran (including empty and maximum)",
+        "evidence": "row index, the verifier text, the rows sharing it",
     },
     "yagni": {
         "trigger": "the Core section carries entries beyond the two live slots the ledger surface reads",
@@ -11457,6 +11542,57 @@ def audit_findings(book, hist):
                      "canonical": canonical,
                      "canonical_index": canonical_index,
                  })
+
+    # r341: the reward-hacking detector. SWE-Marathon (arXiv 2606.07682)
+    # measured 13.8% of 1,300 long-horizon rollouts carrying an
+    # "exploit-shaped action ... to bypass the intended workflow", and
+    # the deterministic shape of that in a hand-written ledger is a
+    # checkpoint whose verifier satisfied ``COVERAGE``'s letter while
+    # stating nothing about what the verification covered — ``verified
+    # by: cases``. The write path now refuses those (r341 tightened the
+    # gate to its own invariant), but a ledger already on disk was
+    # recorded under the old rule, and this is the read-path half.
+    # Live before this round, a ledger with one thin checkpoint and one
+    # open question: audit answered "Lean already. Ship." with by_tag {}
+    # — the false claim of verification was invisible to the report whose
+    # job is ledger waste.
+    #
+    # Grouped by verifier text so five checkpoints that all read "by:
+    # cases" are ONE finding naming five rows, the way ``next-stall``
+    # groups by the repeated value rather than firing once per seam.
+    #
+    # The scope is the reward-hacking shape and only that: a verifier
+    # that MATCHED the coverage gate and then stated nothing. A verifier
+    # with no coverage vocabulary at all (``verified by: brute force``)
+    # is a different, older defect that r306/r307 already refuses at the
+    # write path, so it is excluded here rather than reported as though
+    # this round found it.
+    thin_by_verifier = {}
+    for index, row in enumerate(book.get("Verified", [])):
+        verifier = _row_verifier_text(row)
+        if (not COVERAGE.search(verifier)
+                or verifier_names_coverage(verifier)):
+            continue
+        thin_by_verifier.setdefault(verifier, []).append(index + 1)
+    for verifier, rows in sorted(thin_by_verifier.items(),
+                                 key=lambda vi: (-len(vi[1]), vi[0])):
+        if len(rows) > 1:
+            what = ("Verified rows %s share a verifier that names no "
+                    "coverage: `%s`" % (", ".join(str(r) for r in rows),
+                                        verifier))
+        else:
+            what = ("Verified #%d has a verifier that names no coverage: "
+                    "`%s`" % (rows[0], verifier))
+        emit("thin-evidence",
+             what,
+             "record what the verification covered: a bound (n <= 6), or the cases it ran (including empty and maximum)",
+             {
+                 "rows": rows,
+                 "row_text": _audit_norm(
+                     book["Verified"][rows[0] - 1]) or "(empty)",
+                 "verifier": verifier,
+                 "count": len(rows),
+             })
 
     parked = len(book.get("Core", [])) - 2
     if parked > 0:
@@ -11674,7 +11810,8 @@ def audit_findings(book, hist):
     # ledger's own ?NN / ✓NN prefixes; the (tag, what)
     # fingerprint from r162 remains the stable cross-run key.
     tag_letter = {
-        "delete": "D", "stdlib": "S", "yagni": "Y", "shrink": "K",
+        "delete": "D", "stdlib": "S", "thin-evidence": "T",
+        "yagni": "Y", "shrink": "K",
         "goal-stale": "G", "next-stall": "N", "msg-stall": "M",
         "core-drift": "C",
     }

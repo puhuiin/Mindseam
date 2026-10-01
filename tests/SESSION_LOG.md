@@ -10856,3 +10856,107 @@ and README.zh-CN.md round-note tables both take the r340 row.
 
 Full suite after r340: 3766 passed, 0 failed. verify_suite 9/9, run
 bare, exit 0.
+
+### Round 341 (test r341) — integration round two: thin-evidence
+
+THE SOURCE. SWE-Marathon (arXiv 2606.07682), found by the r340 survey
+and named there as a carrier. It audited 1,300 real long-horizon agent
+rollouts and found 13.8% carrying an "exploit-shaped action ... to
+bypass the intended workflow", 10.2% of them shipping a clear verifier
+bypass. Its framing of the reward-hacking shape — satisfy the verifier,
+bypass the workflow it exists to enforce — is what this round borrows.
+
+THE GAP. Mindseam's coverage gate is exactly such a verifier. COVERAGE
+(r306/r307) refuses a `--by` value that names no coverage vocabulary,
+implementing INVARIANTS[5]: "Something was called verified without
+stating what the verification covered." The letter was enforced. The
+purpose was not, because a value that is ONLY the coverage vocabulary
+passes. Live before this round, on a fresh workspace:
+
+  note --check "done the thing" --by "cases"
+      -> exit 0
+      -> Verified: ✓01 done the thing — verified by: cases
+
+The checkpoint records that coverage exists and names nothing: not a
+case, a bound, a platform or a sample. `inputs` / `samples` / `bounds`
+/ `edges` / `including` / `random` / `randomized` / `Windows` /
+`Chrome` and `all cases` all passed the same way.
+
+THE FIX has two halves, both needed.
+
+Write path: a new `verifier_names_coverage()` predicate replaces the raw
+keyword match at the gate, so a value that keeps only the keyword is
+refused with the SAME INVARIANTS[5] message. A numeric bound is a
+statement about scope (`n<=6`, `n = 3`, `up to 10 cases`), and so is any
+substantive word surviving after the keywords are removed
+(`including empty and maximum`). The Chinese set behaves identically.
+
+Read path: a hand-written ledger was recorded under the old rule, so a
+ninth audit tag `thin-evidence` (id letter T) reports it — grouped by
+verifier text, the way `next-stall` groups by the repeated value, so
+five checkpoints that all read "by: cases" are ONE finding naming five
+rows. `row_text` is carried so the r245 untrusted framing rides it, as
+its sibling Verified-section tags already do.
+
+A SECOND FINDING IN THE SAME REGEX. Building the scope test surfaced it:
+COVERAGE's operator branch accepted `<=`, `>=`, `<` and `=` but not the
+bare `>`, so `n > 8` was refused while `n < 8` recorded. An upper bound
+is a scope statement exactly as a lower bound is. One character, same
+class, same round.
+
+SCOPE IS LOAD-BEARING. My first cut fired on EVERY verifier that named
+no coverage — which included `verified by: brute force`, a value r306
+already refuses at the write path. That broke 14 tests, because
+hand-written fixtures legitimately carry that older defect, and it would
+have meant reporting a known-and-refused problem as this round's
+discovery. Narrowing the detector to "MATCHED the gate and then stated
+nothing" — the reward-hacking shape and only that — dropped the churn to
+FIVE taxonomy pins and ZERO detector-output changes. The predicate's own
+first half (`if not COVERAGE.search(text): return False`) is what makes
+the narrowing possible, so the fix was already latent in the helper.
+
+A SECOND SCOPE CONSEQUENCE, worth naming. A verifier carrying a planted
+directive is substantive by the very rule that decides thinness (any
+surviving word counts), so the two concerns are disjoint on the
+verifier: a directive-bearing verifier can never be reported as thin,
+and a thin verifier can never carry a directive. Pinned rather than
+assumed, because the obvious first test — "a directive in a thin
+verifier is framed" — is unsatisfiable by construction.
+
+New test file tests/test_r341_thin_evidence_reward_hacking.py (55
+tests, 10 classes): VerifierNamesCoverageTests pins the predicate across
+bare keywords, bare-keyword-plus-quantifier, keyword-plus-content, the
+numeric bounds, the platform names, the Chinese set, non-strings and
+empty values, and that everything COVERAGE already refused is still
+refused; WriteGateTests pins all 17 thin verifiers refused and all 11
+substantive ones recorded, that a refusal writes nothing, that the
+close-with-checkpoint contract still holds, and that --check still
+requires --by; ThinEvidenceAuditTests pins the report, the grouping, the
+out-of-scope class, the evidence shape with row_text, the what-string
+for one and many rows, the [T1] text rendering, and the two
+disjointness facts; TaxonomyTests pins the nine-tag tuple, that
+thin-evidence sits adjacent to stdlib, the complete explain set and the
+T id letter; ProjectorTests pins --explain, --tag projection both ways,
+--baseline write and read, --strict exit 1, --intensity lite and full,
+the manifest counts, and --format; HealthSurfaceTests pins the r242
+roll-up reason rather than a new one, and that a substantive workspace
+is still ok; RowVerifierTextTests pins the per-row extractor agrees with
+r317's last_verifier; CatalogPinTests pins the entry.
+
+Pins: r175 recent-count 161 -> 162; r200 empty-window bracket
+r341/r341 -> r342/r342. r159's surface/facet order pins and r340's
+taxonomy pins all advanced to nine. Catalog entry
+thin-evidence-reward-hacking (since r341): import-verified catalog len
+192, max since 341, AUDIT_TAGS is now nine entries, r340's entry
+survived the append, module loads.
+
+Docs: SKILL.md's `note --check` line takes the r341 clause; README.md
+and README.zh-CN.md round-note tables both take the r341 row.
+
+Measured churn: 5 failures, all taxonomy pins (r159's tuple and order,
+r159's explain sweep, r340's two pins). Zero detector-output changes —
+no existing fixture carries the reward-hacking shape, so the new
+coverage is genuinely new.
+
+Full suite after r341: 3821 passed, 0 failed (3766 before + 55 new). verify_suite 9/9, run
+bare, exit 0.

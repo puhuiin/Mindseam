@@ -255,14 +255,18 @@ class TagTaxonomyTests(unittest.TestCase):
     """The taxonomy grew by one and the pair sits together."""
 
     def test_eight_tags_registered(self):
+        # r341: `thin-evidence` joined `stdlib` in the surface block
+        # (both are Verified-section quality tags), so the r340 eight
+        # became nine and the surface block is five wide.
         self.assertEqual(
             mindseam.AUDIT_TAGS,
-            ("delete", "stdlib", "yagni", "shrink",
+            ("delete", "stdlib", "thin-evidence", "yagni", "shrink",
              "goal-stale", "next-stall", "msg-stall", "core-drift"))
 
     def test_surface_tags_keep_their_r156_positions(self):
-        self.assertEqual(mindseam.AUDIT_TAGS[:4],
-                         ("delete", "stdlib", "yagni", "shrink"))
+        self.assertEqual(mindseam.AUDIT_TAGS[:3],
+                         ("delete", "stdlib", "thin-evidence"))
+        self.assertEqual(mindseam.AUDIT_TAGS[3:5], ("yagni", "shrink"))
 
     def test_msg_stall_sits_next_to_next_stall(self):
         # The two are one rule on two fields and belong adjacent.
@@ -448,7 +452,8 @@ class CatalogPinTests(unittest.TestCase):
         self.assertIn("msg-stall", entry["summary"])
 
     def test_catalog_grew_by_one(self):
-        # 190 before r340; one entry lands.
+        # 190 before r340; r341 (and later rounds) keep appending above
+        # it, so this pin is a floor: the count can only grow.
         self.assertGreaterEqual(len(mindseam._FEATURE_CATALOG), 191)
 
     def test_catalog_shape_unchanged(self):
