@@ -10103,3 +10103,73 @@ round-note tables both take the r330 row.
 
 Suite after r330: 3528 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
+
+### Round 331 (test r331)
+
+r329 and r330 found defects by sweeping the module for functions no test
+names. This round swept the same list against the survivors and probed
+each one through its caller.
+
+NO DEFECT WAS FOUND. What the sweep found instead is that several
+contracts the probes confirmed are pinned only on their MESSAGE, or not
+at all, so a later round could change the behaviour and the suite would
+stay green. That is a coverage gap, and closing it is the optimisation
+this round delivers.
+
+Probed and found correct:
+
+  info --changed across seven state-file shapes (absent, empty dict,
+    list root, string root, corrupt JSON, partial hashes, nulls) -
+    _read_info_state guards every one and always returns {}.
+  info --workspace-id / --content-hash.
+  ship's file reader across UTF-8/16/32 BOMs, an empty file, NUL bytes
+    (exit 2), undecodable latin-1 (exit 2) and a directory.
+  Cross-face numeric agreement over five ledger configurations:
+    history count, audit net, info History/Open and discover's top
+    visits all agree between the text and JSON faces.
+  --grep / --exclude case symmetry; --filter's unknown-key refusal.
+  --core / --core-slot parking rules (a plain --core on a full pair
+    parks the new entry; a duplicate is not added twice).
+
+The three gaps this round pins:
+
+  1. --core-slot's parking STRUCTURE. Core[:2] is the live pair and a
+     displaced or overflow entry lands in Core[2:]. The only existing
+     pin (test_core_slot_swap_shows_parking_notice) asserted the seam
+     report's two-live-at-a-time wording, which a display-only change
+     would satisfy.
+  2. --exclude's case-insensitivity and its field scope. --grep's
+     case-insensitivity is a comment in the baseline file, but
+     --exclude - the other half of the r310 pair - had no pin, so the
+     two could drift apart and the pair no longer partitions the same
+     rows.
+  3. The open-number retirement END TO END. next_open_number is
+     unit-tested against a hand-built book (r128/r147) and the refusal
+     is tested (r206), but the CLI sequence open -> close -> open,
+     which is what actually guarantees a closed number is never
+     reused, was not.
+
+New test file tests/test_r331_sweep_verified_contracts.py (22 tests, 4
+classes): CoreParkingStructureTests pins the live pair, the parked
+overflow, the slot swap parking the displaced entry, the other live
+entry surviving a swap, slot 2 before slot 1 refused, out-of-range slot
+refused, an already-live entry not re-slot-able, the no-separator
+refusal and no duplicate; GrepExcludeSymmetryTests pins --grep and
+--exclude agree on case, read the same fields, and partition the same
+rows, plus --filter's case-sensitive key; OpenNumberRetirementTests
+pins open -> close -> open never reuses the number, the closed number
+recorded on the checkpoint, double close refused, close requiring its
+checkpoint, absent number refused and a stray un-numbered row not
+blocking a close; CatalogPinTests pins the r331 entry.
+
+Pins: r175 recent-count 151 -> 152; r200 empty-window bracket
+r331/r331 -> r332/r332. Catalog entry
+sweep-verified-contracts-pinned (since r331): import-verified catalog
+len 182, max since 331, recent(>=170) 152, r330's entry survived the
+append, module loads.
+
+Docs: SKILL.md's note --core / --core-slot lines, README.md and
+README.zh-CN.md round-note tables both take the r331 row.
+
+Suite after r331: 3550 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
