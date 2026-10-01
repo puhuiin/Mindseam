@@ -7673,6 +7673,77 @@ def _render_format_lines(hist, template, row_no=None):
     return lines
 
 
+# r326: the single-use flags of history and audit. Each is registered
+# with ``action="append"`` so a repetition is VISIBLE at all — argparse's
+# default ``store`` action has already discarded the earlier value by the
+# time the mode runs, which is what let ``--exclude build --exclude
+# deploy`` answer with the "build" row still in the output (r325) and
+# ``--head 2 --head 5`` answer "5" (this round). A flag passed once
+# unwraps back to the scalar every reader expects.
+_SINGLE_USE_FLAGS = {
+    "history": (
+        ("--head", "head",
+         "the kept rows are not the ones you asked for"),
+        ("--tail", "tail",
+         "the kept rows are not the ones you asked for"),
+        ("--limit", "limit",
+         "the kept rows are not the ones you asked for"),
+        ("--since", "since",
+         "the window is not the one you asked for"),
+        ("--until", "until",
+         "the window is not the one you asked for"),
+        ("--keep", "keep",
+         "a destructive rotation can keep rows you asked to drop, or "
+         "drop rows you asked to keep"),
+        ("--row-id", "row_id",
+         "the located row is not the one you asked for"),
+        ("--fields", "fields",
+         "the reported columns are not the ones you asked for"),
+        ("--format", "format",
+         "the rendered template is not the one you asked for"),
+        ("--grep", "grep",
+         "a row you asked to keep can be missing from the result"),
+        ("--exclude", "exclude",
+         "a row you asked to exclude can still be in the result"),
+    ),
+    "audit": (
+        ("--since", "since",
+         "the window is not the one you asked for"),
+        ("--until", "until",
+         "the window is not the one you asked for"),
+    ),
+}
+
+
+def refuse_repeated_single_use(args, specs):
+    """Refuse a flag given more than once; unwrap the surviving value.
+
+    ``specs`` is a sequence of ``(flag, dest, harm)`` triples. Only the
+    last value of a repeated flag would have been used, so the earlier
+    ones were dropped without a word and the run answered a question
+    the caller did not ask. Returns the stderr lines to print, or
+    ``None`` when every flag was passed at most once — in which case
+    each single-element list is unwrapped back to the scalar the rest
+    of the mode and both faces expect.
+    """
+    for flag, dest, harm in specs:
+        value = getattr(args, dest, None)
+        if not isinstance(value, list):
+            continue
+        if len(value) > 1:
+            return [
+                "CANNOT: %s was given %d times (%s)."
+                % (flag, len(value),
+                   ", ".join(repr(v) for v in value)),
+                "  Only the last is kept and the earlier ones are "
+                "dropped silently, so %s. Pass %s once; to narrow on "
+                "more than one field use --filter KEY=VALUE, which is "
+                "repeatable and ANDs." % (harm, flag),
+            ]
+        setattr(args, dest, value[0] if value else None)
+    return None
+
+
 def mode_history(args):
     """Print the recent seam history.
 
@@ -7711,6 +7782,31 @@ def mode_history(args):
     flag is the destructive part: ``--keep`` is a write, the
     others are reads.
     """
+    # r325/r326 FIRST: a repeated single-use flag was silently dropped.
+    # argparse's ``store`` action kept only the last value, so
+    # ``history --exclude build --exclude deploy`` exited 0 with
+    # "exclude 'deploy'" and LEFT THE "build: alpha" ROW IN THE OUTPUT,
+    # ``history --head 2 --head 5`` answered "5", and
+    # ``history --keep 100 --keep 0`` rotated the file to nothing. The
+    # r188/r205 silent-wrong-at-exit-0 family: on a filter or a locator
+    # it produces a WRONG ANSWER the caller cannot detect, on --keep it
+    # is silent data loss, and on every other flag a quietly different
+    # question was answered.
+    #
+    # Every flag in _SINGLE_USE_FLAGS registers with
+    # ``action="append"`` purely so the repetition is visible at all;
+    # the refusal AND the unwrap-to-scalar happen here, at the top of
+    # the mode, BEFORE any other reader of these dests (the r276
+    # --row-id message interpolates args.row_id, and the r208
+    # truncation guard compares args.head/--tail/--limit) and before the
+    # destructive --keep rotation (the r276 placement doctrine), so a
+    # refused call never touches disk. A single value keeps its old
+    # scalar shape, so nothing downstream changes.
+    refused = refuse_repeated_single_use(args, _SINGLE_USE_FLAGS["history"])
+    if refused is not None:
+        for line in refused:
+            print(line, file=sys.stderr)
+        return 2
     # r197/r198: the six renderers are mutually exclusive. The branch
     # order (--csv, --domains, --span, --row-id, --json, --quiet,
     # --count, --format) made the first one win and silently dropped
@@ -7851,34 +7947,6 @@ def mode_history(args):
                   "--row-id its output.", file=sys.stderr)
             return 2
     keep_n = getattr(args, "keep", None)
-    # r325: a repeated --grep / --exclude was silently dropped. argparse's
-    # ``store`` action keeps only the last value, so
-    # ``history --exclude build --exclude deploy`` exited 0 with
-    # "exclude 'deploy'" and LEFT THE "build: alpha" ROW IN THE OUTPUT —
-    # the row the first flag asked to drop. That is the r188/r205
-    # silent-wrong-at-exit-0 family, and on a filter it produces a wrong
-    # answer rather than an undisclosed one: the caller sees rows it
-    # explicitly ruled out and cannot tell.
-    #
-    # The two flags now register with ``action="append"`` purely so the
-    # repetition is visible at all; the refusal fires here, BEFORE the
-    # destructive --keep rotation (the r276 placement doctrine), so a
-    # refused call never touches disk. A single needle keeps its old
-    # scalar shape, so neither the payload key nor the header clause
-    # changes.
-    for name, value in (("--grep", getattr(args, "grep", None)),
-                        ("--exclude", getattr(args, "exclude", None))):
-        if isinstance(value, list) and len(value) > 1:
-            print("CANNOT: %s was given %d times (%s)."
-                  % (name, len(value),
-                     ", ".join(repr(v) for v in value)), file=sys.stderr)
-            print("  Only the last is kept, and the earlier ones are "
-                  "dropped silently — so a row you asked to exclude can "
-                  "still be in the result. Use ONE %s, or --filter "
-                  "KEY=VALUE (repeatable, all filters AND together) to "
-                  "narrow on more than one field." % name,
-                  file=sys.stderr)
-            return 2
     # r214: refuse a negative --keep the way audit --since and
     # note --extra-steps refuse negatives. The old
     # ``keep_n >= 0`` guard made ``history --keep -1`` a silent
@@ -9617,7 +9685,10 @@ _FEATURE_CATALOG = (
      "summary": "mode_history narrows its row set with four filters parsed in one block — --since/--until (a time window, r220) and --grep/--exclude (text, validated as a pair by r310) — and its two reporting faces disclosed only HALF of them. history --json carried 'since' and 'grep' but had no key for 'until' or 'exclude', and the text header printed ', last N s' for --since and ', grep …' for --grep but nothing for the other two. There is no principled reason for the split: all four narrow the same rows, --grep/--exclude are refused together when empty, and --since/--until bracket one window. The consequence is that a host reading history --json --exclude deploy receives the surviving rows with no exclude key at all, which is indistinguishable from a history that simply holds that many rows — the narrowing is invisible on the machine face, the r245/r270 doctrine inverted (a host must be able to tell WHAT narrowed the rows it is about to act on) and the r254/r259 discipline violated per filter rather than per family. Live before-fix on a three-row history: history --exclude deploy printed '── mindseam ─ history (2 entries)' with JSON keys {grep, history_count, limit, reverse, rows, since, untrusted} and no exclude; history --until 7200 likewise had no until. The fix discloses the missing two on BOTH faces, mirroring the shape the existing clauses use: 'until' and 'exclude' keys in the payload (null when unset, so the key set is stable), and ', older than N s' and ', exclude …' clauses in the header. A call with neither flag renders byte-identically to before, and the r220 window grammar, r310 empty-needle refusal, r222 inverted-window refusal and r275/r278 filter-then-truncate order are all unchanged — this is a disclosure fix, not a filtering change. A repeated --grep/--exclude took the last value (argparse store), silently dropping the earlier needle; r325 fixed that carrier — both flags now register with action=append and the repetition is refused with exit 2 naming every value given",
      "default": True},
     {"id": "repeated-text-filter-refused", "since": "r325",
-     "summary": "history registered --grep and --exclude with argparse's default store action, so a second value silently overwrote the first: 'history --exclude build --exclude deploy' exited 0 reading exclude 'deploy' and LEFT THE 'build: alpha' ROW IN THE OUTPUT — the exact row the first flag asked to drop. Unlike a purely undisclosed flag this is a WRONG ANSWER, the r188/r205 silent-wrong-at-exit-0 family on the text-filter pair r310 already refuses as a pair. Live before-fix on a three-row history: 'history --grep build --grep deploy' -> rc=0, header 'history (1 entry, grep 'deploy')', rows [deploy: beta]; 'history --exclude build --exclude deploy' -> rc=0, header 'history (2 entries, exclude 'deploy')', rows [build: alpha, test: gamma]. The fix registers both flags with action='append' so the repetition is VISIBLE at all (store had already discarded the first value by the time mode_history ran), then refuses it with exit 2 naming every value given, before any row is read and ahead of the destructive --keep rotation (the r276 placement doctrine) so a refused call never touches disk — verified by asserting history.json is byte-identical after a refused '--grep a --grep b --keep 0'. A single needle unwraps back to the scalar the rest of mode_history and both faces expect, so the r324 payload keys and header clauses keep their shape byte-for-byte (a no-flag call and a single-needle call are both unchanged), and the r310 empty-needle refusal and the r276/r320 row-id refusal still fire independently. Scoped out as the family's remaining carriers: history's other single-value flags (--since/--until/--head/--tail/--limit/--fields/--format/--row-id) still last-win; audit --since also last-wins. Only the text-filter pair loses a ROW the caller explicitly excluded, which is why it went first",
+     "summary": "history registered --grep and --exclude with argparse's default store action, so a second value silently overwrote the first: 'history --exclude build --exclude deploy' exited 0 reading exclude 'deploy' and LEFT THE 'build: alpha' ROW IN THE OUTPUT — the exact row the first flag asked to drop. Unlike a purely undisclosed flag this is a WRONG ANSWER, the r188/r205 silent-wrong-at-exit-0 family on the text-filter pair r310 already refuses as a pair. Live before-fix on a three-row history: 'history --grep build --grep deploy' -> rc=0, header 'history (1 entry, grep 'deploy')', rows [deploy: beta]; 'history --exclude build --exclude deploy' -> rc=0, header 'history (2 entries, exclude 'deploy')', rows [build: alpha, test: gamma]. The fix registers both flags with action='append' so the repetition is VISIBLE at all (store had already discarded the first value by the time mode_history ran), then refuses it with exit 2 naming every value given, before any row is read and ahead of the destructive --keep rotation (the r276 placement doctrine) so a refused call never touches disk — verified by asserting history.json is byte-identical after a refused '--grep a --grep b --keep 0'. A single needle unwraps back to the scalar the rest of mode_history and both faces expect, so the r324 payload keys and header clauses keep their shape byte-for-byte (a no-flag call and a single-needle call are both unchanged), and the r310 empty-needle refusal and the r276/r320 row-id refusal still fire independently. r326 widened this to every single-use flag of history and audit — see 'single-use-flag-repetition-refused'",
+     "default": True},
+    {"id": "single-use-flag-repetition-refused", "since": "r326",
+     "summary": "r325 fixed history's --grep/--exclude, which was never a filter-specific bug: every single-value flag in the tool registered with argparse's default store action, which keeps only the LAST value. Live before-fix on a four-row history: 'history --head 2 --head 5' -> rc=0, 5 rows; '--tail 4 --tail 2' -> 2 rows; '--row-id 4 --row-id 2' -> 'row 2 of 4'; '--fields msg --fields next' -> header 'next'; '--format %t --format %next' -> renders %next; '--since 200000 --since 100000' -> last 100000 s; '--until 2 --until 1' -> older than 1 s; '--keep 1 --keep 2' -> rotated to 2 rows; '--limit 1 --limit 4' -> 4 rows; '-n 4 -n 1' -> 1 row; 'audit --since 7200 --since 3600' -> window 3600. The contrast that proved it was a defect rather than a convention: --head and --tail were ALREADY refused when given TOGETHER (r208, 'mutually exclusive truncation selectors'), so the tool refused two different selectors while silently dropping a repeated one — the same ambiguity, two different answers. --keep is the worst of the set because it is destructive: '--keep 100 --keep 0' would rotate the file to nothing while the host believed it had asked to keep 100 rows. The fix is ONE shared table (_SINGLE_USE_FLAGS, per command) and ONE shared helper (refuse_repeated_single_use): each flag registers with action='append' so the repetition is visible at all — under store the earlier value is already gone by the time the mode runs — then the mode refuses with exit 2 naming every value given and unwraps the surviving single value back to the scalar every reader expects. The refusal and the unwrap run at the TOP of mode_history, before any other reader of those dests and before the destructive --keep rotation; that ordering is LOAD-BEARING rather than stylistic, because args.row_id reaches the r276 --row-id refusal message as a formatted value and the r214/r217 negative-count check compares args.keep/--head to an integer — a list in either place crashes or mis-reports (r326's first cut placed the unwrap just above the negative check, which left '--row-id 1 --head 2' printing \"--row-id ['1']\" and '--keep 2' raising TypeError). Audit's two window flags are refused in the dispatcher, which keeps mode_audit's parameter style intact. Every single-value call is byte-identical: the text faces, the JSON payload scalars and key set, --head 0 (a real value, not a false positive since the default is None), the --limit/-n shared dest, the r310/r222/r276/r208 refusals that must not be shadowed, and the filter-then-truncate order. Scoped out as the family's remaining carriers: the other subcommands' store flags (note --message, seam --marker, info --field and the rest) still last-win — each is a one-shot value with no selector semantics, so the harm is lower, and they need the same treatment later",
      "default": True},
 )
 
@@ -12050,17 +12121,21 @@ def main(argv=None):
         help="with --index, the upper bound on --index-since: only list features introduced in this round or earlier. Together the two flags bracket a round window, the way the same flags do on `git log` / `journalctl`")
 
     hist_p = sub.add_parser("history", help="tail the seam audit log")
-    hist_p.add_argument("-n", "--limit", dest="limit", type=int, default=None,
+    hist_p.add_argument("-n", "--limit", dest="limit", type=int,
+                        action="append", default=None,
         help="print only the most recent N entries (alias of --tail, like git log -n)")
-    hist_p.add_argument("--tail", dest="tail", type=int, default=None,
+    hist_p.add_argument("--tail", dest="tail", type=int,
+                        action="append", default=None,
         help="print only the most recent N entries (like tail -n N)")
-    hist_p.add_argument("--head", dest="head", type=int, default=None,
+    hist_p.add_argument("--head", dest="head", type=int,
+                        action="append", default=None,
         help="print only the first N entries (like head -n N)")
     hist_p.add_argument("--json", action="store_true",
         help="emit machine-readable output for the discoverability layer")
     hist_p.add_argument("--reverse", action="store_true",
         help="show oldest first (like git log --reverse), default is newest first")
-    hist_p.add_argument("--since", dest="since", default=None,
+    hist_p.add_argument("--since", dest="since", action="append",
+                        default=None,
         help="keep only rows from the last N seconds, a span (30s / 45m / 12h / 7d / 2w), or an ISO-8601 date (like docker logs --since 30m / git log --since); r173 grammar shared with audit")
     hist_p.add_argument("--grep", dest="grep", action="append", default=None,
         metavar="TEXT",
@@ -12068,15 +12143,18 @@ def main(argv=None):
     hist_p.add_argument("--exclude", dest="exclude", action="append", default=None,
         metavar="TEXT",
         help="drop rows whose next action or msg contains TEXT (like git log --invert-grep); pass once only — a repeated --exclude refused with exit 2 rather than silently keeping the last value (r325)")
-    hist_p.add_argument("--until", dest="until", default=None,
+    hist_p.add_argument("--until", dest="until", action="append",
+                        default=None,
         help="drop rows newer than N seconds / a span / an ISO-8601 date ago (like git log --until, the upper bound on --since)")
-    hist_p.add_argument("--keep", dest="keep", type=int, default=None,
+    hist_p.add_argument("--keep", dest="keep", type=int,
+                        action="append", default=None,
         help="discard rows older than the last N and persist the slimmed history (like logrotate --keep, docker system prune)")
     hist_p.add_argument("--dedup", dest="dedup", action="store_true",
         help="collapse the surviving rows to unique next actions (like sort -u / uniq); r274: one of eight mutually exclusive renderers — a combined call is refused with exit 2, but --dedup and --dedup-by-msg compose with each other")
     hist_p.add_argument("--dedup-by-msg", dest="dedup_by_msg", action="store_true",
         help="collapse the surviving rows to unique msg annotations (like sort -u -k 2); r274: one of eight mutually exclusive renderers — a combined call is refused with exit 2, but --dedup and --dedup-by-msg compose with each other")
-    hist_p.add_argument("--row-id", dest="row_id", default=None,
+    hist_p.add_argument("--row-id", dest="row_id", action="append",
+                        default=None,
         help="return the single row at the 1-based index N (like git log --skip N -n 1 / sed -n 'Np')")
     hist_p.add_argument("--empty", dest="empty", action="store_true",
         help="keep only the rows whose next action is blank (like find -empty / awk '/^$/'); r274: one of eight mutually exclusive renderers — a combined call is refused with exit 2")
@@ -12086,9 +12164,11 @@ def main(argv=None):
         help="print only the row count (like wc -l, like git rev-list --count); r198/r274: one of eight mutually exclusive renderers — a combined call is refused with exit 2")
     hist_p.add_argument("--first-match", dest="first_match", action="store_true",
         help="stop after the first matching row (like grep -m 1 / ripgrep --max-count=1)")
-    hist_p.add_argument("--fields", dest="fields", default=None,
+    hist_p.add_argument("--fields", dest="fields", action="append",
+                        default=None,
         help="comma-separated list of history fields to print (like docker ps --format); composes with --csv and the table")
-    hist_p.add_argument("--format", dest="format", default=None,
+    hist_p.add_argument("--format", dest="format", action="append",
+                        default=None,
         help=("per-row template where placeholders are replaced with "
               "the row fields. Available placeholders: "
               "%%t (timestamp), %%n (next action, alias %%next), "
@@ -12132,9 +12212,11 @@ def main(argv=None):
                     help="finding verbosity ladder: lite caps the report at 3 findings, full prints all (default), off refuses to run. Flag beats the MINDSEAM_INTENSITY environment variable (like PONYTAIL_DEFAULT_MODE)")
     au.add_argument("--tag", dest="tag", default=None,
                     help="comma-separated list of audit tags to include (delete,stdlib,yagni,shrink,goal-stale,next-stall,core-drift); unknown tags are refused. The full audit still runs; only the listed tags appear in the report (like gh pr list --label)")
-    au.add_argument("--since", dest="since", default=None,
+    au.add_argument("--since", dest="since", action="append",
+                    default=None,
                     help="only consider history rows inside the window, given as seconds (3600), a span (30s / 45m / 12h / 7d / 2w), or an ISO-8601 date (2026-09-01); narrows the facet tags (goal-stale / next-stall / shrink) but leaves the ledger surface tags untouched. Unreadable values and negative results are refused with exit 2 (like journalctl --since / git log --since)")
-    au.add_argument("--until", dest="until", default=None,
+    au.add_argument("--until", dest="until", action="append",
+                    default=None,
                     help="the upper bound on --since, in the same three shapes. Composes with --since to bracket a window (like the same flag on journalctl / git log --until). Negative values are refused with exit 2")
     au.add_argument("--at", dest="at", type=int, default=None,
                     help="audit as of the 1-based row N in history: slices the history to hist[:N] so the audit reflects everything that had happened by that seam (like git log -1 / gh pr view N). Out-of-range exits 2 to stderr. Exclusive with --since/--until: a combined call is refused with exit 2 (the at-branch slices, the window flags filter the live log — they never applied together)")
@@ -12327,6 +12409,19 @@ def main(argv=None):
             json_flag=getattr(args, "json", False),
             format_path=getattr(args, "format_path", None))
     if args.cmd == "audit":
+        # r326: a repeated --since / --until was silently dropped. argparse's
+        # ``store`` action kept only the last value, so the run answered a
+        # window question the caller did not ask — the r188/r205
+        # silent-wrong-at-exit-0 family, which r325 hit on history's text
+        # filters and this round widens to every single-use flag. Both
+        # register with ``action="append"`` so the repetition is visible at
+        # all; audit writes nothing, so refusing here precedes every step.
+        refused = refuse_repeated_single_use(args,
+                                            _SINGLE_USE_FLAGS["audit"])
+        if refused is not None:
+            for line in refused:
+                print(line, file=sys.stderr)
+            return 2
         return mode_audit(
             book,
             json_flag=getattr(args, "json", False),

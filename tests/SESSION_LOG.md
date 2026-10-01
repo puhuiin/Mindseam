@@ -9732,3 +9732,93 @@ recent(>=170) 146, r324's entry survived the append, module loads.
 
 Suite after r325: 3411 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
+
+### Round 326 (test r326)
+
+r325's fix was never filter-specific. Every single-value flag in the
+tool registered with argparse's default "store" action, which keeps
+only the LAST value — and r325 had named the rest as the remaining
+carriers.
+
+Live before-fix (fresh workspace, four hand-written rows):
+
+  history --head 2 --head 5               -> rc=0, 5 rows   # "5" won
+  history --tail 4 --tail 2               -> rc=0, 2 rows   # "2" won
+  history --row-id 4 --row-id 2           -> rc=0, "row 2 of 4"
+  history --fields msg --fields next       -> rc=0, header "next"
+  history --format %t --format %next       -> rc=0, renders %next
+  history --since 200000 --since 100000   -> rc=0, last 100000 s
+  history --until 2 --until 1             -> rc=0, older than 1 s
+  history --keep 1 --keep 2               -> rc=0, rotated to 2 rows
+  history --limit 1 --limit 4             -> rc=0, 4 rows
+  history -n 4 -n 1                       -> rc=0, 1 row
+  audit --since 7200 --since 3600         -> rc=0, window 3600
+
+The contrast that proved this was a defect rather than a convention:
+--head and --tail were ALREADY refused when given TOGETHER (r208,
+"mutually exclusive truncation selectors"), so the tool refused two
+DIFFERENT selectors while silently dropping a REPEATED one — the same
+ambiguity, two different answers.
+
+--keep is the worst of the set because it is destructive:
+"history --keep 100 --keep 0" would rotate the file to nothing while
+the host believed it had asked to keep 100 rows.
+
+The fix is one shared table (_SINGLE_USE_FLAGS, per command) and one
+shared helper (refuse_repeated_single_use): each flag registers with
+action="append" so the repetition is VISIBLE at all — under "store" the
+earlier value is already gone by the time the mode runs — then the mode
+refuses with exit 2 naming every value given, and unwraps the surviving
+single value back to the scalar every reader expects.
+
+The refusal and the unwrap run at the TOP of mode_history, before any
+other reader of those dests and before the destructive --keep rotation.
+That ordering is load-bearing rather than stylistic: args.row_id
+reaches the r276 --row-id refusal message as a formatted value, and the
+r214/r217 negative-count check compares args.keep/--head to an integer
+— a list in either place crashes or mis-reports. This round's first cut
+placed the unwrap just above the negative check, which left
+"--row-id 1 --head 2" printing "--row-id ['1']" and "--keep 2" raising
+TypeError; both were caught by the single-use probe, not by the suite,
+because no existing test passed a flag twice.
+
+Audit's two window flags are refused in the dispatcher, which keeps
+mode_audit's parameter style intact (it takes since_seconds /
+until_seconds, not the namespace).
+
+Every single-value call is byte-identical afterwards: the text faces,
+the JSON payload scalars and key set, --head 0 (a real value, not a
+false positive since the default is None), the --limit/-n shared dest,
+and the r208/r214/r217/r222/r276/r310 refusals that must not be
+shadowed — all re-pinned by tests rather than assumed.
+
+Scope: history's nine single-use flags plus audit's --since/--until.
+The other subcommands' store flags (note --message, seam --marker,
+info --field and the rest) still last-win — each is a one-shot value
+with no selector semantics, so the harm is lower, and they are the
+pre-identified carriers for a later round.
+
+New test file tests/test_r326_single_use_flag_repetition_refused.py
+(32 tests, 7 classes): EveryHistoryFlagRefusesRepetitionTests runs the
+whole table one probe per flag (12 cases) and pins the count, the named
+values, ints vs strings, three repeats, the --json face and
+stderr-only; AuditWindowTests pins audit's two flags plus the
+inverted-window and --at refusals that must not be shadowed;
+PlacementTests pins that the --keep rotation never runs, that the
+--row-id message is not a list, that --keep 2 does not raise, and that
+the negative-count and cross-selector refusals still fire;
+SingleUseUnchangedTests pins the text faces, the projection faces, the
+payload scalars and key set, the still-filtering behaviour, --head 0,
+and the --limit/-n shared dest; SharedHelperTests pins the helper
+directly (unwrap, report, leave-a-scalar-alone), that the table covers
+every history dest, that audit's covers exactly its window, and that
+--filter is deliberately absent; CatalogPinTests pins the r326 entry.
+
+Pins: r175 recent-count 146 -> 147; r200 empty-window bracket
+r326/r326 -> r327/r327. Catalog entry
+single-use-flag-repetition-refused (since r326): import-verified
+catalog len 177, max since 326, recent(>=170) 147, r325's entry
+survived the append, module loads.
+
+Suite after r326: 3443 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
