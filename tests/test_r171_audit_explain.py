@@ -144,6 +144,7 @@ def doc_check(tag):
         "shrink": "blank next action",
         "goal-stale": "re-anchored",
         "next-stall": "3 or more of the last 5",
+        "msg-stall": "non-empty seam message appears in 3 or more",
         "core-drift": "Next and Core disagree",
     }[tag]
 

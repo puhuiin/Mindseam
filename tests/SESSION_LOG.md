@@ -10760,3 +10760,99 @@ HANGUL FILLER, HALFWIDTH HF, LRM, CGJ, INVIS SEPARATOR) now tag
 outbound register check catches a marker hidden behind each of them.
 Full suite: 3721 passed, 0 failed. verify_suite 9/9, run bare,
 exit 0.
+
+### Round 340 (test r340) — first integration round: msg-stall
+
+THE SOURCE. Two 2026 results, found by a web survey of the
+agent-reasoning literature.
+
+- ReFlect (arXiv 2605.05737) measured what in-trajectory self-critique
+  actually does at 70B scale: ">= 90% boilerplate reflections,
+  <= 1.7% course correction". Its central claim — "reliability comes
+  from the wrapper, not the prompt" — is Mindseam's own founding one,
+  and its own data says why: a prompt-level verifier hits a 76-98%
+  false-positive ceiling regardless of mechanism, while the arm that
+  abandons that for deterministic Python routing is the only one that
+  breaks through.
+- SWE-Marathon (arXiv 2606.07682), 1,300 real rollouts across 20
+  long-horizon tasks, names the same shape among its failure modes:
+  "poor self-verification, self-reported infeasibility, and premature
+  termination".
+
+THE GAP. Mindseam already recorded the ingredients for the
+deterministic half: every seam carries a free-text `msg` beside its
+`next`, and `next-stall` fires when the same `next` appears in 3 of the
+last 5 seams. But a reflection that records nothing about what CHANGED
+was invisible, because `next-stall` measures the planned ACTION, not the
+reported OUTCOME. Live before this round, over a ledger whose last five
+seams each carried a different `next` but the identical `msg`:
+
+  audit          -> "Lean already. Ship."   (exit 0, no findings)
+  audit --json   -> by_tag {}  tags [all seven]
+
+while the mirror ledger (identical `next`, distinct `msg`) correctly
+reported `next-stall`. A ledger stalled on BOTH axes reported only
+`next-stall`. The axis with no detector was the one that matters for a
+self-report.
+
+THE FIX. The missing half of the pair: a new eighth audit tag
+`msg-stall` (id letter M, its own `audit --explain` entry), the SAME
+rule on the SAME window (last 5) with the SAME bar (3) and the SAME
+evidence shape (`msg` value, `seam_indices`, `count`, window brackets),
+so a host that already reasons about `next-stall` reasons about this one
+for free.
+
+The precision guard is the load-bearing part, and it is r243's half of
+the family: a BLANK message is absence, not boilerplate — so a
+workspace that never records `msg` (the common case) can never trip the
+tag, and the finding cannot double-report `shrink`, which already
+covers the blank-next family. The tally keys on the STRIPPED message
+through r338's `_row_msg`, so `same` and `  same  ` are one key
+(one finding, not two) and a non-string `msg` reads as absent rather
+than a crash.
+
+MEASURED CHURN. This is the first round that adds a tag rather than
+fixing one, so the regression risk was real. The full suite produced
+exactly THREE failures, and all three were pins on the tag TAXONOMY —
+r159's seven-tag tuple plus its order pin, and r171's `--explain`
+sweep. Not one detector's output changed, meaning no existing fixture
+accidentally fires the new finding. That is the result the design was
+aiming at: genuinely new coverage, not a relabelled one. The precision
+guard (blanks excluded, distinct nexts required to reach the finding)
+is what bought it.
+
+New test file tests/test_r340_msg_stall_boilerplate.py (45 tests, 8
+classes): MsgStallFiresTests pins the three-way asymmetry (repeated
+next alone -> next-stall; repeated msg alone -> msg-stall; both ->
+both), the 3-of-5 bar, the last-5 window, and whitespace collapsing;
+MsgStallPrecisionTests pins blanks never fire, a once-in-five message is
+clean, a workspace that never records msg is clean, a short session
+cannot trip it, and all-distinct messages are clean;
+MsgStallEvidenceTests pins the evidence shape matches its sibling's
+structural keys with the payload key named for the field
+(next vs msg), the evidence contents, the replacement text, the
+one-physical-line framed rendering with the [M1] id, and the id letter;
+TagTaxonomyTests pins the eight-tag tuple, the r156 surface positions,
+that msg-stall sits adjacent to next-stall, and that every tag has a
+complete explain entry; ProjectionAndProjectorTests pins the new tag
+rides--explain, --tag projection (selected and dropped),
+--baseline-write, --baseline read marking, --intensity lite/full,
+--strict exit 1, --format, and the grade/net agreement;
+CrossAxisTests pins neither tag fires on a moving session, both fire
+when both axes stall, msg-stall can fire alone, and the ordering of
+repeated messages; LiveBeforeAfterTests pins the exact
+"Lean already. Ship." before-state, the text face, that the two faces
+agree, and that a planted directive inside a repeated message is
+framed; CatalogPinTests pins the entry.
+
+Pins: r175 recent-count 160 -> 161; r200 empty-window bracket
+r340/r340 -> r341/r341. r339's exact catalog count (190) retired to a
+>= floor. Catalog entry msg-stall-boilerplate-reflection (since r340):
+import-verified catalog len 191, max since 340, r339's entry survived
+the append, module loads. AUDIT_TAGS is now eight entries.
+
+Docs: SKILL.md's `audit --tag` line takes the r340 clause; README.md
+and README.zh-CN.md round-note tables both take the r340 row.
+
+Full suite after r340: 3766 passed, 0 failed. verify_suite 9/9, run
+bare, exit 0.

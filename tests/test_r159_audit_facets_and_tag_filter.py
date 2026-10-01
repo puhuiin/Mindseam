@@ -84,21 +84,29 @@ class TagTaxonomyTests(unittest.TestCase):
     """Pin the tag set: every facet is enumerable and ranked."""
 
     def test_seven_tags_are_registered(self):
+        # r340: seven became eight when ``msg-stall`` landed. The four
+        # surface tags keep their r156 positions and the facet tags keep
+        # the order they were added, so the ``order`` map inside
+        # ``audit_findings`` still builds deterministically.
         self.assertEqual(
             mindseam.AUDIT_TAGS,
             ("delete", "stdlib", "yagni", "shrink",
-             "goal-stale", "next-stall", "core-drift"))
+             "goal-stale", "next-stall", "msg-stall", "core-drift"))
 
     def test_tag_order_keeps_surface_first_then_facets(self):
         # The four surface tags stay in their r156 positions; the
-        # three facet tags follow in the order they were added. The
+        # facet tags follow in the order they were added. The
         # ``order`` map inside ``audit_findings`` builds from this
         # tuple, so a stray reorder would change the lite cap
         # silently.
         self.assertEqual(mindseam.AUDIT_TAGS[:4],
                          ("delete", "stdlib", "yagni", "shrink"))
+        # r340: next-stall and msg-stall are a PAIR — the same rule on
+        # the planned action and on the reported outcome — and they sit
+        # together for that reason, with core-drift last as before.
         self.assertEqual(mindseam.AUDIT_TAGS[4:],
-                         ("goal-stale", "next-stall", "core-drift"))
+                         ("goal-stale", "next-stall", "msg-stall",
+                          "core-drift"))
 
 
 class GoalStaleTests(FacetBase):
