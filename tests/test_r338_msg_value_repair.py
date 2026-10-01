@@ -363,8 +363,9 @@ class CatalogPinTests(unittest.TestCase):
         self.assertIn("--dedup-by-msg", entry["summary"])
 
     def test_catalog_grew_by_one(self):
-        # 188 before r338; one entry lands.
-        self.assertEqual(len(mindseam._FEATURE_CATALOG), 189)
+        # 188 before r338; r339 (and later rounds) keep appending above
+        # it, so this pin is a floor: the count can only grow.
+        self.assertGreaterEqual(len(mindseam._FEATURE_CATALOG), 189)
 
     def test_catalog_shape_unchanged(self):
         for entry in mindseam._FEATURE_CATALOG:
