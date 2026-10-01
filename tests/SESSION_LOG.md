@@ -10173,3 +10173,63 @@ README.zh-CN.md round-note tables both take the r331 row.
 
 Suite after r331: 3550 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
+
+### Round 332 (test r332)
+
+Probed five surfaces this round: the skillbook mining logic, the
+skillbook text/JSON faces, the declared refusal families, and the
+note --from-stdin second-parse path. No defect in any of them.
+
+The fourth is what the round delivers. r327 registered every note write
+flag with action="append" and moved the refusal into mode_note, which is
+the one guard that kept a per-command call after r328 consolidated the
+rest into a single hook in main(). The reason it survives consolidation
+is that note --from-stdin builds its spec through a SECOND parse_args
+inside read_note_stdin_spec (r199), which the universal hook never sees,
+and mode_note receives that merged namespace whatever produced it.
+
+Probed live and correct: a repeated flag smuggled in through stdin is
+refused with exit 2 naming both values, nothing is written, and a single
+flag still applies. But NOTHING PINNED IT. r199 has eight tests and r210
+six, and none drives a repeated flag through the stdin spec — so a later
+round that moved the guard to the argv namespace only (the natural
+simplification, since that is where every other command is guarded)
+would make the stdin path silently last-win again with the suite still
+green.
+
+That is the r327 x r199 interaction, and it is invisible to both rounds'
+own tests: r327 pins the argv path, r199 pins the composition, and
+neither pins their intersection.
+
+New test file tests/test_r332_stdin_spec_repetition_refused.py (21
+tests, 4 classes): StdinRepetitionRefusedTests pins a repeated
+--goal/--next/--open/--core, a repeated TYPED flag (--extra-steps, whose
+values render as bare ints), a repeated --close, three repeats reporting
+the count, the refusal naming both stdin values, and WORKSPACE.md
+byte-identical after a refused call; StdinSingleUseStillAppliesTests is
+the negative half — a single goal/open/close/dry-run through stdin still
+applies and writes nothing — so the pin cannot be satisfied by a guard
+that refuses everything; StdinOtherRefusalsTests pins a bad confidence,
+a no-separator core, an empty and a whitespace-only stdin spec, an
+unparseable shell split, and the r199 argv-alongside-stdin refusal
+naming the dropped flag; CatalogPinTests pins the r332 entry.
+
+Also verified live and left as they are (all correct): extract_skillbook's
+recurrence/utility/age/stale gates, case-folded hard patterns, the MAX
+cap and its deterministic tie-break; the skillbook faces agreeing on
+count, utility and staleness; and all 78 pairs of the declared refusal
+families (history renderers, row-id narrowing, info faces and
+renderer-x-face, audit at/window, baseline-write/window, explain/flags,
+seam quiet/json) enforced with exit 2.
+
+Pins: r175 recent-count 152 -> 153; r200 empty-window bracket
+r332/r332 -> r333/r333. Catalog entry
+stdin-spec-repetition-refused (since r332): import-verified catalog len
+183, max since 332, recent(>=170) 153, r331's entry survived the append,
+module loads.
+
+Docs: SKILL.md's note --open line, README.md and README.zh-CN.md
+round-note tables both take the r332 row.
+
+Suite after r332: 3571 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
