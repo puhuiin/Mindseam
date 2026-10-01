@@ -10384,3 +10384,58 @@ round-note tables both take the r334 row.
 
 Suite after r334: 3616 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
+
+### Round 335 (test r335)
+
+THE DEFECT. r330 made a SUBCOMMAND win over an alias, because the alias
+catalog is host-authored config and must not be able to disable a
+built-in by sharing its name. That rule was applied to subcommand names
+only, and the identical hole stayed open one layer out — a FLAG name.
+
+_expand_alias_argv expanded any first token found in the catalog, so
+
+  aliases.json = {"--help": {"command": "info", "args": ["--version"]}}
+    mindseam.py --help  ->  "mindseam 3.6.0"
+
+with no usage text and no hint that a config file had taken the flag.
+-h was reachable the same way, and so was every other flag-shaped name
+(--json, --strict, --version) plus the two positional separators - and --.
+
+Live before-fix:
+
+  expand(['--help']) -> ['info', '--version']   # the flag is gone
+  expand(['-h'])     -> ['info', '--version']
+  expand(['--'])     -> ['info', '--version']
+  expand(['-'])      -> ['info', '--version']
+  mindseam.py --help -> rc 0, "mindseam 3.6.0"
+
+THE FIX. One guard, from the same rule r330 states: host-authored config
+may ADD names, never REMOVE a built-in one. A head beginning with "-" is
+never expanded, which covers every flag and both separators.
+
+Scope: the dash-prefix test only. A non-flag alias name is untouched,
+the built-in catalog is untouched, a subcommand still wins (r330
+re-pinned in the same file), and a user override of a built-in ALIAS
+still wins (r168 user_overrides) — that is a name that already exists in
+the catalog, not a built-in flag.
+
+New test file tests/test_r335_alias_cannot_shadow_a_flag.py (14 tests,
+4 classes): HelpFlagTests pins the help text survives an alias of its
+own name; ExpansionTests sweeps nine flag-shaped names through
+_expand_alias_argv and pins each is returned unchanged, that a flag with
+trailing args is untouched, that a normal alias still expands with and
+without caller args, that a built-in alias still expands, and that empty
+argv is untouched; OtherFlagsSurviveTests pins --json stays argparse's,
+a subcommand still wins, and a user override of a built-in alias still
+wins; CatalogPinTests pins the r335 entry.
+
+Pins: r175 recent-count 155 -> 156; r200 empty-window bracket
+r335/r335 -> r336/r336. Catalog entry alias-cannot-shadow-a-flag
+(since r335): import-verified catalog len 186, max since 335,
+recent(>=170) 156, r334's entry survived the append, module loads.
+
+Docs: SKILL.md's alias line, README.md and README.zh-CN.md round-note
+tables both take the r335 row.
+
+Suite after r335: 3630 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.

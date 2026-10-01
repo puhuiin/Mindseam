@@ -9319,11 +9319,24 @@ def _expand_alias_argv(argv):
     A subcommand always wins over an alias (r330): the
     alias catalog is host-authored config and must not be
     able to disable a built-in by sharing its name.
+
+    A FLAG always wins too (r335), for the same reason one
+    layer out: a name beginning with ``-`` belongs to
+    argparse, so an alias called ``--help`` used to replace
+    the help flag instead of being unreachable. ``-`` and
+    ``--`` are positional separators and are likewise never
+    aliases. Both r330 and this guard come from the same
+    rule — host-authored config may ADD names, never
+    REMOVE a built-in one.
     """
     if not argv:
         return argv
     head = argv[0]
     if head in _SUBCOMMANDS:
+        return argv
+    if head.startswith("-"):
+        # r335: ``-`` and ``--`` are separators, and anything else
+        # flag-shaped belongs to argparse. Never expand them.
         return argv
     aliases = _merge_aliases()
     if head not in aliases:
@@ -9899,6 +9912,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "read-failure-disclosed-everywhere", "since": "r334",
      "summary": "r333 fixed mode_info, whose --check gate passed on a history it could not read, and deliberately scoped the fix to info while naming the rest as carriers; this round closes them. On a workspace whose history.json is corrupt JSON (a directory or a non-list root behave the same), four commands still answered at exit 0 with no signal: ship said 'clean — the outgoing register holds.' though its completion gate reads the most-recent row, so a failed read drops every marker/settle observation; history said 'history (0 entries)' and --count said '0'; skillbook said 'No skillbook yet — run a seam to start harvesting patterns.' (false — the patterns may exist); discover said 'No history yet — run a seam and the domain map appears.' (false, and the r280 lie one layer out); and audit said 'Lean already. Ship.' at exit 0 with --strict ALSO exiting 0 — the second documented gate passing on a file it could not read. The fix adds one shared helper pair: history_read_failed(hist, hist_repairs) names the state (an EMPTY history whose emptiness came from a failed read, as opposed to a workspace that never ran a seam) and history_read_warning(reasons) renders the one-line stderr warning, the r290/r1015 idiom, returning None for a clean read. ship/history/skillbook/discover print the warning and the two with an empty-state message stop claiming a fresh start. AUDIT is different in kind, and that difference is the round's real finding: an audit IS a statement about the history, so a history it cannot read is a REFUSAL (exit 2, the r188/r205 CANNOT idiom), not a finding — the first cut made it a finding and was WRONG, because a finding is a projection and --tag delete drops projections, so audit --strict --tag delete still exited 0 on the unreadable file. A gate a projection can switch off is not a gate; the refusal fires before the tag filter and before any finding is computed. Every healthy case is unchanged and pinned: no repair reasons means no warning, audit --strict still exits 1 on real findings, and a fresh workspace keeps its original empty-state messages. A new AST guard pins that no caller subscripts read_history() again",
+     "default": True},
+    {"id": "alias-cannot-shadow-a-flag", "since": "r335",
+     "summary": "r330 made a SUBCOMMAND win over an alias because the alias catalog is host-authored config and must not be able to disable a built-in by sharing its name; that rule was applied to subcommand names only, and the identical hole stayed open one layer out — a FLAG name. _expand_alias_argv expanded any first token found in the catalog, so aliases.json = {\"--help\": {\"command\": \"info\", \"args\": [\"--version\"]}} made 'mindseam.py --help' print 'mindseam 3.6.0' with no usage text and no hint that a config file had taken the flag; -h was reachable the same way, and every other flag-shaped name with it (--json, --strict, --version) plus the two positional separators - and --. Live before-fix: expand(['--help']) -> ['info', '--version'], expand(['--']) -> ['info', '--version'], and the CLI printed the version for --help. The fix is one guard from the same rule r330 states: host-authored config may ADD names, never REMOVE a built-in one — a head beginning with '-' is never expanded, which covers every flag and both separators. Scope: the dash-prefix test only. A non-flag alias name is untouched, the built-in catalog is untouched, a subcommand still wins (r330 re-pinned in the same file), and a user override of a built-in ALIAS still wins (r168 user_overrides) — that is a name that already exists in the catalog, not a built-in flag",
      "default": True},
 )
 
