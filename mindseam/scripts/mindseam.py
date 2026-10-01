@@ -615,6 +615,30 @@ def _row_next(row):
     return v.strip() if isinstance(v, str) else ""
 
 
+def _row_msg(row):
+    """Return a history row's msg annotation as a string, unstripped.
+
+    r338: ``read_history`` repairs every string field of a hand-written
+    ``history.json`` — ``next``, ``error``, ``outcome``, ``marker``,
+    ``confidence``, ``verifier``, ``risk`` — but ``msg`` was the one
+    field in ``HISTORY_ROW_FIELDS`` the repair loop never touched, so a
+    non-string value survived into the four readers that call a string
+    method on it: ``history --grep`` and ``--exclude`` (``.lower()``),
+    ``--dedup-by-msg`` (``.strip()``) and ``--row-id`` (``_oneline``).
+    Each raised TypeError at exit 1 with a traceback and no message —
+    the r322 crash family on the last uncovered field. Coerce the way
+    ``_row_next`` does: a non-string is absent.
+
+    Unlike ``_row_next`` this does NOT strip, because the two display
+    sites (``--row-id`` / ``--dedup-by-msg``) echo the annotation
+    verbatim; the ``--dedup-by-msg`` key site adds its own ``.strip()``
+    exactly as it did before, so a string value renders byte-for-byte
+    as it always did.
+    """
+    v = row.get("msg")
+    return v if isinstance(v, str) else ""
+
+
 def _row_error(row):
     """Return a history row's error as a stripped string (r229)."""
     v = row.get("error")
@@ -822,7 +846,15 @@ def read_history():
         if not isinstance(fixed.get("open"), int) or isinstance(fixed.get("open"), bool):
             fixed["open"] = 0
             changed = True
-        for key in ("error", "outcome"):
+        for key in ("error", "msg", "outcome"):
+            # r338: ``msg`` joins the family. It is the free-text annotation
+            # ``history --format %m`` / ``--fields msg`` / ``--csv`` render
+            # through ``str()`` (so those faces never crashed) but the four
+            # readers that call a string METHOD on it -- ``--grep`` /
+            # ``--exclude`` (``.lower()``), ``--dedup-by-msg`` (``.strip()``),
+            # ``--row-id`` (``_oneline``) -- raised TypeError at exit 1 on a
+            # hand-written row whose msg was a list, dict, int or bool. A
+            # non-string is absent, the same repair every sibling field gets.
             if key in fixed and not isinstance(fixed[key], str):
                 fixed[key] = ""
                 changed = True
@@ -8330,7 +8362,7 @@ def mode_history(args):
         needle = grep_text.lower()
         hist = [row for row in hist
                 if needle in (row.get("next") or "").lower()
-                or needle in (row.get("msg") or "").lower()]
+                or needle in _row_msg(row).lower()]
     if exclude_text:
         # Borrowed from ``git log --invert-grep`` /
         # ``find -not -name PATTERN``: a substring that, when
@@ -8341,7 +8373,7 @@ def mode_history(args):
         needle = exclude_text.lower()
         hist = [row for row in hist
                 if needle not in (row.get("next") or "").lower()
-                and needle not in (row.get("msg") or "").lower()]
+                and needle not in _row_msg(row).lower()]
     if getattr(args, "empty", False):
         # r278: ``--empty`` is a CONTENT filter (keep rows whose next
         # action is blank), the sibling of ``--grep`` / ``--exclude`` /
@@ -8440,7 +8472,11 @@ def mode_history(args):
         nxt = row.get("next") or "(empty)"
         verified = row.get("verified", 0)
         opens = row.get("open", 0)
-        msg = row.get("msg") or ""
+        # r338: _row_msg, not ``row.get("msg") or ""`` — a non-string
+        # annotation reached ``_oneline`` and raised TypeError at exit 1
+        # with a traceback (``--grep`` / ``--exclude`` / ``--dedup-by-msg``
+        # crashed the same way on the same file).
+        msg = _row_msg(row)
         tag = row_untrusted_tag(row)
         # r263: the single-row detail face is the last line-oriented human
         # face the r257-r262 taxonomy skipped -- it prints one FIELD per line
@@ -8691,7 +8727,11 @@ def mode_history(args):
         deduped = []
         for row in hist:
             if use_msg:
-                key = (row.get("msg") or "").strip()
+                # r338: the key site strips exactly as it always did, but
+                # through _row_msg so a non-string annotation cannot reach
+                # .strip() — read_history now repairs msg as well, so this is
+                # the second line of defence for a row built by hand.
+                key = _row_msg(row).strip()
             else:
                 key = _row_next(row)
             if key in seen:
@@ -8731,7 +8771,7 @@ def mode_history(args):
                   % (len(deduped), "" if len(deduped) == 1 else "s",
                      len(hist), "" if len(hist) == 1 else "s"))
             for index, row in enumerate(deduped, 1):
-                msg = row.get("msg") or "(empty)"
+                msg = _row_msg(row) or "(empty)"
                 print("  %3d  %s%s" % (index, _oneline(msg), row_untrusted_tag(row)))
         else:
             print("── mindseam ─ history (%d unique next action%s across %d row%s)"
@@ -8923,51 +8963,14 @@ def mode_history(args):
             # tab form's answer to what ``--csv`` gets from RFC 4180 quoting.
             print("\t".join(_tsv_escape(c) for c in cells))
         return 0
-    if getattr(args, "dedup", False) or getattr(args, "dedup_by_msg", False):
-        # Borrowed from ``git log --skip N -n 1`` /
-        # ``jq '.['N-1']'`` / ``sed -n 'Np' file``: return the
-        # single row at the 1-based index ``N``, the way
-        # ``kubectl get pod -n N`` / ``hm --row N`` /
-        # ``pandas.iloc[N-1]`` do. ``--json`` returns a single-row
-        # payload; the text path prints the same fields the
-        # default table prints, with a ``Row N:`` header so a
-        # host can grep the row out of the output. The
-        # 1-based numbering matches the table index the table
-        # path already shows.
-        try:
-            n = int(args.row_id)
-        except (TypeError, ValueError):
-            print("CANNOT: --row-id expects an integer, got %r"
-                  % args.row_id, file=sys.stderr)
-            return 2
-        if not hist:
-            print("── mindseam ─ history (no rows)")
-            return 0
-        if n < 1 or n > len(hist):
-            print("CANNOT: --row-id %d out of range (1..%d)"
-                  % (n, len(hist)), file=sys.stderr)
-            return 2
-        row = hist[n - 1]
-        if args.json:
-            print(json.dumps({
-                "row_id": n,
-                "row": row,
-            }, ensure_ascii=False, indent=2))
-            return 0
-        print("── mindseam ─ history (row %d of %d)" % (n, len(hist)))
-        ts = row.get("t")
-        when = _history_when(ts, human=bool(getattr(args, "human", False)))
-        nxt = row.get("next") or "(empty)"
-        verified = row.get("verified", 0)
-        opens = row.get("open", 0)
-        msg = row.get("msg") or ""
-        print("  when:     %s" % when)
-        print("  next:     %s" % nxt)
-        print("  verified: %d" % verified)
-        print("  open:     %d" % opens)
-        if msg:
-            print("  msg:      %s" % msg)
-        return 0
+    # r338: a second ``--row-id`` detail block used to live here, below the
+    # ``--fields`` projector. It was unreachable: the block above returns on
+    # every ``--row-id`` path (json, text, out-of-range, empty history,
+    # non-integer), so this one never ran. It was also STALE — an r207-era
+    # copy that predates the r245 ``untrusted`` map and the r263 ``_oneline``
+    # guarantee, so it would have reintroduced both the tag-less JSON shape
+    # and the non-string-``msg`` crash had the live block's ``return`` ever
+    # been restructured. Removing it keeps exactly one copy of the face.
     label = "── mindseam ─ history (" + _entries_noun(len(hist))
     if since_seconds is not None and since_seconds >= 0:
         label += ", last %d s" % since_seconds
@@ -9943,6 +9946,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "info-face-refuses-payload-blocks", "since": "r337",
      "summary": "mode_info's short-circuit faces answer from their own narrow source (--version the version, --check the issues, --memory the size, --list-fields the schema, --index the flat index) and each returns before the full report renders, so every payload BLOCK asked for alongside one was silently dropped. r200 closed the face/face pairs, r172 the renderer pairs, r202/r205 --explain and --warnings-only against the blocks — but the five faces that predate those rounds kept swallowing --health / --manifest / --mtime / --features / --aliases / --human / --workspace-id / --audit-baseline / --content-hash / --changed, and --text with them. Live before-fix: info --version --health exited 0 printing only the version; info --index --features exited 0 with no feature table; info --memory --content-hash exited 0 with no hashes. --text was the sharpest, because its documented contract is 'force a plain-text report even if --json is also set' and with a face it was dropped rather than honoured or refused. The fix adds the missing THIRD guard in the dispatcher, before any face branch runs, so a face never gets the chance to drop a block. Two deliberate exclusions keep every earlier contract intact: --explain and --warnings-only are left to their own r202/r205 refusals inside mode_info, which name the reason more specifically ('answers from the static catalog', 'prints the warning lines only'), and --warnings-only --json is exempt entirely because it prints the FULL payload (the r161 no-suppression pin) so a block alongside it is honoured, not dropped. Scope: the dispatcher guard only — --index's own modifiers (--index-since/--index-until) are not payload blocks and still compose, --json still rides every face as its machine sub-face, blocks still compose with each other, and r200/r172 are re-pinned in the same test file",
+     "default": True},
+    {"id": "history-msg-value-repair", "since": "r338",
+     "summary": "read_history tightens every field of a hand-written history.json before any face sees it — t, next, verified, open, error, outcome, marker, confidence, verifier, risk (closed domain) and extra_steps (non-negative). HISTORY_ROW_FIELDS names twelve fields and eleven were repaired; msg was the twelfth. The gap was invisible because three of the five readers STRINGIFY instead of calling a string method: --format %m renders str(row.get('msg') or '-') and --fields msg / --csv route through _history_cell, which also does str(), so a row whose msg was a list, dict, int or bool rendered happily on those faces while four others raised TypeError at exit 1 with a traceback and no message. Live before-fix on a one-row history.json with msg: [1]: history --row-id 1 crashed in _oneline (~_escape_line_breaks, 'expected string or bytes-like object, got list'), history --dedup-by-msg crashed on .strip() ('list' object has no attribute 'strip') in both its text and --json faces, and history --grep hello / --exclude hello crashed on .lower(). This is the r322 crash family on the last uncovered field — r322 guarded the non-dict ROW, r316 the _row_* helpers, and neither reached msg, which has no helper and no repair. The fix is r316's shape at both layers: read_history adds msg to the string-repair tuple so the file is healed on disk the way every sibling already is and the r334 stderr warning reports it, and a new _row_msg(row) helper coerces at the read sites for a row built in memory. _row_msg deliberately does NOT strip, unlike _row_next, because the two display sites echo the annotation verbatim and the --dedup-by-msg key site adds its own .strip() exactly as before — so a string value is byte-identical on every face and only a non-string moves, from a crash to the reading every other field already gets (absent). r316's own lesson, 'the CLI is safe because read_history repairs, but the helpers are callable directly', is what left this hole: msg had no helper to harden. The round also removes a DEAD duplicate --row-id detail block that sat below the --fields projector — the live r245/r263 block above returns on every --row-id path (json, text, out-of-range, empty history, non-integer) so it never ran, and it was an r207-era copy predating both the r245 untrusted map and the r263 _oneline guarantee, so restructuring the live block's returns would have resurrected the tag-less JSON shape and this crash together",
      "default": True},
 )
 

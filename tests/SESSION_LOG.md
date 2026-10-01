@@ -10566,3 +10566,103 @@ round-note tables both take the r337 row.
 
 Suite after r337: 3663 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
+
+### Round 338 (test r338)
+
+THE DEFECT. read_history tightens every field of a hand-written
+history.json before any face sees it: t, next, verified, open, error,
+outcome, marker, confidence, verifier, risk (closed domain) and
+extra_steps (non-negative). HISTORY_ROW_FIELDS names twelve fields.
+Eleven were repaired. msg was the twelfth.
+
+The gap was invisible because three of the five readers STRINGIFY
+instead of calling a string method: --format %m renders
+str(row.get("msg") or "-"), and --fields msg / --csv route through
+_history_cell, which also does str(). So a row whose msg was a list,
+dict, int or bool rendered happily on those faces while four others
+raised TypeError at exit 1 with a traceback and no message. Live
+before-fix on a one-row history.json with msg: [1]:
+
+  history --row-id 1            -> TypeError in _oneline -> _escape_line_breaks
+                                   "expected string or bytes-like object, got 'list'"
+  history --row-id 1 --human    -> same
+  history --dedup-by-msg        -> TypeError: 'list' object has no attribute 'strip'
+  history --dedup-by-msg --json -> same
+  history --grep hello          -> TypeError: 'list' object has no attribute 'lower'
+  history --exclude hello       -> TypeError: 'list' object has no attribute 'lower'
+
+Found by a crash hunt, not a sweep: a 630-combination probe (14
+malformed workspace artefacts x 36 command faces) that reported exactly
+one crash. A follow-up 7-bad-values x 37-faces probe mapped it to the
+four sites above and confirmed the three stringifying faces stay clean.
+
+This is the r322 crash family on the last uncovered field. r322 guarded
+the non-dict ROW, r316 the _row_* helpers — and neither reached msg,
+which has no helper and no repair. r316's own docstring names the reason
+the hole survived: "read_history already repairs, but the detectors are
+callable directly" — a helper was never written for msg, so there was
+nothing to harden, and the repair loop was the only place left to be
+wrong.
+
+THE FIX. r316's shape, at both layers:
+
+  1. read_history adds msg to the string-repair tuple
+     (error, msg, outcome), so the file is healed on disk the way every
+     sibling already is and the r334 stderr warning reports it. The
+     guard is "key in fixed", so a row with no msg at all is untouched.
+  2. a new _row_msg(row) helper coerces at the read sites, for a row
+     built in memory rather than read from disk. It is wired into
+     --grep, --exclude, the --dedup-by-msg key, the --dedup-by-msg
+     listing and the --row-id msg: line.
+
+_row_msg deliberately does NOT strip, unlike _row_next: the two display
+sites echo the annotation verbatim, and the --dedup-by-msg key site adds
+its own .strip() exactly as before. So a string value is byte-identical
+on every face — "  padded note  " still renders padded on --row-id and
+still collapses with "a: same" under --dedup-by-msg — and only a
+non-string moves, from a crash to the reading every other field already
+gets: absent.
+
+THE ROUND'S SECOND FINDING. A dead duplicate of the --row-id detail
+block sat below the --fields projector. The live r245/r263 block above
+returns on every --row-id path (json, text, out-of-range, empty
+history, non-integer), so the second never ran — confirmed at runtime,
+since only the live face carries the r245 untrusted map. It was an
+r207-era copy predating both the r245 map and the r263 _oneline
+guarantee, so it was not merely redundant: restructuring the live
+block's returns would have resurrected the tag-less JSON shape and this
+crash together. Removing it leaves one copy of the face, and the test
+file pins the count.
+
+New test file tests/test_r338_msg_value_repair.py (30 tests, 6
+classes): NonStringMsgRefusedTests runs the nine non-string shapes
+(list, dict, int, float, bool, None, nested) x all 13 faces (seven
+former crash sites + six stringifying sites) and pins exit 0 with no
+TypeError and no traceback, plus the specific absent-reading each face
+gives; ReadHistoryRepairsMsgTests pins the repair, the write-back to
+disk, that a string or missing msg is left alone, and the r334 stderr
+disclosure; RowMsgHelperTests pins the helper's coercion, its
+non-stripping contract and its membership in the _row_* family;
+FieldNamespaceCompletenessTests pins that all twelve
+HISTORY_ROW_FIELDS are named in the repair vocabulary and that msg is
+now in the explicit string tuple; SingleRowIdBlockTests pins that
+exactly one live detail block remains, that the stale JSON shape is
+gone, and that the live face still carries the untrusted map and the
+r263 _oneline escape; StringPathUnchangedTests pins --format %m,
+--fields msg, --csv, --row-id's verbatim echo, --dedup-by-msg's
+stripped-key collapse, --grep/--exclude matching and the r309
+empty-string-is-a-value contract; CatalogPinTests pins the r338 entry,
+the grown count and the module still loading.
+
+Pins: r175 recent-count 158 -> 159; r200 empty-window bracket
+r338/r338 -> r339/r339. Catalog entry history-msg-value-repair
+(since r338): import-verified catalog len 189, max since 338,
+recent(>=170) 159, r337's entry survived the append, module loads.
+
+Docs: SKILL.md's three history lines (--grep, --dedup-by-msg,
+--row-id) each take the r338 clause; README.md and README.zh-CN.md
+round-note tables both take the r338 row.
+
+Post-fix crash hunt: the same 630-combination probe reports 0 crashes
+(the 7x37 msg matrix reports none either). Full suite: 3693 passed,
+0 failed (3663 before this round + 30 new). verify_suite 9/9, run bare, exit 0.
