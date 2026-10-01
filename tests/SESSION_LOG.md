@@ -9972,3 +9972,71 @@ recent(>=170) 149, r327's entry survived the append, module loads.
 
 Suite after r328: 3493 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
+
+### Round 329 (test r329)
+
+The last-wins family closed in r328, so this round probed for a fresh
+defect with a coverage-shaped sweep: every function in the module
+against the concatenated test source. Sixteen were never named by any
+test, and markdown_fenced_lines sat at the top of that list — the
+function that decides which lines of an outgoing document are
+structural (quoted data) and which are prose.
+
+That split is load-bearing. ship's outbound register scan reads only the
+NON-structural lines, because a quoted code block is data the author
+chose to show (r244). So a line wrongly classified as a fence removes
+everything after it from the scan.
+
+Two openings were accepted that CommonMark does not call fences:
+
+1. A backtick fence whose INFO STRING contains a backtick. CommonMark
+   says a backtick fence's info string may not contain any backtick, so
+   "```python```" is a PARAGRAPH, not an opener — but the old regex
+   matched it, and every line until the next closer was classified as
+   quoted data.
+2. A tab-indented fence. CommonMark allows up to three SPACES of
+   indentation; a tab counts as four columns, so "TAB```" is an
+   indented code block. An indented code block ends at the first
+   non-indented line, so the prose AFTER it should have stayed prose —
+   but the old \s{0,3} accepted the tab and fenced everything
+   after it.
+
+Live before-fix (ship -, register marker PHEW planted one line under
+each):
+
+  plain prose                     fenced []      finding reported
+  ``` + marker + ```          fenced [0,1,2] clean   (correct)
+  ```python``` + marker +     fenced [0,1,2] clean   <-- HIDDEN
+  TAB``` + marker + ```       fenced [0,1,2] clean   <-- HIDDEN
+
+The last two are the defect: the marker rode out of the human-facing
+boundary reported clean. That is the same class r244 called worse than
+the inbound hole, because ship is the surface a human reads.
+
+The fix is two rules straight from CommonMark: a backtick fence's info
+string may not contain a backtick (tilde fences have no such
+restriction), and fence indentation is up to three SPACES rather than
+any whitespace. The closing fence keeps allowing trailing spaces or
+tabs, which CommonMark ignores.
+
+Every legitimate case is byte-identical, and is pinned: plain info
+strings, tilde fences (including one with a backtick in the info, which
+still opens), a larger closing fence, an unclosed fence swallowing the
+tail, an inner fence line as content, two fences in one document,
+three-space indentation, four-space indentation still NOT a fence, and a
+closing fence with a trailing tab, space, or both.
+
+New test file tests/test_r329_markdown_fence_detection.py (19 tests, 4
+classes): FencedLinesTests pins the two CommonMark rules plus every
+legitimate case; StructuralLinesTests pins the classification that ship
+scans against; ShipBoundaryTests drives the marker end-to-end through
+ship - for all four shapes, including the control (a real fence still
+reads as quoted data); CatalogPinTests pins the r329 entry.
+
+Pins: r175 recent-count 149 -> 150; r200 empty-window bracket
+r329/r329 -> r330/r330. Catalog entry markdown-fence-detection
+(since r329): import-verified catalog len 180, max since 329,
+recent(>=170) 150, r328's entry survived the append, module loads.
+
+Suite after r329: 3512 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.

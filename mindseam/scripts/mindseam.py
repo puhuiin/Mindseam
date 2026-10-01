@@ -138,7 +138,15 @@ TABLE_DELIMITER = re.compile(
     r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$"
 )
 MARKDOWN_LIST_ITEM = re.compile(r"^\s{0,3}(?:[-+*]|\d+[.)])\s+")
-MARKDOWN_FENCE = re.compile(r"^\s{0,3}(`{3,}|~{3,})(.*)$")
+# r329: up to three SPACES of indentation, not any whitespace — a
+# tab counts as four columns, so a tab-indented fence is an indented
+# code block, not a fence. The old ``\s{0,3}`` also accepted a tab and
+# reclassified the prose after it as quoted data. For a BACKTICK fence
+# the info string may not contain a backtick (CommonMark); ``\`\`\`py\`\`\```
+# is a paragraph, not an opener. Both rules matter because ship scans
+# only the NON-structural lines for leaked register markers, so a line
+# mis-detected as a fence hides whatever follows it.
+MARKDOWN_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 THEMATIC_BREAK = re.compile(r"^\s{0,3}(?:(?:\*\s*){3,}|(?:-\s*){3,}|(?:_\s*){3,})$")
 RESERVED_CLOSE_SUFFIX = re.compile(r" — closes: \?\d+$")
 OPEN_ID_RE = re.compile(r"^\?(\d+)\b")
@@ -7325,13 +7333,20 @@ def markdown_fenced_lines(lines):
             if not match:
                 continue
             token = match.group(1)
+            info = match.group(2) or ""
+            if token[0] == "`" and "`" in info:
+                # Not a fence: a backtick fence's info string may not
+                # contain a backtick, so this line is a paragraph and the
+                # lines after it stay prose.
+                continue
             fence_char = token[0]
             fence_size = len(token)
             fenced.add(index)
             continue
 
         fenced.add(index)
-        closing = r"^\s{0,3}%s{%d,}\s*$" % (re.escape(fence_char), fence_size)
+        closing = (r"^ {0,3}%s{%d,}[ 	]*$"
+                   % (re.escape(fence_char), fence_size))
         if re.match(closing, line):
             fence_char = None
             fence_size = 0
@@ -9776,6 +9791,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "read-flag-repetition-refused", "since": "r328",
      "summary": "r325/r326/r327 closed the last-wins family three times over and each named the rest as carriers; this round finishes the family and consolidates its mechanism. Remaining live before-fix, every one at exit 0 with only the LAST value applied: seam/resume/ship/info/skillbook/discover/audit --format each rendered the second path; info --field showed the second field; info --index-since/--index-until bracketed from the second value; info --audit-baseline used the second file; audit --intensity/--tag/--at/--baseline/--baseline-write/--explain each used the second value (audit --at 1 --at 2 reached the range check rather than a repetition refusal). None of these RECORDS anything wrongly — that was r327's write path, which is why it went first — but each answers a different question than the caller asked, with no signal that it did. The fix extends r326's shared _SINGLE_USE_FLAGS table to the read-path commands and MOVES the refusal to ONE hook in main(), immediately after the parse and before the ledger is read. That placement is what makes the family impossible to leave half-finished: a new subcommand inherits the guard by adding a table entry, not by remembering a per-command call. The three per-command hooks r325/r326/r327 added are removed as dead code — the universal hook already unwrapped their dests — EXCEPT mode_note's, which is the one guard the universal hook cannot cover, because the r199 --from-stdin spec is parsed by a SECOND parse_args inside read_note_stdin_spec that the universal hook never sees and mode_note receives that merged namespace (a repeated flag smuggled in through stdin is caught only there, pinned by test). The ordering bug this round's own first cut shipped: the seam table entry was omitted when the table was extended, so seam --format kept arriving at mode_seam as a LIST and raised AttributeError in _format_paths — caught by 11 r170/r202/r203/r204/r222/r241/r246 tests before commit, which is the suite doing its job. Single-value calls are byte-identical: the format faces still render, one --format still takes its documented comma-separated path list (the real repeat mechanism), info --field and the index window still work, the r202/r205/r222 composition refusals are not shadowed, and audit --at still refuses out-of-range rather than as a repetition. The last-wins family is now closed for all 46 store flags; --filter remains deliberately repeatable and ANDed everywhere",
+     "default": True},
+    {"id": "markdown-fence-detection", "since": "r329",
+     "summary": "markdown_fenced_lines decides which lines of an outgoing document are STRUCTURAL (quoted data) and which are prose, and ship's outbound register scan reads only the NON-structural lines — a quoted code block is data the author chose to show (r244) — so a line wrongly classified as a fence removes everything after it from the scan. Two openings were accepted that CommonMark does not call fences: (1) a BACKTICK fence whose info string contains a backtick (CommonMark says a backtick fence's info string may not contain any backtick, so '```python```' is a PARAGRAPH, not an opener); (2) a TAB-indented fence (CommonMark allows up to three SPACES; a tab counts as four columns, so '	```' is an indented code block, and an indented code block ends at the first non-indented line — so the prose AFTER it should have stayed prose). Live before-fix on 'ship -' with the register marker PHEW planted one line under each: plain prose -> fenced [] and the finding reported; a real fence -> fenced [0,1,2] and 'clean' (correct, quoted data); '```python```' + marker + '```' -> fenced [0,1,2] and 'clean' (the marker HIDDEN); '	```' + marker + '```' -> fenced [0,1,2] and 'clean' (also HIDDEN). The last two are the defect — the marker rode out of the human-facing boundary reported clean, the same class r244 called worse than the inbound hole because ship is the surface a human reads. The fix is two rules straight from CommonMark: a backtick fence's info string may not contain a backtick (tilde fences have no such restriction), and fence indentation is up to three SPACES rather than any whitespace (the old \\s{0,3} accepted a tab); the closing fence keeps allowing trailing spaces or tabs, which CommonMark ignores. Every legitimate case is byte-identical: plain info strings, tilde fences, a larger closing fence, an unclosed fence swallowing the tail, an inner fence line as content, two fences in one document, three-space indentation, and a closing fence with a trailing tab or space. Found by a coverage-shaped sweep — markdown_fenced_lines was one of sixteen functions never named in any test — then driven end-to-end through ship to confirm the harm rather than stopping at the helper",
      "default": True},
 )
 
