@@ -10439,3 +10439,61 @@ tables both take the r335 row.
 
 Suite after r335: 3630 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
+
+### Round 336 (test r336)
+
+THE DEFECT. Found by an AST sweep: collect every add_argument dest, then
+collect every dest actually READ (args.X / getattr(args, "X")). One dest
+was registered and read by NOTHING — note --memory.
+
+It has never been read in any commit (git log -S'args.memory' is empty),
+the ledger has no Memory section (SECTIONS is the five that
+info --list-fields documents), and no test drove it. So
+
+  note --memory "a durable fact to remember"
+
+exited 0 having recorded nothing: the ledger was byte-identical
+afterwards. r327 called this the write path's lie — the caller believes
+a durable fact is in the ledger and it is not — and r327's own guard even
+listed --memory in the single-use table, so a REPEATED --memory was
+refused while a single one was silently discarded.
+
+Live before-fix:
+
+  note --memory "a durable fact"  -> rc 0, ledger unchanged
+  note --memory a --memory b      -> rc 2, "was given 2 times"
+
+THE FIX. The flag is REFUSED, not implemented. Adding a sixth ledger
+section is a schema change (read_ledger / write_ledger / validate_book /
+every face / the untrusted echo surface) — that is a feature, and the
+honest minimal fix for a flag that does nothing is to say so instead of
+inventing one. The refusal is the r188/r205 idiom: never accept an
+instruction you do not carry out. It names where a durable fact actually
+goes (--check for a checkpoint, --marker/--confidence/--verifier for
+telemetry), fires before any other edit so a mixed call cannot apply half
+of itself, and is covered on the r199 --from-stdin path too.
+
+Scope: mode_note only. The flag stays registered so the error explains
+itself, the r327 repetition refusal still fires first, and the same probe
+confirms every OTHER note flag changes something.
+
+New test file tests/test_r336_unimplemented_flag_refused.py (14 tests,
+4 classes): MemoryRefusalTests pins the refusal, its stream, that nothing
+is written, that the message names where the fact goes, that the r327
+repetition refusal still fires first, that a mixed call does not apply
+half of itself, and that the stdin path is covered too;
+OtherNoteFlagsStillWorkTests pins that marker/goal/check still record and
+that Memory is not a ledger section; RegisteredDestSweepTests re-runs the
+AST sweep so a future registered-but-unread flag fails the suite;
+CatalogPinTests pins the r336 entry.
+
+Pins: r175 recent-count 156 -> 157; r200 empty-window bracket
+r336/r336 -> r337/r337. Catalog entry unimplemented-flag-refused
+(since r336): import-verified catalog len 187, max since 336,
+recent(>=170) 157, r335's entry survived the append, module loads.
+
+Docs: SKILL.md's note --check line, README.md and README.zh-CN.md
+round-note tables both take the r336 row.
+
+Suite after r336: 3644 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.

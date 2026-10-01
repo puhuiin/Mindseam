@@ -7042,7 +7042,29 @@ def mode_note(book, args):
     applying it.
     """
     dry_run = getattr(args, "dry_run", False)
-    # r327 FIRST: a repeated write flag was silently dropped. note
+    # r336 FIRST: --memory is registered, listed in the r327 single-use
+    # table and named as a write flag in the docs — and read by NOTHING.
+    # It has never been read in any commit, there is no Memory section in
+    # the ledger (SECTIONS is the five documented in ``info --list-fields``),
+    # and no test drives it. So ``note --memory "a fact"`` exited 0 having
+    # recorded nothing, which is the r327 lie about the WRITE path: the
+    # caller believes a durable fact is in the ledger and it is not.
+    #
+    # Refused rather than implemented, deliberately. Adding a sixth ledger
+    # section is a schema change (read_ledger / write_ledger / validate_book
+    # / every face / the untrusted echo surface), i.e. a feature, and the
+    # honest minimal fix for a flag that does nothing is to say so instead
+    # of inventing one. This refusal is the r188/r205 idiom: never accept
+    # an instruction you do not carry out.
+    if getattr(args, "memory", None):
+        print("CANNOT: --memory is not implemented.", file=sys.stderr)
+        print("  the ledger has five sections (Goal / Core / Verified / "
+              "Open / Next) and no Memory section, so this flag would "
+              "record nothing. Use --marker / --confidence / --verifier "
+              "for metacognition telemetry, or --check for a durable "
+              "checkpoint.", file=sys.stderr)
+        return 2
+    # r327: a repeated write flag was silently dropped. note
     # records one value per ledger field and argparse's ``store`` action
     # kept only the LAST, so "note --open Q1? --settled-by s1 --open Q2?
     # --settled-by s2" recorded only Q2 and reported "Open: ?01 Q2?" as
@@ -9915,6 +9937,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "alias-cannot-shadow-a-flag", "since": "r335",
      "summary": "r330 made a SUBCOMMAND win over an alias because the alias catalog is host-authored config and must not be able to disable a built-in by sharing its name; that rule was applied to subcommand names only, and the identical hole stayed open one layer out — a FLAG name. _expand_alias_argv expanded any first token found in the catalog, so aliases.json = {\"--help\": {\"command\": \"info\", \"args\": [\"--version\"]}} made 'mindseam.py --help' print 'mindseam 3.6.0' with no usage text and no hint that a config file had taken the flag; -h was reachable the same way, and every other flag-shaped name with it (--json, --strict, --version) plus the two positional separators - and --. Live before-fix: expand(['--help']) -> ['info', '--version'], expand(['--']) -> ['info', '--version'], and the CLI printed the version for --help. The fix is one guard from the same rule r330 states: host-authored config may ADD names, never REMOVE a built-in one — a head beginning with '-' is never expanded, which covers every flag and both separators. Scope: the dash-prefix test only. A non-flag alias name is untouched, the built-in catalog is untouched, a subcommand still wins (r330 re-pinned in the same file), and a user override of a built-in ALIAS still wins (r168 user_overrides) — that is a name that already exists in the catalog, not a built-in flag",
+     "default": True},
+    {"id": "unimplemented-flag-refused", "since": "r336",
+     "summary": "Found by an AST sweep: collect every add_argument dest, then collect every dest actually READ (args.X / getattr(args, \"X\")). One dest was registered and read by NOTHING — note --memory. It has never been read in any commit (git log -S'args.memory' is empty), the ledger has no Memory section (SECTIONS is the five info --list-fields documents), and no test drove it, so 'note --memory \"a durable fact\"' exited 0 having recorded nothing — the ledger was byte-identical afterwards. r327 called this the write path's lie (the caller believes a durable fact is in the ledger and it is not) and its own guard even listed --memory in the single-use table, so a REPEATED --memory was refused while a single one was silently discarded. The fix REFUSES the flag rather than implementing it: a sixth ledger section is a schema change (read_ledger / write_ledger / validate_book / every face / the untrusted echo surface), which is a feature, and the honest minimal fix for a flag that does nothing is to say so instead of inventing one — the r188/r205 idiom of never accepting an instruction you do not carry out. The refusal names where a durable fact actually goes (--check for a checkpoint, --marker/--confidence/--verifier for telemetry), fires before any other edit so a mixed call cannot apply half of itself, and is covered on the r199 --from-stdin path too. Scope: mode_note only; the flag stays registered so the error explains itself, the r327 repetition refusal still fires first, and the same probe confirms every OTHER note flag changes something. A test re-runs the AST sweep so a future registered-but-unread flag fails the suite",
      "default": True},
 )
 
