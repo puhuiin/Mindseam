@@ -89,7 +89,7 @@ class CommandBoundaryTests(unittest.TestCase):
         )
         result = run_controller(self.workspace, "ship", "-", "--strict", stdin="draft text.")
         self.assertEqual(result.returncode, 2)
-        self.assertIn("open question(s) remain", result.stdout)
+        self.assertIn("1 open question remains", result.stdout)
 
     # --- boundary: history/list emptiness -----------------------------------
 

@@ -97,7 +97,7 @@ class SubprocessEncodingAndOptimizationsTests(unittest.TestCase):
         book = {"Goal": ["g"], "Core": [], "Verified": [], "Open": [], "Next": ["n"]}
         text = "This is a run: " + "-" * 25
         result = run_controller(self.ws, "ship", "-", stdin=text)
-        self.assertIn("repetition loop: a character run of 20 or more", result.stdout)
+        self.assertIn("repetition loop: 20 or more repeated notation", result.stdout)
 
 
 if __name__ == "__main__":

@@ -69,7 +69,7 @@ class ShipStrictFlagTests(unittest.TestCase):
         text = "before " + ("." * 30) + " after\n"
         r = _ship(["--strict"], text)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("character run", r.stdout)
+        self.assertIn("repeated notation", r.stdout)
 
 
 if __name__ == "__main__":

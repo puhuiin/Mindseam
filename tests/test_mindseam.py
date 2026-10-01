@@ -356,7 +356,7 @@ class JSpaceControllerTests(unittest.TestCase):
 
         repeated = self.run_controller("ship", "-", stdin="..........................\n")
         self.assertEqual(repeated.returncode, 0, repeated.stdout + repeated.stderr)
-        self.assertIn("character run of 20 or more", repeated.stdout)
+        self.assertIn("20 or more repeated notation", repeated.stdout)
 
     def test_ship_skips_fenced_code_but_checks_following_prose(self):
         fenced = self.run_controller(

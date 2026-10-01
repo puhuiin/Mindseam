@@ -51,6 +51,9 @@ class DetectorFieldHelpersUnifiedTests(unittest.TestCase):
             and "def _row_error" not in line
             and not line.strip().startswith("#")
             and 'return (row.get("error")' not in line
+            # r316: the helper's type-guard form is two lines
+            # (v = row.get(...); return v.strip() if isinstance...).
+            and 'v = row.get("error")' not in line
         ]
         self.assertEqual(inline, [], inline)
 
@@ -61,6 +64,7 @@ class DetectorFieldHelpersUnifiedTests(unittest.TestCase):
             and "def _row_outcome" not in line
             and not line.strip().startswith("#")
             and 'return (row.get("outcome")' not in line
+            and 'v = row.get("outcome")' not in line
         ]
         self.assertEqual(inline, [], inline)
 

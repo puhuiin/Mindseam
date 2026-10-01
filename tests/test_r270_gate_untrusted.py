@@ -190,7 +190,7 @@ class ScopeBoundaryTests(unittest.TestCase):
     def test_clean_gate_yields_empty_map(self):
         gate = ["shaky confidence was not settled before delivery",
                 "marker 'GRRR' was not followed by a settle",
-                "2 open question(s) remain"]
+                "2 open questions remain"]
         self.assertEqual(mindseam.gate_untrusted_map(gate), {})
 
     def test_non_string_entries_are_skipped(self):

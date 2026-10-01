@@ -239,7 +239,7 @@ class JSpaceIntegrationExtras(unittest.TestCase):
         run_controller(self.workspace, "note", "--next", "nx", "--marker", "GRRR")
         result = run_controller(self.workspace, "ship", "-", "--strict", stdin="draft text.")
         self.assertEqual(result.returncode, 2)
-        self.assertIn("open question(s) remain", result.stdout)
+        self.assertIn("1 open question remains", result.stdout)
 
     def test_ship_strict_recovers_after_marker_settled(self):
         self._open()

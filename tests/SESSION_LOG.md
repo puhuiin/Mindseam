@@ -8160,3 +8160,1336 @@ loads.
 Suite after r290: 3094 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
 
+### Round 291 (test r291)
+
+mode_ship builds a list of completion-gate observations; one reports the
+count of still-open questions before delivery (mindseam.py:7233). That line
+hardcoded the lazy idiom gate.append("%d open question(s) remain" %
+len(book["Open"])), so a ledger with exactly one open question read "1 open
+question(s) remain" — the wrong noun (question(s)) AND the wrong verb
+(remain) at a count of one. It is the r281-r290 singular/plural family on
+the ship completion gate, a surface that with --strict flips the exit code
+from 0 to 2 (r156), so a CI host acts on the string it carries; and, like
+r288, one whose verb also disagreed at one item.
+
+Live before-fix (temp workspace, one open question, ship - --strict):
+  text face  -> "· 1 open question(s) remain"
+  ship --json -> gate ["1 open question(s) remain"]
+Both faces carried the buggy string.
+
+Single chokepoint: the gate list feeds both the JSON face (payload["gate"])
+and the text face (for g in gate: print(_oneline("· " + g + ...))), so
+agreeing the string once agrees both faces by construction — the r254/r259
+enumerate-every-projector precedent. The fix agrees both the noun
+("question" if open_n == 1 else "questions") and the verb ("remains" if
+open_n == 1 else "remain") on the same count. After-fix: 1 -> "1 open
+question remains", 2 -> "2 open questions remain", 3 -> "3 open questions
+remain"; the r156 strict exit contract (exit 2 when --strict and any gate
+observation, JSON exit byte-identical to text) is unchanged.
+
+New test file tests/test_r291_ship_open_question_agreement.py (17 tests, 4
+classes): ShipOpenQuestionAgreementTests pins the singular case ("1 open
+question remains", no "question(s)" / no "1 open questions") and the plural
+sweep (2/3/4 read "N open questions remain" with no "remains");
+ShipOpenQuestionFacesAgreeTests pins the JSON gate entry equal to the text
+face string at singular and plural; ShipStrictContractPreservedTests re-pins
+r156 (strict + open question exits 2, non-strict exits 0 but still prints the
+observation, JSON exit matches text exit); CatalogPinTests pins the r291
+entry (max 291, len 142, recent 112, id present, default true).
+
+Pins: r175 recent-count 111 -> 112; r200 empty-window bracket
+`--index-since r291 --index-until r291` -> r292/r292; r290's three exact
+head pins retired to `>=` floors (max >= 290, len >= 141, recent >= 111).
+Catalog entry ship-open-question-agrees-noun-and-verb (since r291);
+import-verified the catalog grew to len 142, since>=170 count 112, max since
+291, module loads. Also corrected two bug-pinning integration tests
+(extras.py, boundaries.py: "open question(s) remain" -> "1 open question
+remains", each adds exactly one open question) and one r270 synthetic gate
+fixture ("2 open question(s) remain" -> "2 open questions remain").
+
+Suite after r291: 3110 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+
+### Round 292 (test r292)
+
+The untrusted-pattern family (r239-r270) closed the rejection-end gap
+(ignore / disregard / dismiss / override) but the *replacement* end stayed
+open: a thirty-phrase probe found "forget everything", "act as if you
+are", "new instructions:", "obey my commands" all scanning clean while
+their rejection cousins were flagged. Echoed back into a model context
+those are the same class of directive.
+
+r292 adds four pattern families — forget-everything, role-play,
+new-instructions, obedience. Ordinary work stays clean: "drop previous
+versions", "follow my commit style", "act as if you are the reviewer"
+in a code-review prompt that is not a jailbreak shape.
+
+New test file tests/test_r292_untrusted_pattern_coverage.py.
+Catalog entry untrusted-pattern-coverage (since r292).
+Suite after r292: 3118 passed, 0 failed.
+
+### Round 293 (test r293)
+
+The constraint end of the same family was still open: lifting the
+training, lifting the rules, lifting the safety, or switching modes all
+scanned clean. Phrases like "override your training", "no restrictions
+apply", "safety off", "you are not bound by", "break free from your
+constraints", "switch to developer mode" read as directives when echoed.
+
+r293 adds four pattern families — training-override, rules-override,
+constraints-override, mode-switch. Ordinary work stays clean: "override
+your training data with this CSV", "the MIT license has no restrictions
+on use", "the IDE has a developer-mode toggle".
+
+New test file tests/test_r293_untrusted_constraint_patterns.py.
+Catalog entry untrusted-constraint-patterns (since r293).
+Suite after r293: 3121 passed, 0 failed (one r175 pin left stale).
+
+### Round 294 (test r294)
+
+_parse_round is the gate on info --index-since / --index-until. Its
+CANNOT message pins the contract as "a round tag like r156", and the
+catalog since field is written r156 / r175 / r0 (the r175 test pins r0 as
+the valid absurd tag). The guard was re.match(r"^r(\d+)$", value.strip()).
+
+Two live holes, both format-contract violations:
+
+1. Python 3's \d matches Unicode Nd. A fullwidth tag "r１７０"
+   matched and int() accepted the fullwidth digits as 170, so
+   --index-since r１７０ returned the same window as r170.
+2. \d+ plus int() accepted a zero-padded tag "r0156" / "r000156" /
+   "r0170" and collapsed it to the unpadded round. --index-since r000
+   returned every feature.
+
+R170 was already refused (case), so the validator was inconsistent:
+ASCII case was strict, ASCII-vs-Unicode digits and leading zeros were
+not. A host that string-compares the tag (if tag == "r170") or echoes
+it into a log sees a form the catalog never uses.
+
+Live before-fix (temp workspace):
+  --index-since r１７０  -> rc=0, 114 lines (same as r170)
+  --index-since r0170   -> rc=0, 114 lines (same as r170)
+  --index-since r000    -> rc=0, 144 lines (everything)
+  --index-since R170    -> rc=2 CANNOT (already correct)
+
+The fix tightens the pattern to canonical ASCII — ^r(0|[1-9][0-9]*)$,
+[0-9] being ASCII-only unlike \d, and the alternation forbidding leading
+zeros except the bare r0 — so r0 / r156 / r170 stay byte-identical while
+r00 / r0156 / r０ / R170 / "r 170" all refuse with exit 2 and the same
+CANNOT message. The catalog since matcher on the filter path uses the
+same form; every catalog entry is already canonical so the filter set is
+unchanged.
+
+New test file tests/test_r294_round_tag_canonical.py (8 tests): canonical
+tags accepted (r0/r1/r156/r170/r294), leading zeros refused (r00/r000/
+r0156/r000156/r0170), fullwidth digits refused (r１７０/r０/r１), uppercase
+still refused, --index-until same contract, r0 keeps everything (the r175
+pin), canonical and padded disagree (the before-fix alias is gone),
+catalog entry present. Uses invoke_cli (no subprocess spawn, r191
+allowlist unchanged).
+
+Pins: r175 recent-count 114 -> 115; r200 empty-window bracket
+r294/r294 -> r295/r295; r291 max-since 293 -> 294, catalog len 144 -> 145,
+recent 114 -> 115. Catalog entry round-tag-canonical (since r294).
+
+Suite after r294: 3130 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 295 (test r295)
+
+info --index-since/--index-until bracket a round window and r176
+refuses an inverted pair with exit 2 ("--index-since r170 is after
+--index-until r160"). The sibling time windows — history --since/--until
+and audit --since/--until — accepted an inverted pair and returned an
+empty result at exit 0.
+
+since_cutoff = now - since_seconds and until_cutoff = now - until_seconds,
+so the interval is empty exactly when since_seconds < until_seconds.
+Live before-fix (temp workspace, one recent seam):
+  history --since 60 --until 3600   -> rc=0, history_count 0
+  history --since 1m --until 2h     -> rc=0, history_count 0
+  audit --since 60 --until 3600     -> rc=0, findings []
+  history --since 2026-01-02 --until 2026-01-01 -> rc=0, 0
+  info --index-since r170 --index-until r160    -> rc=2 CANNOT (already correct)
+
+A swapped pair of flags is a host bug; the silent-empty is the r272
+silent-wrong-at-exit-0 family one step further (there the selector sliced
+wrong, here the bracket is impossible and says nothing). The three window
+implementations in one tool now share one contract: equal bounds stay
+valid (a zero-width window, the way r176 keeps since==until), only the
+inverted pair refuses. The CANNOT message names both values the way the
+index one names both tags. The r217 negative refusal and the r188/r201
+at/baseline-write exclusivity are unchanged.
+
+SKILL.md / README.md / README.zh-CN.md carried the inverted example
+`history --since 30m --until 7d` (and the audit twin) as a documented
+bracket — the exact swapped shape the fix now refuses. Both examples are
+rewritten to the correct order `--since 7d --until 30m` (from 7 days ago
+to 30 minutes ago), with an r295 note that the inverted pair refuses.
+r173's example runner and r221's docs pins follow the rewrite
+(history --since 30m stays documented as the standalone span).
+
+New test file tests/test_r295_window_inverted_refusal.py (11 tests):
+history inverted refused (seconds and span), history inverted --json
+refused, audit inverted refused, audit inverted --json refused, equal
+bounds still valid, ordered window still valid, single-flag untouched,
+negative refusal unchanged (r217 fires first), index inverted still
+refused (r176), catalog entry present. Uses invoke_cli.
+
+Pins: r175 recent-count 116; r200 empty-window bracket r296/r296;
+r291 max-since 295, catalog len 146, recent 116. Catalog entry
+window-inverted-refusal (since r295).
+
+Suite after r295: 3141 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 296 (test r296)
+
+_write_lock_held_by reads the write.lock body the r164 contract names —
+"a single pid=N line" — but parsed it as int(entire_file.strip()). Any
+second line raised ValueError and reported holder_pid=None for a lock
+that names a holder.
+
+Live before-fix (temp .mindseam/write.lock, probe _write_lock_held_by):
+  pid=42\n              -> 42        (canonical, works)
+  pid=42\nstarted=1\n   -> None      (annotation erases the holder)
+  pid=42\n# comment\n   -> None
+  pid=+42               -> 42        (int() accepts sign)
+  pid=０４２ (fullwidth)  -> 42        (int() accepts Nd)
+  pid=042               -> 42        (leading zeros)
+  pid=42 extra          -> None
+  junk\npid=42\n        -> None
+
+The multi-line case is the live lie: info --json lock_state.holder_pid
+went null while the file still said pid=42, so a host asking "who holds
+this lock?" got the wrong answer. The r179 stale recovery still reached
+the right verdict (owner_alive False + age>=300 is the same path a null
+holder takes), so the damage is diagnostic, not safety.
+
+The plus / fullwidth / leading-zero cases are the r294 round-tag
+looseness one surface over: the writer emits pid=%d and never produces
+those forms, so accepting them lets a hand-written lock alias a
+canonical one.
+
+The fix reads the FIRST physical line and matches canonical ASCII —
+^pid=(0|[1-9][0-9]*)$, [0-9] ASCII-only and no leading zeros/sign — so
+the canonical body (pid=42, pid=42\n, pid=42\r\n) is byte-identical, a
+trailing annotation no longer erases the holder, and pid=+42 /
+pid=０４２ / pid=042 / pid=42 extra / PID=42 / junk\npid=42 refuse to
+None the way a malformed body should.
+
+New test file tests/test_r296_lock_pid_canonical.py (10 tests):
+canonical pid line (seven bodies), trailing annotation keeps holder,
+plus sign refused, fullwidth refused, leading zeros refused, trailing
+garbage refused, uppercase refused, malformed refused, lock_info reports
+holder, catalog entry present.
+
+Pins: r175 recent-count 117; r200 empty-window bracket r297/r297;
+r291 max-since 296, catalog len 147, recent 117. Catalog entry
+lock-pid-canonical (since r296).
+
+Suite after r296: 3151 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 297 (test r297)
+
+history --fields names a closed column vocabulary (HISTORY_ROW_FIELDS:
+t/next/verified/open/msg/marker/confidence/verifier/risk/error/outcome/
+extra_steps), the same set --filter keys live in. --filter already
+refuses an unknown key with exit 2 and a CANNOT naming the field list;
+audit --tag refuses an unknown tag the same way — but --fields rendered
+an unknown name as a silent '-' column at exit 0.
+
+Live before-fix (temp workspace, one seam):
+  history --fields next,ms     -> rc=0, header 'next\tms', every ms cell '-'
+  history --fields bogus       -> rc=0, header 'bogus', every cell '-'
+  history --fields next,NEXT   -> rc=0, NEXT column all '-'
+  history --filter bogus=1     -> rc=2 CANNOT 'bogus' is not a history field
+  audit --tag bogus            -> rc=2 CANNOT not a recognised audit tag
+
+A host typo (next,ms instead of next,msg) got a two-column TSV whose
+second column was every row's '-', and nothing on stderr said the
+column does not exist. The lie is the r272 silent-wrong-at-exit-0
+family on a projection face: the caller believes the output covers the
+columns they named.
+
+The fix checks each selected name against HISTORY_ROW_FIELDS before the
+header prints and refuses the first unknown with the same CANNOT shape
+--filter uses ('--fields column %r is not a history field.' + the field
+list). Valid columns, the empty-segment leniency (trailing comma
+drops), the empty-list default to ['next'], and the r245 tag column /
+r256 escape behaviour are unchanged. --filter and --tag are untouched.
+
+Also probed this round (no live defect): duplicate same-flag last-wins
+(--grep/--fields/--format/--limit/--message/--next; --filter is
+documented AND so next=a next=b correctly empties), skillbook utility
+(negative-utility drop is deliberate — a failed-outcome pattern never
+ships, an empty/ok one does), json/text count agreement, and
+note --from-stdin parse failures (CANNOT after argparse usage, exit 2).
+
+New test file tests/test_r297_fields_column_refusal.py (10 tests):
+unknown column refused, typo column refused, wrong case refused, error
+names field list, agrees with filter shape, valid columns still work,
+trailing comma still dropped, empty still defaults to next, filter
+unknown still refused, catalog entry present.
+
+Pins: r175 recent-count 118; r200 empty-window bracket r298/r298;
+r291 max-since 297, catalog len 148, recent 118. Catalog entry
+fields-column-refusal (since r297).
+
+Suite after r297: 3161 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 298 (test r298)
+
+history --row-id N is a 1-based index into the FULL log (r207
+contract, r276 refuses composing it with any narrowing flag so the
+index cannot silently address a different row). But the display faces
+numbered their output with enumerate(hist, 1) AFTER the filter chain:
+the default table's %3d column, the --empty face's %3d, and --format
+%h all renumbered the narrowed slice.
+
+Live before-fix (temp workspace, five-row log a..e):
+  history --tail 2
+    -> '    1  ...  d: four' / '    2  ...  e: five'
+  history --row-id 1
+    -> 'row 1 of 5' / 'a: one'
+  history --grep three --format '%h %next'
+    -> '1 c: three'   (row 3 of 5 in the log)
+
+The same visual "row 1" named two different rows in one command, so a
+host that read a number off the table and fed it to --row-id got the
+wrong row. This is the r276 locator family from the display side: a
+1-based row index that the docs call "the row index" must mean the same
+number whichever face prints it.
+
+The fix snapshots {id(row): full-log-index} after --keep and before the
+filter chain (filters keep the dict objects, so id() survives
+narrowing) and reads that map at the table / --empty / %h emit sites.
+After-fix: --tail 2 shows 4 and 5; --grep three --format '%h %next'
+prints '3 c: three'; --tail 2 --reverse --format '%h %next' prints
+'5 e: five' / '4 d: four' (presentation order flips, log numbers do
+not). --row-id, the JSON untrusted map keys (they index the emitted
+rows array, not the log), and the --dedup listing (its index is
+"unique entry N of M", not a row id) are unchanged. The %h help text
+now names the full-log contract.
+
+Also probed this round (no live defect): --marker free-text vs
+--confidence enum (r250 design), --intensity blank/default, ship file
+validation, info --changed, domains/discover/skillbook span face
+agreement, --filter case-sensitive vs --grep case-insensitive
+(different documented contracts), skillbook negative-utility drop
+(deliberate).
+
+New test file tests/test_r298_display_row_id_agreement.py (9 tests):
+tail shows full-log numbers, grep keeps full-log numbers, format %h is
+the row-id, empty face shows full-log numbers, unfiltered numbers
+unchanged, reverse keeps full-log numbers, row-id contract unchanged,
+dedup index still lists uniques, catalog entry present.
+
+Pins: r175 recent-count 119; r200 empty-window bracket r299/r299;
+r291 max-since 298, catalog len 149, recent 119. Catalog entry
+display-row-id-agreement (since r298).
+
+Suite after r298: 3170 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 299 (test r299)
+
+The r158 two-faces rule says every report face answers --json.
+history's renderers each honour it except --csv: the CSV branch runs
+BEFORE the json fall-through, so history --csv --json printed CSV text
+and dropped --json at exit 0 — the only renderer+json pair where the
+TEXT side won.
+
+Live before-fix (temp workspace, two rows):
+  history --csv --json    -> 't,next,verified,open\n...'   (CSV text)
+  history --quiet --json  -> plain history JSON            (json wins)
+  history --count --json  -> plain history JSON            (json wins, r198 pin)
+  history --span --json   -> span's own JSON face          (r170)
+  history --domains --json -> domains' own JSON face       (r170)
+  history --format %n --json -> JSON with lines            (r197)
+
+Every sibling either rode its own json face or let --json win because
+the plain payload already carries the number. --csv was the holdout.
+
+The fix gives --csv its own json face — {columns, rows, untrusted} —
+with the raw cells and NO inline tag (the JSON convention: text
+appends the [untrusted: ...] tag, machine ships the map), a clean
+row's cells byte-identical to the CSV text path's untagged cells,
+RFC-4180 quoting untouched, and history --csv without --json
+unchanged. --fields still selects columns for both faces; --quiet/
+--count --json keep their r198 pin (plain history_count payload).
+
+Also probed this round (no live defect): --first-match + %h (now
+carries full-log numbers, r298), JSON untrusted keys stay array
+positions, csv/fields tag-in-cell (r245 design), renderer exclusivity
+pairs.
+
+New test file tests/test_r299_csv_json_face.py (9 tests): csv json
+emits json not csv, default columns, respects fields, raw cells have
+no inline tag, untrusted keys the rows array, csv text unchanged, csv
+json agrees with csv text columns, sibling renderers still ride json,
+catalog entry present.
+
+Pins: r175 recent-count 120; r200 empty-window bracket r300/r300;
+r291 max-since 299, catalog len 150, recent 120. Catalog entry
+csv-json-face (since r299).
+
+Suite after r299: 3179 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 300 (test r300)
+
+r248 taught dismiss-instructions that "a directive in the negative is
+prose, not an injection" and hung _DISMISSAL_NEGATION (fixed-width
+lookbehinds for 'not ' / 'not to ' / "n't " / 'never ' / 'avoid ' /
+'cannot ') on every branch. But the two TERSE verb patterns that
+predate it — ignore-previous and disregard — never carried the guard.
+
+Live before-fix (probe scan_untrusted):
+  do not ignore previous instructions     -> ['ignore-previous']
+  cannot ignore previous instructions     -> ['ignore-previous']
+  don't ignore previous instructions      -> ['ignore-previous']
+  never ignore previous instructions      -> ['ignore-previous']
+  do not disregard the ledger             -> ['disregard']
+  do not ignore the previous guidance     -> CLEAN   (dismiss-instructions guarded)
+  do not forget your instructions ...     -> CLEAN   (r248 pin)
+  ignore previous instructions            -> ['ignore-previous', 'dismiss-instructions']
+
+The unguarded terse pattern and the guarded plain-English one disagree
+about the same sentence: "do not ignore previous instructions" is
+prose (a task to follow them) yet the health gate (r242) and the five
+echo surfaces (r239-r271) framed it as untrusted. r248 named this as a
+DocumentedBoundary ("existing behaviour, visible here") — the round
+scoped the fix to dismiss-instructions only.
+
+r300 closes the gap: both terse patterns now carry the same
+_DISMISSAL_NEGATION, so every negated form scans clean while the bare
+"ignore previous instructions" still carries both names (the r248
+two-names pin). "do not override your instructions" was already clean
+(r243's directive-shape guard).
+
+r248's test_the_terse_family_has_no_negation_guard is updated to the
+new contract (negated clean, bare still flagged).
+
+New test file tests/test_r300_untrusted_negation_guard.py (8 tests):
+negated ignore-previous is prose, negated disregard is prose, bare
+ignore-previous still flagged, bare disregard still flagged, negated
+dismiss stays clean (r248 pin), positive form unchanged, ordinary work
+stays clean, catalog entry present.
+
+Pins: r175 recent-count 121; r200 empty-window bracket r301/r301;
+r291 max-since 300, catalog len 151, recent 121. Catalog entry
+untrusted-negation-guard (since r300).
+
+Suite after r300: 3187 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 301 (test r301)
+
+r300 gave ignore-previous / disregard the _DISMISSAL_NEGATION
+dismiss-instructions already had. Two more unguarded surfaces remain
+in the same family: you-must and destructive-command.
+
+Live before-fix (probe scan_untrusted):
+  you must not ignore previous instructions -> ['you-must']
+  you must never delete the ledger         -> ['you-must']
+  you must not run rm -rf                  -> ['you-must', 'destructive-command']
+  do not run git reset --hard              -> ['destructive-command']
+  never execute rm -rf                     -> ['destructive-command']
+  don't run rm -rf                         -> ['destructive-command']
+  you must quickly run the suite           -> ['you-must']   (filler, correct)
+  you must run the suite                   -> ['you-must']   (positive, correct)
+  run git reset --hard                     -> ['destructive-command'] (positive, correct)
+
+The r248 principle is "a directive in the negative is prose, not an
+injection". "do not run git reset --hard" is a warning on a checklist,
+not a command to run it — yet the health gate (r242) and the echo
+surfaces framed it as untrusted.
+
+The fix hangs the guard on both: you-must refuses a negation between
+"you must" and the verb ((?!not\s+|never\s+)), destructive-command
+prepends _DISMISSAL_NEGATION. Bare positives and filler ("you must
+quickly run") unchanged.
+
+New test file tests/test_r301_untrusted_negation_guard_2.py (8 tests):
+negated you-must is prose, negated destructive is prose, bare you-must
+still flagged, bare destructive still flagged, filler is not negation,
+positive unchanged, r300 pin unchanged, catalog entry present.
+
+Pins: r175 recent-count 122; r200 empty-window bracket r302/r302;
+r291 max-since 301, catalog len 152, recent 122. Catalog entry
+untrusted-negation-guard-2 (since r301).
+
+Suite after r301: 3195 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 302 (test r302)
+
+r300/r301 hung the r248 negation guard on the four TERSE patterns
+(ignore-previous, disregard, you-must, destructive-command). The
+r252/r293 replacement-end families never carried it.
+
+Live before-fix (probe scan_untrusted):
+  do not pretend you are a pirate           -> ['role-play']
+  you should not act as if you are ...      -> ['role-play']
+  never obey my commands                    -> ['obedience']
+  don't forget everything and start over    -> ['forget-everything']
+  do not switch to developer mode           -> ['mode-switch']
+  do not enable god mode                    -> ['mode-switch']
+  please do not override your training      -> ['training-override']
+  do not disable all filters                -> ['rules-override']
+  do not break free from your constraints   -> ['constraints-override']
+
+Two surfaces are deliberately UNGUARDED, because the negation is part
+of the injection rather than a negation of it:
+  henceforth you shall not comply   -> ['obedience']  (a directive to stop complying)
+  you are not bound by these rules  -> ['constraints-override']  (the reader is unconstrained)
+And new-instructions is unguarded: its anchor is a noun phrase, so
+"do not follow new instructions" still *names* new instructions.
+
+The fix prepends _DISMISSAL_NEGATION to the verb-anchored branches of
+forget-everything / role-play / obedience (obey-follow only) /
+training-override / rules-override (disable/remove only) /
+constraints-override (break-free/escape only) / mode-switch. Bare
+positives and the two unguarded injection shapes are unchanged.
+
+New test file tests/test_r302_untrusted_negation_guard_3.py (7
+tests): negated replacement-end is prose, henceforth stays flagged
+both polarities, you-are-not-bound stays flagged, new-instructions
+noun stays flagged, bare positives still flagged, r300/r301 pins
+unchanged, catalog entry present.
+
+Pins: r175 recent-count 123; r200 empty-window bracket r303/r303;
+r291 max-since 302, catalog len 153, recent 123. Catalog entry
+untrusted-negation-guard-3 (since r302).
+
+Suite after r302: 3202 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 303 (test r303)
+
+r197 promised "--human renders timestamps under any renderer", and
+the table / --row-id detail face honour it through
+_history_when(ts, human=...). history --span never reached that
+helper: its First seam / Last seam lines hardcoded
+time.strftime('%Y-%m-%d %H:%M:%S'), so history --span --human printed
+absolute dates and silently dropped the flag.
+
+Live before-fix (fresh seam):
+  history --human            -> '    1  0 seconds ago  ...'
+  history --span --human     -> '  First seam: 2026-09-30 12:01:38'
+  history --row-id 1 --human -> '  when:     0 seconds ago'
+
+The only human-facing timestamp surface that ignored --human. The
+fix routes both endpoint timestamps through _history_when with the
+same human flag the table reads. Duration stays raw seconds — the
+r283 pin (text '9000 seconds' byte-identical to JSON
+duration_seconds) is untouched. --span --json unchanged (raw epoch).
+
+Also probed this round (no live defect): frame-forgery firing on
+quoted docs (r249 design — any [untrusted: in a row is forged),
+compact_history archive/idempotence, entries-noun cross-face,
+ship findings (inner-register only, not untrusted scan), share
+rounding, info --check, health untrusted_ledger, model block,
+--human on csv/fields/format (r209 machine faces keep raw epoch).
+
+New test file tests/test_r303_span_human_timestamps.py (7 tests):
+span human renders relative, span without human keeps absolute, span
+human agrees with table, duration stays raw seconds, span json
+unchanged, rowid human unchanged, catalog entry present.
+
+Pins: r175 recent-count 124; r200 empty-window bracket r304/r304;
+r291 max-since 303, catalog len 154, recent 124. Catalog entry
+span-human-timestamps (since r303).
+
+Suite after r303: 3209 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 304 (test r304)
+
+r303 fixed history --span ignoring --human. The same hardcoded
+strftime sat on the --empty text face: one row per line, '%3d  %s'
+where when = time.strftime('%Y-%m-%d %H:%M:%S', ...).
+
+Live before-fix (blank-next row):
+  history --empty --human -> '    3  2026-09-21 22:13:20'
+  history --human         -> '    1  0 seconds ago  ...'
+  history --span --human  -> '  First seam: 0 seconds ago'  (r303 fix)
+
+The second human-facing timestamp surface r197's "--human renders
+timestamps under any renderer" never reached. The fix routes the
+empty face's when through _history_when with the same human flag.
+The JSON face (raw epoch), the r298 full-log row number, and the
+r277 untrusted map are unchanged.
+
+Also probed this round (no live defect): info --mtime raw epoch
+(stat-like, intentional), info --human json gap_human, --empty without
+human keeps absolute.
+
+New test file tests/test_r304_empty_human_timestamps.py (7 tests):
+empty human renders relative, empty without human keeps absolute,
+empty human agrees with table, empty json unchanged, empty row number
+still full-log, span human still works (r303 pin), catalog entry
+present.
+
+Pins: r175 recent-count 125; r200 empty-window bracket r305/r305;
+r291 max-since 304, catalog len 155, recent 125. Catalog entry
+empty-human-timestamps (since r304).
+
+Suite after r304: 3216 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 305 (test r305)
+
+ship's char-run finding read "repetition loop: a character run of 20
+or more" while REPETITION_CHAR_RUN is ([.…\\-'])\\1{19,} — four
+notation characters, not any character — and a hyphen run that IS a
+markdown rule (setext underline / thematic break) is structural and
+skipped.
+
+Live before-fix (probe):
+  25 dots      -> fires "a character run of 20 or more"
+  25 x's       -> clean   (x is not a notation character)
+  25 hyphens   -> clean   (structural markdown rule)
+  25 apostrophes -> fires
+  20 dots      -> fires
+  19 dots      -> clean
+
+The message implied a general character-run detector and got a
+notation-run one. A host reading the finding expected x's and hyphen
+rules to fire.
+
+The fix names what the detector matches:
+  "repetition loop: 20 or more repeated notation characters (dots,
+   ellipsis, hyphens, apostrophes)"
+The pattern, the 20-or-more threshold, the structural exclusion, and
+the line-repetition sibling ("a line repeats three times or more",
+already accurate) are unchanged.
+
+Pins updated: test_mindseam, test_r57_ship_gate (2 assertions + doc),
+test_r128_subprocess_encoding, test_ship_strict_baseline.
+
+New test file tests/test_r305_repetition_message_accuracy.py (9
+tests): message names notation, letters do not fire, hyphen rule is
+structural, inline hyphen run still fires, dots still fire, nineteen
+still clean, line-repetition message unchanged, pattern unchanged,
+catalog entry present.
+
+Also probed this round (no live defect): heal_actions, risk
+escalation/recovery, format %v/%o after read_history normalization,
+warnings-only vs json, grep is substring, %h after keep (r298
+snapshot), claim-without-coverage, core-slot, long_gap threshold,
+workspace-id/content-hash stability.
+
+Pins: r175 recent-count 126; r200 empty-window bracket r306/r306;
+r291 max-since 305, catalog len 156, recent 126. Catalog entry
+repetition-message-accuracy (since r305).
+
+Suite after r305: 3225 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 306 (test r306)
+
+ship's claim_without_coverage fires when a line claims verification
+(CLAIM: verified/confirmed/tested/...) without stating coverage
+(COVERAGE: a distinctive vocabulary). Two defects in COVERAGE:
+
+1. The word list was a bare alternation of ordinary-prose words —
+   'all', 'line', 'file', 'module', 'record', 'command', 'branch',
+   'range', 'through', 'each', 'every' — so the sentence the check is
+   meant to catch scanned as COVERED:
+     'the line was verified by tests'          -> covered (matched 'line')
+     'verified by tests. see the file.'        -> covered (matched 'file')
+     'verified by tests. all good.'            -> covered (matched 'all')
+     'verified by tests'                       -> FIRE (no common word)
+
+2. The operator branch was \bn\s*[<≤=]\s*\d — a ONE-character class —
+   so the ASCII spelling every host types ('n <= 6') missed while the
+   Unicode 'n ≤ 6' matched. 'n >= 1' missed too.
+
+The fix keeps only the distinctive vocabulary (cases/inputs/samples/
+bounds/boundaries/edges/random/including/up to + OS/browser/Python-Node
+names + the Chinese set) and widens the operator to
+(?:<=|>=|<|≤|=). 'verified by tests' / 'the line was verified by
+tests' / 'see the file' now FIRE; 'brute force, n <= 6, including
+empty and maximum' and 'all cases' stay covered.
+
+New test file tests/test_r306_coverage_word_list_precision.py (7
+tests): common words no longer count as coverage, ascii operator now
+matches, real coverage still counts, ship fires on uncov claim, ship
+clean on cov claim, ship clean on no claim, catalog entry present.
+
+Also probed this round (no live defect): claim line numbering
+(1-based), markdown_structural_lines (setext heading pairs, table
+blocks, fences), INNER_ONLY/MARKERS in prose, PHEW in fence vs bare.
+
+Pins: r175 recent-count 127; r200 empty-window bracket r307/r307;
+r291 max-since 306, catalog len 157, recent 127. Catalog entry
+coverage-word-list-precision (since r306).
+
+Suite after r306: 3232 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 307 (test r307)
+
+r306 tightened the English half of COVERAGE but left the Chinese set
+and bare "up to". The same ordinary-prose words sat there.
+
+Live before-fix (probe scan):
+  已经验证了这个文件  -> covered (matched 文件)
+  已经验证，见文件    -> covered (matched 文件)
+  已经确认记录无误    -> covered (matched 记录)
+  已验证命令可用      -> covered (matched 命令)
+  已验证分支合并      -> covered (matched 分支)
+  已验证范围正确      -> covered (matched 范围)
+  已验证全部完成      -> covered (matched 全部)
+  tested up to the mark -> covered (matched up to)
+  verified up to you   -> covered (matched up to)
+  已验证所有输入      -> covered (matched 输入 — real coverage)
+  verified up to 10 cases -> covered (matched up to 10 + cases)
+
+The fix drops the ordinary Chinese nouns (文件/记录/命令/分支/范围/
+全部/所有/目录/路径/路由) and narrows "up to" to "up to <digits>"
+("up to 10 cases" still covers). The distinctive Chinese vocabulary
+(覆盖/用例/输入/边界/样本/包括/至多/…) and every r306 English/operator
+pin are unchanged.
+
+New test file tests/test_r307_coverage_chinese_upto.py (7 tests):
+chinese ordinary nouns no longer cover, chinese real coverage still
+covers, upto requires digits, upto with digits still covers, r306
+pins unchanged, ship fires on chinese uncov claim, catalog entry
+present.
+
+Pins: r175 recent-count 128; r200 empty-window bracket r308/r308;
+r291 max-since 307, catalog len 158, recent 128. Catalog entry
+coverage-chinese-and-upto-precision (since r307).
+
+Suite after r307: 3239 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 308 (test r308)
+
+ship's claim_without_coverage fires when a line claims verification
+(CLAIM) without coverage. The CLAIM regex matched the bare verb
+inside a negation, so the sentence that states the ABSENCE of
+verification scanned as a claim.
+
+Live before-fix (probe CLAIM.search):
+  not verified / never verified     -> True
+  not confirmed / not tested        -> True
+  not proven / not validated        -> True
+  is not tested / was not confirmed -> True
+  cannot be verified                -> True
+  has not been tested               -> True
+  未经验证 / 未经确认 / 未经测试 / 未经证明 -> True
+  未经验证的代码 / 这个方法未经验证   -> True
+  verified / tested / 已经验证       -> True  (correct)
+  unverified / verification pending  -> False (correct, \\b)
+
+A checklist line "this path is not verified" therefore fired the
+uncovered-claim finding — the r248/r300-r302 principle (a directive
+in the negative is prose) applied to the claim detector.
+
+The fix hangs _CLAIM_NEGATION (fixed-width lookbehinds for 'not ' /
+'never ' / "n't " / 'be ' / 'been ' / 未) on the whole CLAIM
+pattern. Bare positives and 'unverified' (blocked by \\b) are
+unchanged.
+
+New test file tests/test_r308_claim_negation_guard.py (8 tests):
+english negation is not a claim, chinese negation is not a claim,
+positives still claims, unverified still not a claim, ship clean on
+negated claim, ship fires on positive claim, ship clean on negated
+chinese, catalog entry present.
+
+Pins: r175 recent-count 129; r200 empty-window bracket r309/r309;
+r291 max-since 308, catalog len 159, recent 129. Catalog entry
+claim-negation-guard (since r308).
+
+Suite after r308: 3247 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 309 (test r309)
+
+history --format and --fields tested truthiness, so an empty string
+was read as "no flag" and the run fell through to the default table.
+
+Live before-fix (probe):
+  history --format ''       -> full table  (host asked for one empty line per row)
+  history --fields ''       -> full table  (host asked for a column list)
+  history --format '' --json -> plain payload, no lines array
+  history --format ' '      -> ' \n'       (correct: empty-ish template)
+  history --fields ','      -> next column (correct: default to next)
+  info --format ''          -> '\n'        (correct: is not None)
+
+Two sibling contracts disagreed about the same empty value. The fix
+switches all four sites (fields_attr / format_template on the JSON
+face, format_template / fields on the text face) to is-not-None, so
+--format '' renders one empty line per row the way --format ' ' does,
+--fields '' defaults to ['next'] the way --fields ',' does, and
+--format '' --json carries lines. Non-empty values and the
+absent-flag path are byte-identical.
+
+Also probed this round (no live defect): text_contains_any substring
+(xxPHEWxx matches, fold_case documented), format token edge (%, %%,
+%z, %ne, %%%%%), audit evidence shape, ship findings grouping.
+
+New test file tests/test_r309_empty_format_fields.py (9 tests):
+format empty renders empty line, format empty agrees with format
+space, format empty not the table, fields empty defaults to next,
+fields empty agrees with comma, format empty json carries lines,
+absent flag unchanged, nonempty values unchanged, catalog entry
+present.
+
+Pins: r175 recent-count 130; r200 empty-window bracket r310/r310;
+r291 max-since 309, catalog len 160, recent 130. Catalog entry
+empty-format-fields-are-values (since r309).
+
+Suite after r309: 3256 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 310 (test r310)
+
+history --grep / --exclude tested truthiness, so an empty needle was
+a silent no-op — and the two flags DISAGREED about the literal: ''
+is a substring of every string, so --grep '' matches all rows (the
+skip happened to agree) while --exclude '' should drop all rows (the
+skip did not).
+
+Live before-fix (three-row log):
+  --grep ''     -> 3 rows   (literal: 3 — accidental agreement)
+  --exclude ''  -> 3 rows   (literal: 0 — silent lie)
+  --since ''    -> rc=2 CANNOT empty value  (already correct)
+  --filter ''   -> rc=2 CANNOT expects key=value  (already correct)
+
+The r309 principle (empty string is a value) plus the --since '' /
+--filter '' CANNOT family say the honest answer is refuse, not a
+silent no-op or a silent exclude-all.
+
+The fix rejects --grep '' / --exclude '' (and whitespace-only) with
+exit 2 and a CANNOT naming the flag, before any filter runs.
+Non-empty needles and the absent-flag path are unchanged.
+
+Also probed this round (no live defect): --tag '' / --tag ',' drop
+empty segments like --fields (trailing-comma leniency), --message ''
+is free text, --intensity '' falls through to default, --explain ''
+refuses, --goal '' / --next '' refuse.
+
+New test file tests/test_r310_grep_exclude_empty_refusal.py (8
+tests): grep empty refused, exclude empty refused, whitespace-only
+refused, nonempty needles still work, absent flag unchanged, refusal
+names the flag, since empty still refused, catalog entry present.
+
+Pins: r175 recent-count 131; r200 empty-window bracket r311/r311;
+r291 max-since 310, catalog len 161, recent 131. Catalog entry
+grep-exclude-empty-refusal (since r310).
+
+Suite after r310: 3264 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 311 (test r311)
+
+info --format's dot-path projector renders a list one element per
+line (jq -r '.foo[*]'). _format_path's list branch stripped the
+indexer and then checked for a dot in what was left, so a list of
+SCALARS with the indexer at the end (ledger.Goal[*], warnings[*])
+took the nested-key branch — it split 'ledger.Goal' on the dot and
+tried to resolve 'Goal' against each scalar string, which is None,
+and the whole projection rendered empty.
+
+Live before-fix (workspace with goal 'g'):
+  ledger.Goal       -> 'g'
+  ledger.Goal[*]    -> ''      (WRONG: nested-key branch on scalars)
+  ledger.Goal[0]    -> 'g'
+  features[*].id    -> fans out (correct: list of dicts, key after indexer)
+  warnings[*]       -> ''      (WRONG: same shape)
+
+The fix only takes the nested-key branch when the path has more AFTER
+the indexer (idx_m.end() < len(path)); a trailing [N]/[*] renders
+each element as a value. Non-star paths and the a[*].b shape are
+byte-identical.
+
+Also probed this round (no live defect): --intensity lite JSON
+carries full list (r156 pin: "the dial trims prose, not data"),
+core-slot live/parked, mtime 0/1 bytes (r285), feature entry shape,
+count with filters, humanize boundaries, stdin spec edges.
+
+New test file tests/test_r311_format_star_scalar_list.py (7 tests):
+star on scalar list renders values, star agrees with bare key, star
+on dict list still nests, bracket zero still scalar, warnings star,
+missing path still empty, catalog entry present.
+
+Pins: r175 recent-count 132; r200 empty-window bracket r312/r312;
+r291 max-since 311, catalog len 162, recent 132. Catalog entry
+format-star-scalar-list (since r311).
+
+Suite after r311: 3271 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 312 (test r312)
+
+_resolve_path's bracket index used (\\d+|\\*|-?\\d+), the same
+looseness r294 fixed on round tags and r296 on the lock PID.
+
+Live before-fix (probe info --format):
+  features[0].id    -> 'info-warnings-only'   (canonical)
+  features[０].id    -> 'info-warnings-only'   (fullwidth Nd -> int 0)
+  features[00].id   -> 'info-warnings-only'   (leading zeros -> int 0)
+  features[01].id   -> 'info-version'         (leading zeros -> int 1)
+  features[-1].id   -> last id                (canonical negative)
+  features[-0].id   -> 'info-warnings-only'   (int('-0') == 0)
+  features[+1].id   -> ''                     (regex refused, correct)
+
+A host writing a non-ASCII or zero-padded index got a silent alias of
+the canonical one. The fix tightens the index to canonical ASCII —
+(0|[1-9][0-9]*|\\*|-[1-9][0-9]*) — so features[0] / features[-1] /
+features[*] are byte-identical while features[０] / features[00] /
+features[01] / features[-0] resolve to None (the empty-string
+missing-path contract). Keys stay \\w+ (JSON keys may be Unicode).
+
+Canonical-ASCII family now spans r294 (round tags), r296 (lock PID),
+r312 (format indices).
+
+New test file tests/test_r312_format_index_canonical.py (7 tests):
+canonical indices work, fullwidth index refused, leading zeros
+refused, minus zero refused, star still works, unicode key still
+works, catalog entry present.
+
+Also probed this round (no live defect): history vs info format
+families (different engines, documented), multi-path format comma
+handling.
+
+Pins: r175 recent-count 133; r200 empty-window bracket r313/r313;
+r291 max-since 312, catalog len 163, recent 133. Catalog entry
+format-index-canonical (since r312).
+
+Suite after r312: 3278 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 313 (test r313)
+
+r254's value taxonomy ("a count field's genuine 0 renders 0, not -")
+listed only verified and open in HISTORY_COUNT_FIELDS, so the third
+count field — extra_steps — kept the truthiness rule.
+
+Live before-fix (row with extra_steps=0):
+  history --fields extra_steps  -> '-'      (wrong: 0 is a real count)
+  history --csv extra_steps     -> blank    (wrong: same)
+  history --json                -> 0        (correct)
+  _history_cell('verified', 0)  -> '0'      (correct, in COUNT_FIELDS)
+  _history_cell('open', 0)      -> '0'      (correct)
+  _history_cell('extra_steps', 0) -> '-'    (wrong)
+
+A host piping --csv into a spreadsheet read a genuine zero as an
+empty cell — the classic zero-vs-missing data footgun r254 closed for
+the first two.
+
+The fix adds extra_steps to HISTORY_COUNT_FIELDS so all three counts
+render '0' for 0 and '-' for missing on --fields/--csv, byte-identical
+to --json. Non-zero values and text fields (which still collapse empty
+to the caller's placeholder) are unchanged. A MISSING key still
+renders '-' — only is-not-None 0 shows '0' (the r254 taxonomy).
+
+New test file tests/test_r313_extra_steps_count_field.py (8 tests):
+fields zero renders zero, csv zero renders zero, json unchanged, all
+three counts agree, missing key still placeholder, text field empty
+still placeholder, count fields include extra_steps, catalog entry
+present.
+
+Also probed this round (no live defect): cross-face string agreement
+(history_count/goal/warnings/gate), performance (in-process 2-5ms,
+subprocess ~175ms), detector semantics, health score direction,
+baseline fingerprint, keep 0, ship binary, dry-run contracts, t:None
+repair path, t:0 as missing, span duration raw (r303 pin).
+
+Pins: r175 recent-count 134; r200 empty-window bracket r314/r314;
+r291 max-since 313, catalog len 164, recent 134. Catalog entry
+extra-steps-count-field (since r313).
+
+Suite after r313: 3286 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 314 (test r314)
+
+r253 gave history --format %v/%o the is-not-None count guard and
+r313 put extra_steps in HISTORY_COUNT_FIELDS for --fields/--csv, but
+the format template never grew a token for the third count.
+
+Live before-fix (row with extra_steps=3 / 0 / missing):
+  --format %x     -> 'x' / 'x' / 'x'   (unknown-%z contract, literal)
+  --fields extra_steps -> '3' / '0' / '-'  (r313, correct)
+  --json          -> 3 / 0 / None      (correct)
+
+A host projecting extra_steps through --format had no placeholder.
+
+The fix adds %x to _FORMAT_TOKEN and the value map with the same
+is-not-None guard %v/%o use (0 -> '0', missing -> '-'), and names it
+in the help. The r253 longest-first alternation keeps %next ahead of
+%n; %x does not collide with any existing token. Text and --json
+lines stay byte-identical for every pre-existing template.
+
+Count-field projection now spans three faces:
+  --format %v/%o/%x  (r253 + r314)
+  --fields/--csv     (r254 + r313)
+  --json             (raw integer)
+
+New test file tests/test_r314_format_extra_steps_token.py (8 tests):
+%x renders extra_steps, %x zero renders zero, %x missing renders
+placeholder, %x agrees with fields and json, count trio agrees, json
+lines carry %x, existing tokens unchanged, catalog entry present.
+
+Pins: r175 recent-count 135; r200 empty-window bracket r315/r315;
+r291 max-since 314, catalog len 165, recent 135. Catalog entry
+format-extra-steps-token (since r314).
+
+Suite after r314: 3294 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 315 (test r315)
+
+escalation_likelihood averaged the risk scores of run with an
+unguarded avg / float(total). An empty run left total at 0 and raised
+ZeroDivisionError out of observations(run=[]) and
+session_health_score(run=[]).
+
+Live before-fix (hist with 5 rows, run=[]):
+  escalation_likelihood(hist, run=[])  -> ZeroDivisionError
+  observations(hist, run=[])           -> crash at L1892
+  session_health_score(hist, run=[])   -> crash via observations
+
+The helper every score/detector sub-call goes through, and the one
+that did not already guard its denominator — stall_score,
+recovery_quality, entropy_reservoir and siblings return 0/100 for
+empty input. The CLI always passes run=hist[-STALL_RUN:] after a
+STALL_RUN guard so it never hit the bug; the crash was reachable
+through direct function calls.
+
+The fix returns 0 when total is 0 (no risk to average), matching the
+neutral scores its siblings already give. The non-empty path is
+byte-identical.
+
+Post-fix crash-hunt of all 18 observations sub-calls with run=[]:
+all safe. detect_stall(run=[]) reports "across the last 0 seams" (a
+cosmetic oddity, not a crash).
+
+New test file tests/test_r315_escalation_empty_run_guard.py (7
+tests): empty run returns zero, empty hist returns zero, observations
+no crash, health score no crash, all subcalls tolerate empty run,
+nonempty path unchanged, catalog entry present.
+
+Also probed this round (no live defect): negation guard interaction
+(mixed negation+positive, frame-forgery in negated context), baseline
+fingerprint unicode, format token in word (%xnext -> 3next), long
+feature summaries, explain/tag weird ids, fields/filter/tag spaces,
+detect_recovery (risk-only by contract), run parameter edges.
+
+Pins: r175 recent-count 136; r200 empty-window bracket r316/r316;
+r291 max-since 315, catalog len 166, recent 136. Catalog entry
+escalation-empty-run-guard (since r315).
+
+Suite after r315: 3301 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 316 (test r316)
+
+The six _row_* helpers (next/error/outcome/marker/confidence/verifier)
+did (row.get(K) or '').strip(). A truthy non-string — a hand-written
+history.json with confidence: 3.14 or next: 5 — passed the or-guard
+and crashed .strip(). fact_age_seconds did int((h.get('t') or 0)) and
+crashed on t: 'x'.
+
+Live before-fix (degenerate rows):
+  assess_risk([{confidence: 3.14, marker: {}}])  -> AttributeError
+  extract_skillbook([{error: 5, outcome: {}}])   -> AttributeError
+  fact_age_seconds([{t: "x"}])                   -> ValueError
+  decay_weight([{t: "x"}])                       -> ValueError (via age)
+
+The CLI is safe because read_history repairs non-strings to '' and
+non-int t to now, but every helper is a shared chokepoint and the
+repair is a separate path.
+
+The fix coerces the way read_history repairs — isinstance(str) before
+.isinstance(int) and not bool before int() — so a malformed value is
+absent rather than a crash. Normalised rows are byte-identical.
+
+Crash-hunt of all 94 hist-taking functions on 4 degenerate row shapes:
+0 crashes (was 6).
+
+r234's source-scanning pin (test_no_inline_error/outcome_strip) is
+updated to accept the helper's two-line type-guard form.
+
+New test file tests/test_r316_row_helpers_type_guard.py (9 tests):
+nonstring fields treated as absent, string fields still strip, missing
+fields still empty, fact_age nonint t is zero, fact_age valid t
+unchanged, assess_risk degenerate rows, extract_skillbook degenerate
+rows, all hist functions tolerate degenerate, catalog entry present.
+
+Pins: r175 recent-count 137; r200 empty-window bracket r317/r317;
+r291 max-since 316, catalog len 167, recent 137. Catalog entry
+row-helpers-type-guard (since r316).
+
+Suite after r316: 3310 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 317 (test r317)
+
+r316 hardened the _row_* helpers against malformed history rows; the
+book-side helpers kept the same shape of hole.
+
+Live before-fix (20 book-taking functions x 6 degenerate shapes):
+  one({"Next": {a: 1}}, "Next")       -> KeyError: 0
+  one({"Goal": "ship the parser"}, "Goal") -> "s"  (first CHARACTER)
+  last_verifier({})                   -> KeyError: 'Verified'
+  print_ledger({"Core": {}})          -> KeyError / TypeError
+  stale_core_count({"Core": [{}]})    -> AttributeError
+  append_history({"Verified": 5})     -> KeyError: 'Verified'
+  _audit_norm(1)                      -> AttributeError
+  audit_findings({Goal: [['g']], ...})-> AttributeError
+  book_thread_alignment({Open: [None]})-> AttributeError
+  16 crashes total.
+
+The CLI is safe because read_ledger + validate_book normalise the
+schema (non-list -> [], non-str items dropped), but every helper is a
+shared chokepoint.
+
+The fix coerces the way validate_book repairs — .get for keys,
+isinstance(str) before .strip(), isinstance(list) before indexing.
+one() also accepts a bare string as a one-element list (the old
+rows[0] on a string returned its first character — "ship the parser"
+-> "s" — which is not the goal). _scan_normalize coerces non-strings.
+Normalised books are byte-identical; post-fix crash-hunt is 0.
+
+New test file tests/test_r317_book_helpers_type_guard.py (10 tests):
+one nonlist is empty, last_verifier missing key, print_ledger
+degenerate, print_full_ledger degenerate, stale_core_count
+degenerate, append_history degenerate, audit_norm nonstring,
+audit_findings degenerate book, all book functions tolerate
+degenerate, catalog entry present.
+
+Pins: r175 recent-count 138; r200 empty-window bracket r318/r318;
+r291 max-since 317, catalog len 168, recent 138. Catalog entry
+book-helpers-type-guard (since r317).
+
+Suite after r317: 3320 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 318 (test r318)
+
+r316/317 hardened the _row_* and book-side helpers against malformed
+values; the scalar-side helpers kept the same shape of hole.
+
+Live before-fix:
+  clean_scalar(5) / [] / {} / True / b'x'  -> TypeError (in / .strip())
+  claim_without_coverage(5) / None        -> TypeError (enumerate)
+  claim_without_coverage([1, 2])          -> TypeError (.strip())
+
+The CLI is safe because argparse gives strings and mode_ship passes a
+list of lines, but every helper is a shared chokepoint.
+
+The fix coerces the way r316/317 do — clean_scalar returns
+(None, 'must be a string') for a non-string, claim_without_coverage
+returns None for a non-list and substitutes '' for a non-string line.
+Normalised inputs are byte-identical. clean_scalar(None) still returns
+(None, None) — None means "no value", not an error.
+
+Type-guard family now spans three sides: hist (r316), book (r317),
+scalar (r318).
+
+New test file tests/test_r318_scalar_helpers_type_guard.py (7 tests):
+clean_scalar nonstring refused, none still no value, strings unchanged,
+claim nonlist returns none, nonstring lines skipped, strings unchanged,
+catalog entry present.
+
+Also probed this round (no live defect): scan_untrusted degenerate
+(already safe via r317 _scan_normalize), _mark_untrusted non-strings
+(returns unchanged when clean).
+
+Pins: r175 recent-count 139; r200 empty-window bracket r319/r319;
+r291 max-since 318, catalog len 169, recent 139. Catalog entry
+scalar-helpers-type-guard (since r318).
+
+Suite after r318: 3327 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 319 (test r319)
+
+r316-318 hardened the row/book/scalar helpers; two more shared
+helpers kept the same hole.
+
+Live before-fix:
+  alias_untrusted_map(5) / "x"  -> AttributeError (.items() on non-dict)
+  resolve_intensity(5) / [] / {} -> AttributeError (.strip() on non-str)
+
+Both are shared chokepoints: alias_untrusted_map feeds info --aliases
+and the health gate, resolve_intensity feeds audit. The CLI is safe
+(aliases come from json.load which validates dict, intensity comes
+from argparse as str|None), but the helpers are callable directly.
+
+The fix coerces the way r316-318 do — alias_untrusted_map returns {}
+for a non-dict, resolve_intensity treats a non-string explicit as
+unset and falls through to env/default. Normalised inputs are
+byte-identical.
+
+Type-guard family now spans five sides: hist (r316), book (r317),
+scalar (r318), alias+intensity (r319).
+
+New test file tests/test_r319_alias_intensity_type_guard.py (7
+tests): alias non-dict, alias none/empty, alias strings unchanged,
+resolve nonstring falls through, resolve none falls through, resolve
+strings unchanged, catalog entry present.
+
+Also probed this round (no live defect): meta_untrusted_map /
+meta_telemetry_tag degenerate (already safe), validate_meta_schema /
+read_meta (already guard non-dict), broad non-CLI crash hunt
+(mostly container-type mismatches, CLI-safe).
+
+Pins: r175 recent-count 140; r200 empty-window bracket r320/r320;
+r291 max-since 319, catalog len 170, recent 140. Catalog entry
+alias-intensity-type-guard (since r319).
+
+Suite after r319: 3334 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 320 (test r320)
+
+r276 made --row-id refuse every narrowing flag (--filter/--since/
+--until/--grep/--exclude/--head/--tail/--limit/--reverse/--keep)
+because each changes which rows exist or their order. --empty was
+missing from that list.
+
+r278 moved --empty into the filter chain as a CONTENT filter (keep
+rows whose next is blank), so it narrows hist the same way --grep
+does — but the r276 guard never listed it.
+
+Live before-fix (three non-empty rows):
+  history --empty --row-id 1
+    -> 'no rows' at exit 0   (empty filter narrowed to 0 rows, then
+                              the locator found nothing)
+  history --grep a --row-id 1
+    -> CANNOT ... composes with none of --grep   (correct)
+
+The fix adds --empty to the narrowing list, so the pair refuses with
+the same CANNOT naming both flags. --empty alone, --row-id alone, and
+--empty's composition with --json/--human (renderers that present the
+filtered set) are unchanged.
+
+New test file tests/test_r320_row_id_empty_narrowing.py (7 tests):
+empty+rowid refused, empty+rowid+json refused, rowid alone works,
+empty alone works, grep+rowid still refused, refusal names both flags,
+catalog entry present.
+
+Also probed this round (no live defect): row-id + other renderers
+(dedup/domains/span/count/quiet/human/format/csv all show row-id
+detail per r197 precedence), keep then row-id, row-id+reverse (r276).
+
+Pins: r175 recent-count 141; r200 empty-window bracket r321/r321;
+r291 max-since 320, catalog len 171, recent 141. Catalog entry
+row-id-empty-narrowing-refusal (since r320).
+
+Suite after r320: 3341 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 321 (test r321)
+
+r316-319 hardened the row/book/scalar/alias helpers; the baseline
+fingerprint path kept the same hole.
+
+Live before-fix:
+  audit --baseline b.json with [1, 'x', {...}]
+    -> AttributeError: 'int' object has no attribute 'get'
+       at _finding_fingerprint (finding.get("tag", ...))
+
+_fingerprint_findings did finding.get() on every item of the
+host-authored baseline JSON. The CLI is safe when the baseline is
+written by --baseline-write (always dicts), but a hand-edited
+baseline is a host input.
+
+The fix skips non-dict items the way validate_book drops non-string
+list items, and returns set() for a non-list (None crashed enumerate).
+A baseline with some dicts and some junk still matches the dicts; a
+baseline with all junk matches nothing (the finding stays fresh).
+
+New test file tests/test_r321_baseline_fingerprint_guard.py (6
+tests): mixed baseline skips non-dicts, all-nondict matches nothing,
+dict baseline unchanged, fingerprint_findings skips non-dicts,
+fingerprint_findings empty/nonlist, catalog entry present.
+
+Also probed this round (no live defect): baseline fingerprint
+stability across runs, unicode what in baseline, --changed state
+edge (delete/corrupt/empty/list), audit explain shape (7 tags, 4
+keys / 4 lines each), explain long summary, from-stdin quoting.
+
+Pins: r175 recent-count 142; r200 empty-window bracket r322/r322;
+r291 max-since 321, catalog len 172, recent 142. Catalog entry
+baseline-fingerprint-type-guard (since r321).
+
+Suite after r321: 3347 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
+
+
+### Round 322 (test r322)
+
+r316 hardened the _row_* helpers against malformed row VALUES; r322
+hardens the detectors against non-dict row ITEMS.
+
+Live before-fix (hist = [1, 'x', {...}]):
+  observations / session_health_score / heal_actions / assess_risk /
+  extract_skillbook / detect_stall / detect_volatility /
+  detect_recovery / detect_risk_escalation
+    -> AttributeError: 'int' object has no attribute 'get'
+  146 detector functions crashed on non-dict rows.
+
+The CLI is safe because read_history drops non-dicts (L767), but the
+detectors are callable directly.
+
+The fix adds _dict_rows(hist) — the read_history filter as a shared
+helper — and calls it at the nine entry points so every CLI path and
+every direct entry-point call is safe. Internal sub-detectors still
+assume dicts (they are called from the entry points with clean data).
+Post-fix crash-hunt of the nine entry points: 0 crashes.
+
+Type-guard family now spans seven sides: hist values (r316), book
+(r317), scalar (r318), alias+intensity (r319), baseline fingerprint
+(r321), hist row items (r322).
+
+New test file tests/test_r322_hist_row_type_guard.py (7 tests):
+dict_rows filters non-dicts, dict_rows nonlist is empty, entry points
+tolerate non-dict rows, all-nondict, empty, valid rows unchanged,
+catalog entry present.
+
+Pins: r175 recent-count 143; r200 empty-window bracket r323/r323;
+r291 max-since 322, catalog len 173, recent 143. Catalog entry
+hist-row-type-guard (since r322).
+
+Suite after r322: 3354 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.

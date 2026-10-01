@@ -207,13 +207,45 @@ class IndexSinceContractTests(unittest.TestCase):
         # entries-noun-irregular-plural, r287,
         # ledger-stagnation-agrees-noun-and-verb, r288,
         # from-stdin-warning-agrees-noun, r289,
-        # keep-rotation-warning-agrees-noun, r290). The
+        # keep-rotation-warning-agrees-noun, r290,
+        # ship-open-question-agrees-noun-and-verb, r291,
+        # untrusted-pattern-coverage, r292,
+        # untrusted-constraint-patterns, r293,
+        # round-tag-canonical, r294,
+        # window-inverted-refusal, r295,
+        # lock-pid-canonical, r296,
+        # fields-column-refusal, r297,
+        # display-row-id-agreement, r298,
+        # csv-json-face, r299,
+        # untrusted-negation-guard, r300,
+        # untrusted-negation-guard-2, r301,
+        # untrusted-negation-guard-3, r302,
+        # span-human-timestamps, r303,
+        # empty-human-timestamps, r304,
+        # repetition-message-accuracy, r305,
+        # coverage-word-list-precision, r306,
+        # coverage-chinese-and-upto-precision, r307,
+        # claim-negation-guard, r308,
+        # empty-format-fields-are-values, r309,
+        # grep-exclude-empty-refusal, r310,
+        # format-star-scalar-list, r311,
+        # format-index-canonical, r312,
+        # extra-steps-count-field, r313,
+        # format-extra-steps-token, r314,
+        # escalation-empty-run-guard, r315,
+        # row-helpers-type-guard, r316,
+        # book-helpers-type-guard, r317,
+        # scalar-helpers-type-guard, r318,
+        # alias-intensity-type-guard, r319,
+        # row-id-empty-narrowing-refusal, r320,
+        # baseline-fingerprint-type-guard, r321,
+        # hist-row-type-guard, r322). The
         # count is stable
         # because the catalog is static; it moves only when a
         # new round lands, and the move is a deliberate pin
         # update, the way the r167 catalog count moved when
         # r169 landed.
-        self.assertEqual(len(recent), 111)
+        self.assertEqual(len(recent), 143)
         for line in recent:
             self.assertIn(line, full)
 

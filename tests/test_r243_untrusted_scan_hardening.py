@@ -323,16 +323,15 @@ class ExistingContractTests(unittest.TestCase):
         # Adding a pattern is a deliberate round, not a quiet edit: the
         # health reason names pattern strings a host can already match.
         # r248 added the plain-English family after ``disregard``; r249
-        # appended ``frame-forgery`` at the end — the row that wears the
-        # controller's own ``[untrusted: ...]`` annotation, the mirror of
-        # ``role-tag`` one layer up. Every earlier slot keeps its index,
-        # so a host that matches names positionally reads the new one only
-        # at the tail.
+        # appended ``frame-forgery`` at the end; r292 appended four more
+        # after it. Every earlier slot keeps its index.
         self.assertEqual([name for name, _ in mindseam.UNTRUSTED_PATTERNS],
                          ["override", "ignore-previous", "disregard",
                           "dismiss-instructions",
                           "you-must", "destructive-command", "role-tag",
-                          "frame-forgery"])
+                          "frame-forgery", "forget-everything", "role-play",
+                          "new-instructions", "obedience", "training-override",
+                          "rules-override", "constraints-override", "mode-switch"])
 
     def test_html_entity_escaping_is_a_documented_non_goal(self):
         # A reader of the ledger's own bytes sees "&#83;YSTEM OVERRIDE",

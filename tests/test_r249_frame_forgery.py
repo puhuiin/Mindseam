@@ -140,13 +140,15 @@ class ScanFamilyTests(unittest.TestCase):
     def test_the_family_is_the_eighth_entry_at_the_end(self):
         # Order is part of the reported name list, and a host matching
         # names reads it positionally. The seven earlier names keep
-        # theirs, and r249 appended frame-forgery at the end without
-        # disturbing any earlier slot.
+        # theirs, r249 appended frame-forgery at the end, and r292
+        # appended four more after it.
         self.assertEqual(
             [name for name, _ in mindseam.UNTRUSTED_PATTERNS],
             ["override", "ignore-previous", "disregard",
              "dismiss-instructions", "you-must", "destructive-command",
-             "role-tag", FAMILY])
+             "role-tag", FAMILY, "forget-everything", "role-play",
+             "new-instructions", "obedience", "training-override",
+             "rules-override", "constraints-override", "mode-switch"])
 
 
 class OrdinaryProseTests(unittest.TestCase):

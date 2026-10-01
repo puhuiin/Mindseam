@@ -2,7 +2,7 @@
 """Round 17 guards: the ship repetition detectors and the ship path.
 
 mode_ship scans outgoing text for two repetition signatures: a line
-repeated three times or more, and a single character run of 20 or more.
+repeated three times or more, and a notation run of 20 or more.
 The character-run regex demanded 21 characters before firing while its
 message — and its intent — said 20, so a 20-character degenerate run
 shipped clean. The ship branch in main() also read the ledger twice;
@@ -47,15 +47,15 @@ class CharacterRunTests(unittest.TestCase):
 
     def test_twenty_character_run_is_flagged(self):
         code, out = self._ship("all good except this: " + "…" * 20)
-        self.assertIn("character run of 20 or more", out)
+        self.assertIn("20 or more repeated notation", out)
 
     def test_nineteen_character_run_is_not_flagged(self):
         code, out = self._ship("dense but human: " + "-" * 19)
-        self.assertNotIn("character run", out)
+        self.assertNotIn("repetition loop", out)
 
     def test_twenty_one_still_flagged(self):
         code, out = self._ship("worse: " + "'" * 21)
-        self.assertIn("character run of 20 or more", out)
+        self.assertIn("20 or more repeated notation", out)
 
     def test_clean_text_stays_clean(self):
         code, out = self._ship("A normal report with normal density.")
