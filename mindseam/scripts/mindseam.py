@@ -863,6 +863,33 @@ def read_history():
     return repaired, changed, repair_reasons
 
 
+def history_read_failed(hist, hist_repairs):
+    """True when an EMPTY history is the result of a failed read.
+
+    ``read_history`` returns an empty list in two very different cases: a
+    workspace that has never run a seam, and a file it could not read at
+    all. The repair reasons are the only signal that separates them, and
+    a caller that renders a count or an empty-state message must consult
+    this rather than testing ``not hist`` alone — otherwise a corrupt
+    file reads as a fresh workspace, which is the r188/r205
+    silent-wrong-at-exit-0 family in its worst form.
+    """
+    return not hist and bool(hist_repairs)
+
+
+def history_read_warning(hist_repairs):
+    """The stderr warning for a history that did not read cleanly, or None.
+
+    One line, the r290/r1015 idiom for an I/O problem: a diagnostic goes
+    to stderr so it cannot be mistaken for report content, and a clean
+    read emits nothing at all.
+    """
+    if not hist_repairs:
+        return None
+    return ("WARNING: history.json could not be read cleanly — %s"
+            % "; ".join(str(r) for r in hist_repairs))
+
+
 def compact_history(hist):
     changed = False
     reasons = []
@@ -7529,7 +7556,13 @@ def mode_ship(book, text, strict=False, json_flag=False, format_path=None):
             break
 
     gate = []
-    hist = read_history()[0]
+    hist, _, hist_repairs = read_history()
+    # r334: a history that could not be READ is not an empty one. ship's
+    # completion gate reads the most-recent row, so a failed read would
+    # silently drop the marker/settle observations it should make.
+    _hist_warning = history_read_warning(hist_repairs)
+    if _hist_warning:
+        print(_hist_warning, file=sys.stderr)
     found_conf = False
     found_marker = False
     for row in reversed(hist):
@@ -8144,7 +8177,13 @@ def mode_history(args):
     # and branching on the cached list fixes both the redundant
     # IO and the cancelled-truncation bug, the way a single
     # source of truth does.
-    hist = read_history()[0]
+    hist, _, hist_repairs = read_history()
+    # r334: disclose a failed read rather than reporting a bare count.
+    # ``history --count`` answering 0 for a corrupt file is the same lie
+    # the info gate told in r333.
+    _hist_warning = history_read_warning(hist_repairs)
+    if _hist_warning:
+        print(_hist_warning, file=sys.stderr)
     if keep_n is not None and keep_n >= 0 and len(hist) > keep_n:
         # Persist the truncated history to disk first, then work
         # from the in-memory slice so the rest of the filters
@@ -9858,6 +9897,9 @@ _FEATURE_CATALOG = (
     {"id": "unreadable-history-disclosed", "since": "r333",
      "summary": "read_history returns (rows, changed, repair_reasons), and a history that cannot be READ at all — corrupt JSON, a directory where the file belongs, a non-list root — comes back as an EMPTY list plus a reason. mode_seam and mode_resume surface those reasons through state_repairs, but FIVE other commands took only [0] and threw the reason away (mode_ship, mode_history, mode_info, mode_skillbook, mode_discover), turning a read failure into a plausible empty result for a ledger that holds rows. The worst is info, because --check is the documented gate — the exit code is 0 only if the ledger passes, otherwise 2 — and it answered valid: true, exit 0, for a file it could not read: the classifier walked hist, and an empty hist has no bad rows to find. Live before-fix on a workspace with four rows: history.json as a directory, as corrupt JSON, and as a non-list root each made info --check print ledger: ok at exit 0, while info --json said no seams recorded yet — the first seam will populate the digest with history_count 0, indistinguishable from a workspace that has never run a seam. The fix threads the repair reasons into mode_info's two classifiers: _info_check_issues reports them first (so the gate fires) and _info_warnings reports them while DROPPING the fresh-workspace promise, which is false for a damaged file. The genuinely fresh workspace is unchanged — no history file means no repair reasons, so --check still exits 0 and the warning is still the original one, pinned by a control test. Scope: mode_info only; history/ship/skillbook/discover still discard the reasons, each a separate disclosure decision with its own face shape, and the gate is where the wrong answer had teeth",
      "default": True},
+    {"id": "read-failure-disclosed-everywhere", "since": "r334",
+     "summary": "r333 fixed mode_info, whose --check gate passed on a history it could not read, and deliberately scoped the fix to info while naming the rest as carriers; this round closes them. On a workspace whose history.json is corrupt JSON (a directory or a non-list root behave the same), four commands still answered at exit 0 with no signal: ship said 'clean — the outgoing register holds.' though its completion gate reads the most-recent row, so a failed read drops every marker/settle observation; history said 'history (0 entries)' and --count said '0'; skillbook said 'No skillbook yet — run a seam to start harvesting patterns.' (false — the patterns may exist); discover said 'No history yet — run a seam and the domain map appears.' (false, and the r280 lie one layer out); and audit said 'Lean already. Ship.' at exit 0 with --strict ALSO exiting 0 — the second documented gate passing on a file it could not read. The fix adds one shared helper pair: history_read_failed(hist, hist_repairs) names the state (an EMPTY history whose emptiness came from a failed read, as opposed to a workspace that never ran a seam) and history_read_warning(reasons) renders the one-line stderr warning, the r290/r1015 idiom, returning None for a clean read. ship/history/skillbook/discover print the warning and the two with an empty-state message stop claiming a fresh start. AUDIT is different in kind, and that difference is the round's real finding: an audit IS a statement about the history, so a history it cannot read is a REFUSAL (exit 2, the r188/r205 CANNOT idiom), not a finding — the first cut made it a finding and was WRONG, because a finding is a projection and --tag delete drops projections, so audit --strict --tag delete still exited 0 on the unreadable file. A gate a projection can switch off is not a gate; the refusal fires before the tag filter and before any finding is computed. Every healthy case is unchanged and pinned: no repair reasons means no warning, audit --strict still exits 1 on real findings, and a fresh workspace keeps its original empty-state messages. A new AST guard pins that no caller subscripts read_history() again",
+     "default": True},
 )
 
 def _resolve_path(payload, path):
@@ -10960,7 +11002,12 @@ def mode_skillbook(json_flag=False, format_path=None):
     and a host reading the JSON or the persisted file sees the same
     signal; a clean entry still carries no extra key.
     """
-    hist = read_history()[0]
+    hist, _, hist_repairs = read_history()
+    # r334: "No skillbook yet" is false for a file that could not be
+    # read — the harvested patterns may well exist.
+    _hist_warning = history_read_warning(hist_repairs)
+    if _hist_warning:
+        print(_hist_warning, file=sys.stderr)
     entries = extract_skillbook(hist)
     # r247: frame before anything prints or persists. The entry's ``text``
     # is the ledger's own ``error`` field coming back, so the framing is
@@ -10987,7 +11034,11 @@ def mode_skillbook(json_flag=False, format_path=None):
     # cached ``hist`` already answers that, the way the JSON face
     # reuses ``entries`` without re-mining.
     if not hist:
-        print("No skillbook yet — run a seam to start harvesting patterns.")
+        if history_read_failed(hist, hist_repairs):
+            print("No skillbook available — history.json could not be read "
+                  "(see the warning above).")
+        else:
+            print("No skillbook yet — run a seam to start harvesting patterns.")
         return 0
     if not entries:
         print("No high-utility patterns yet — the skillbook fills as seams repeat.")
@@ -11036,7 +11087,11 @@ def mode_discover(json_flag=False, format_path=None):
     of every recorded next action, rank by visits, and surface the
     most-visited domain as the suggested next pass when one exists.
     """
-    hist = read_history()[0]
+    hist, _, hist_repairs = read_history()
+    # r334: "No history yet" is false for a file that could not be read.
+    _hist_warning = history_read_warning(hist_repairs)
+    if _hist_warning:
+        print(_hist_warning, file=sys.stderr)
     visits = {}
     for h in hist:
         nxt = _row_next(h)
@@ -11088,6 +11143,9 @@ def mode_discover(json_flag=False, format_path=None):
         # the two reflections agree on what an empty domain map means.
         if hist:
             print("No next actions recorded yet — note a next and the domain map appears.")
+        elif history_read_failed(hist, hist_repairs):
+            print("No domain map available — history.json could not be read "
+                  "(see the warning above).")
         else:
             print("No history yet — run a seam and the domain map appears.")
         return 0
@@ -11956,7 +12014,21 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
                   "windowed write silently under-gates every later full "
                   "audit. Run the write unwindowed.", file=sys.stderr)
             return 2
-    hist_full, _, _ = read_history()
+    hist_full, _, hist_repairs = read_history()
+    # r334: audit --strict is the other documented gate (r156). A failed
+    # read empties the history the shrink facet sees, so the gate would
+    # pass on a file it could not read — the r333 defect on the second
+    # gate. An audit IS a statement about the history, so a history it
+    # cannot read is a REFUSAL (exit 2, the r188/r205 CANNOT idiom), not
+    # a finding: a finding is a projection a --tag filter can drop, and a
+    # gate a projection can switch off is not a gate.
+    if history_read_failed(hist_full, hist_repairs):
+        print("CANNOT: history.json could not be read — %s."
+              % "; ".join(str(r) for r in hist_repairs), file=sys.stderr)
+        print("  the audit is a statement about the history, and every "
+              "history-derived finding is unavailable. Repair or restore "
+              "history.json, then re-run.", file=sys.stderr)
+        return 2
     # The window narrows only the history slice the facet tags
     # see. Ledger-surface tags operate on ``book`` directly and
     # are unaffected.

@@ -10311,3 +10311,76 @@ round-note tables both take the r333 row.
 
 Suite after r333: 3590 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
+
+### Round 334 (test r334)
+
+r333 fixed mode_info, whose --check gate was passing on a history it
+could not read, and deliberately scoped the fix to info while naming the
+rest as carriers. This round closes them.
+
+THE REMAINING DEFECT. On a workspace whose history.json is corrupt JSON
+(a directory or a non-list root behave the same), four commands still
+answered at exit 0 with no signal:
+
+  ship      -> "clean — the outgoing register holds."
+               though its completion gate reads the most-recent row, so
+               a failed read drops every marker/settle observation
+  history   -> "history (0 entries)" and --count "0"
+  skillbook -> "No skillbook yet — run a seam to start harvesting
+               patterns."  (false — the patterns may well exist)
+  discover  -> "No history yet — run a seam and the domain map appears."
+               (false, and the r280 lie one layer out)
+  audit     -> "Lean already. Ship." at exit 0, and --strict ALSO exited
+               0 — the SECOND documented gate passing on a file it could
+               not read.
+
+THE FIX. One shared helper pair, wired into all five:
+
+  history_read_failed(hist, hist_repairs) names the state — an EMPTY
+  history whose emptiness came from a failed read, as opposed to a
+  workspace that has never run a seam.
+  history_read_warning(reasons) renders the one-line stderr warning,
+  the r290/r1015 idiom for an I/O problem, returning None for a clean
+  read so nothing is emitted.
+
+ship/history/skillbook/discover print the warning; the two with an
+empty-state message stop claiming a fresh start ("No skillbook
+available — history.json could not be read" / "No domain map available
+— ...").
+
+AUDIT IS DIFFERENT IN KIND, and that difference is the round's real
+finding. An audit IS a statement about the history, so a history it
+cannot read is a REFUSAL (exit 2, the r188/r205 CANNOT idiom), not a
+finding. The first cut made it a finding and was WRONG: a finding is a
+projection, and --tag delete drops projections, so
+"audit --strict --tag delete" still exited 0 on the unreadable file. A
+gate a projection can switch off is not a gate. The refusal fires
+before the tag filter and before any finding is computed.
+
+Every healthy case is unchanged and pinned: no repair reasons means no
+warning, audit --strict still exits 1 on real findings, and a fresh
+workspace keeps its original empty-state messages.
+
+New test file tests/test_r334_read_failure_disclosed_everywhere.py (26
+tests, 6 classes): ShipDisclosureTests, HistoryDisclosureTests,
+SkillbookDisclosureTests and DiscoverDisclosureTests each pin the
+warning fires on a broken history, that the empty-state lie is gone, and
+that a fresh workspace keeps the original message;
+AuditGateTests drives all three damage shapes through audit, --strict,
+--json and --strict --tag delete and pins the refusal, plus the two
+healthy controls (report-only 0, strict 1 on real findings);
+HelperContractTests pins the helper semantics and carries an AST guard
+that NO caller subscripts read_history() again — the guard is AST-based
+because a comment quoting the old shape must not fail it;
+CatalogPinTests pins the r334 entry.
+
+Pins: r175 recent-count 154 -> 155; r200 empty-window bracket
+r334/r334 -> r335/r335. Catalog entry read-failure-disclosed-everywhere
+(since r334): import-verified catalog len 185, max since 334,
+recent(>=170) 155, r333's entry survived the append, module loads.
+
+Docs: SKILL.md's info --version line, README.md and README.zh-CN.md
+round-note tables both take the r334 row.
+
+Suite after r334: 3616 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
