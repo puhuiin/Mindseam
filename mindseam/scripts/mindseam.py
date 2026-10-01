@@ -9220,21 +9220,42 @@ def _merge_aliases():
     return merged
 
 
+# The registered subcommand names, in registration order. An alias must
+# never shadow one: ``.mindseam/aliases.json`` is host-authored config, and
+# a user alias named ``info`` used to take the place of the ``info``
+# subcommand, making the subcommand unreachable through no fault of the
+# caller. ``git config alias.add ...`` does not shadow ``git add`` either
+# — the built-in wins — so this mirrors the borrower. test_r330 pins the
+# set against the parser registration by AST scan, so a new subcommand
+# cannot be added without it joining the guard.
+_SUBCOMMANDS = frozenset((
+    "seam", "resume", "note", "ship", "info", "history", "skillbook",
+    "discover", "audit",
+))
+
+
 def _expand_alias_argv(argv):
     """Expand a bare alias name into its full argv.
 
-    If the first non-flag token in ``argv`` is a known
-    alias name, expand it: the resolved command takes
-    over the position of the alias name, and the alias
-    args are appended after. ``--`` separators in the
-    alias args are preserved, the way ``git config
-    alias.co`` would handle ``f() { git checkout "$@"; }``.
-    Returns the expanded argv; the alias name is
-    discarded (callers that need it can grep argv[0]).
+    If the first token in ``argv`` is a known alias
+    name AND not a registered subcommand, expand it:
+    the resolved command takes over the position of the
+    alias name, and the alias args are appended after.
+    ``--`` separators in the alias args are preserved,
+    the way ``git config alias.co`` would handle
+    ``f() { git checkout "$@"; }``. Returns the expanded
+    argv; the alias name is discarded (callers that need
+    it can grep argv[0]).
+
+    A subcommand always wins over an alias (r330): the
+    alias catalog is host-authored config and must not be
+    able to disable a built-in by sharing its name.
     """
     if not argv:
         return argv
     head = argv[0]
+    if head in _SUBCOMMANDS:
+        return argv
     aliases = _merge_aliases()
     if head not in aliases:
         return argv
@@ -9794,6 +9815,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "markdown-fence-detection", "since": "r329",
      "summary": "markdown_fenced_lines decides which lines of an outgoing document are STRUCTURAL (quoted data) and which are prose, and ship's outbound register scan reads only the NON-structural lines — a quoted code block is data the author chose to show (r244) — so a line wrongly classified as a fence removes everything after it from the scan. Two openings were accepted that CommonMark does not call fences: (1) a BACKTICK fence whose info string contains a backtick (CommonMark says a backtick fence's info string may not contain any backtick, so '```python```' is a PARAGRAPH, not an opener); (2) a TAB-indented fence (CommonMark allows up to three SPACES; a tab counts as four columns, so '	```' is an indented code block, and an indented code block ends at the first non-indented line — so the prose AFTER it should have stayed prose). Live before-fix on 'ship -' with the register marker PHEW planted one line under each: plain prose -> fenced [] and the finding reported; a real fence -> fenced [0,1,2] and 'clean' (correct, quoted data); '```python```' + marker + '```' -> fenced [0,1,2] and 'clean' (the marker HIDDEN); '	```' + marker + '```' -> fenced [0,1,2] and 'clean' (also HIDDEN). The last two are the defect — the marker rode out of the human-facing boundary reported clean, the same class r244 called worse than the inbound hole because ship is the surface a human reads. The fix is two rules straight from CommonMark: a backtick fence's info string may not contain a backtick (tilde fences have no such restriction), and fence indentation is up to three SPACES rather than any whitespace (the old \\s{0,3} accepted a tab); the closing fence keeps allowing trailing spaces or tabs, which CommonMark ignores. Every legitimate case is byte-identical: plain info strings, tilde fences, a larger closing fence, an unclosed fence swallowing the tail, an inner fence line as content, two fences in one document, three-space indentation, and a closing fence with a trailing tab or space. Found by a coverage-shaped sweep — markdown_fenced_lines was one of sixteen functions never named in any test — then driven end-to-end through ship to confirm the harm rather than stopping at the helper",
+     "default": True},
+    {"id": "alias-cannot-shadow-subcommand", "since": "r330",
+     "summary": "_expand_alias_argv resolves a bare alias name before argparse sees the argv (r168, borrowing 'git co' -> 'git checkout'), and the lookup consulted only the alias catalog — built-in aliases merged with the host-authored .mindseam/aliases.json — so a USER alias won over a registered subcommand of the same name. Live before-fix: with {\"info\": {\"command\": \"audit\", \"args\": [\"--json\"]}} in .mindseam/aliases.json, 'mindseam.py info' ran audit --json and the info report was gone; with {\"note\": {\"command\": \"resume\"}} the note subcommand stopped recording. A host-authored CONFIG file could silently disable any subcommand and the caller got a successful run of the WRONG command — the r188/r205 silent-wrong-at-exit-0 family one layer out: not a dropped flag inside a call but a dropped COMMAND before the parser sees it. The fix mirrors the borrower: 'git config alias.add ...' does not shadow 'git add', the built-in wins, so a subcommand name is never expanded whatever the catalog says. User aliases may still override BUILT-IN aliases (r168's user_overrides contract), which is why the guard is on subcommand names only — pinned by a test that a user redefinition of audit-ci still wins over the built-in, and that a custom name still expands. The guard uses a module-level _SUBCOMMANDS frozenset, drift-proofed by a test that AST-scans the source for every sub.add_parser(\"name\") call and asserts the set matches exactly, so a new subcommand cannot be added without joining the guard. Found by the same coverage-shaped sweep as r329: _expand_alias_argv was one of the module's sixteen functions never named in any test",
      "default": True},
 )
 

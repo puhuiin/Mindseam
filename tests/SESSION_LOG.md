@@ -10040,3 +10040,66 @@ recent(>=170) 150, r328's entry survived the append, module loads.
 
 Suite after r329: 3512 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
+
+### Round 330 (test r330)
+
+Continuing the coverage-shaped sweep from r329. _expand_alias_argv was
+another of the module's sixteen functions never named in any test, and
+probing it through its caller found a real hole.
+
+_expand_alias_argv resolves a bare alias name before argparse sees the
+argv (r168, borrowing "git co" -> "git checkout"). The lookup consulted
+only the alias catalog — built-in aliases merged with the host-authored
+.mindseam/aliases.json — so a USER alias won over a registered
+subcommand of the same name.
+
+Live before-fix (fresh workspace):
+
+  aliases.json = {"info": {"command": "audit", "args": ["--json"]}}
+    mindseam.py info        -> runs audit --json; the info report is gone
+
+  aliases.json = {"note": {"command": "resume", "args": []}}
+    mindseam.py note ...    -> runs resume; note stops recording
+
+A host-authored CONFIG file could silently disable any subcommand, and
+the caller got a successful run of the wrong command. That is the
+r188/r205 silent-wrong-at-exit-0 family one layer out: not a dropped
+flag inside a call, but a dropped COMMAND before the parser sees it.
+
+The fix mirrors the borrower: "git config alias.add ..." does not shadow
+"git add" — the built-in wins — so a subcommand name is never expanded,
+whatever the catalog says. User aliases may still override BUILT-IN
+aliases (r168's user_overrides contract), which is why the guard is on
+subcommand names only; a test pins that a user redefinition of audit-ci
+still wins over the built-in, and that a custom alias name still
+expands.
+
+The guard reads a module-level _SUBCOMMANDS frozenset. To keep it from
+drifting, a test AST-scans the source for every
+sub.add_parser("name") call and asserts the set matches exactly — the
+same source-scanning guard idiom r169/r102 use, so a new subcommand
+cannot be added without joining the guard.
+
+New test file
+tests/test_r330_alias_cannot_shadow_subcommand.py (16 tests, 4 classes):
+SubcommandWinsTests drives each of the nine subcommands with a shadowing
+alias of its own name (including a subTest sweep over all nine at once)
+and pins the real command still answers; UserOverrideStillWorksTests
+pins the built-in aliases still expand, a user redefinition of a
+built-in alias still wins, a custom name expands, and an unknown first
+token still refuses; DriftProofTests pins the AST scan against the
+parser registration, that a subcommand head returns argv unchanged,
+that empty argv is untouched, and that an alias still resolves with its
+args ahead of the caller's; CatalogPinTests pins the r330 entry.
+
+Pins: r175 recent-count 150 -> 151; r200 empty-window bracket
+r330/r330 -> r331/r331. Catalog entry
+alias-cannot-shadow-subcommand (since r330): import-verified catalog len
+181, max since 330, recent(>=170) 151, r329's entry survived the append,
+module loads.
+
+Docs: SKILL.md's info --aliases line, README.md and README.zh-CN.md
+round-note tables both take the r330 row.
+
+Suite after r330: 3528 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.
