@@ -9666,3 +9666,69 @@ recent(>=170) 145, r323's entry survived the append, module loads.
 
 Suite after r324: 3390 passed, 0 failed.
 verify_suite 9/9, run bare, exit 0.
+
+### Round 325 (test r325)
+
+Closing the carrier r324 left behind. history registered --grep and
+--exclude with argparse's default "store" action, so a second value
+silently overwrote the first (mindseam.py:12026).
+
+Live before-fix (fresh workspace, three hand-written history rows):
+
+  history --grep build --grep deploy
+    rc=0
+    stdout: "── mindseam ─ history (1 entry, grep 'deploy')"
+            rows: [deploy: beta]        # "build: alpha" silently dropped
+
+  history --exclude build --exclude deploy
+    rc=0
+    stdout: "── mindseam ─ history (2 entries, exclude 'deploy')"
+            rows: [build: alpha, test: gamma]
+                                       # the row it ASKED to exclude
+
+Unlike a purely undisclosed flag this is a WRONG ANSWER: the caller sees
+rows it explicitly ruled out and cannot tell, because the header and the
+exclude payload key both report only the value that won. This is the
+r188/r205 silent-wrong-at-exit-0 family, on the text-filter pair r310
+already refuses as a pair.
+
+The fix registers both flags with action="append" so the repetition is
+VISIBLE at all — "store" had already discarded the first value by the
+time mode_history ran — then refuses it with exit 2 naming every value
+given. The refusal sits before any row is read and ahead of the
+destructive --keep rotation (the r276 placement doctrine), so a refused
+call never touches disk. Verified by asserting history.json is
+byte-identical after a refused "--grep a --grep b --keep 0".
+
+A single needle unwraps back to the scalar the rest of mode_history and
+both faces expect, so every r324 contract stays byte-identical: the
+no-flag payload key set, the single-needle grep/exclude scalar values,
+and the header clauses. The r310 empty-needle refusal and the r276/r320
+--row-id refusal still fire independently.
+
+Scope: only history's two text filters are fixed. audit has no
+--grep/--exclude (argparse rejects them outright). The remaining
+single-value flags on history (--since/--until/--head/--tail/--limit/
+--fields/--format/--row-id) and audit --since still last-win — each is a
+pre-identified carrier for a later round, and only the text-filter pair
+loses a ROW the caller explicitly excluded, which is why it went first.
+
+New test file tests/test_r325_repeated_text_filter_refused.py (21
+tests, 5 classes): RepeatedFlagRefusedTests pins the refusal for both
+flags, the count and the named values, three repeats, stderr-only with
+empty stdout, the --json face refusing identically, and both flags
+repeated together; RefusalPrecedesDestructionTests pins that the --keep
+rotation never runs on a refused call and that the refusal fires before
+row selection; SingleNeedleUnchangedTests pins the byte-identical
+single-needle text faces, the scalar payload keys, the unchanged no-flag
+key set, the still-filtering behaviour, the r310 empty refusal and the
+r276 --row-id refusal; RegistrationTests pins the append registration in
+the live parser and in the source; CatalogPinTests pins the r325 entry.
+
+Pins: r175 recent-count 145 -> 146; r200 empty-window bracket
+r325/r325 -> r326/r326. Catalog entry repeated-text-filter-refused
+(since r325): import-verified catalog len 176, max since 325,
+recent(>=170) 146, r324's entry survived the append, module loads.
+
+Suite after r325: 3411 passed, 0 failed.
+verify_suite 9/9, run bare, exit 0.

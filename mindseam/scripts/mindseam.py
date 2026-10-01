@@ -7851,6 +7851,34 @@ def mode_history(args):
                   "--row-id its output.", file=sys.stderr)
             return 2
     keep_n = getattr(args, "keep", None)
+    # r325: a repeated --grep / --exclude was silently dropped. argparse's
+    # ``store`` action keeps only the last value, so
+    # ``history --exclude build --exclude deploy`` exited 0 with
+    # "exclude 'deploy'" and LEFT THE "build: alpha" ROW IN THE OUTPUT —
+    # the row the first flag asked to drop. That is the r188/r205
+    # silent-wrong-at-exit-0 family, and on a filter it produces a wrong
+    # answer rather than an undisclosed one: the caller sees rows it
+    # explicitly ruled out and cannot tell.
+    #
+    # The two flags now register with ``action="append"`` purely so the
+    # repetition is visible at all; the refusal fires here, BEFORE the
+    # destructive --keep rotation (the r276 placement doctrine), so a
+    # refused call never touches disk. A single needle keeps its old
+    # scalar shape, so neither the payload key nor the header clause
+    # changes.
+    for name, value in (("--grep", getattr(args, "grep", None)),
+                        ("--exclude", getattr(args, "exclude", None))):
+        if isinstance(value, list) and len(value) > 1:
+            print("CANNOT: %s was given %d times (%s)."
+                  % (name, len(value),
+                     ", ".join(repr(v) for v in value)), file=sys.stderr)
+            print("  Only the last is kept, and the earlier ones are "
+                  "dropped silently — so a row you asked to exclude can "
+                  "still be in the result. Use ONE %s, or --filter "
+                  "KEY=VALUE (repeatable, all filters AND together) to "
+                  "narrow on more than one field." % name,
+                  file=sys.stderr)
+            return 2
     # r214: refuse a negative --keep the way audit --since and
     # note --extra-steps refuse negatives. The old
     # ``keep_n >= 0`` guard made ``history --keep -1`` a silent
@@ -8011,8 +8039,16 @@ def mode_history(args):
         # ``docker logs``, ``journalctl`` and ``find -newer``.
         cutoff = now_ts - until_seconds
         hist = [row for row in hist if int(row.get("t") or 0) <= cutoff]
+    # r325: --grep/--exclude register with action="append" so a repeated
+    # value is visible to the refusal above. A single needle unwraps back
+    # to the scalar the rest of this function and both faces expect, so
+    # the payload key and the header clause keep their shape.
     grep_text = getattr(args, "grep", None)
+    if isinstance(grep_text, list):
+        grep_text = grep_text[0] if grep_text else None
     exclude_text = getattr(args, "exclude", None)
+    if isinstance(exclude_text, list):
+        exclude_text = exclude_text[0] if exclude_text else None
     # r310: an empty needle is not "no filter". --grep '' would match
     # every row ("" is a substring of everything) and --exclude ''
     # would drop every row — and the old truthiness skip made the two
@@ -9578,7 +9614,10 @@ _FEATURE_CATALOG = (
      "summary": "observations() surfaces a shallow-verification fact on every seam — 'Verification depth is shallow (%d unique verifier name(s)); confidence may be over-claimed' — with the lazy '(s)' plural idiom the r281-r291 singular/plural family has been clearing one surface at a time. The guard is 'vd <= 1 and first_verified_val is not None' and verification_depth returns the number of distinct verifiers in the STALL_RUN window, so the fact only ever fires at 0 (the window's verifier fields are all blank) or 1 (one name carries the whole window) — and at 1 it read '1 unique verifier name(s)', the wrong noun for a count of one. Live before-fix on a STALL_RUN-sized ledger with verified=1 and one verifier name: the seam --quiet face, the seam --dry-run text face ('· Verification depth is shallow (1 unique verifier name(s))') and the seam --json facts array all carried the identical lazy string. This is the family's ninth surface and its second DETECTOR FACT (r288's ledger-stagnation fact was the first), showing the family is not confined to a command's own projectors — a health/score detector's sentence is a face too, and one a CI host reads in the same facts payload. The fix pluralizes the noun on the same count with the regular-plural idiom r281/r283 use ('\"\" if vd == 1 else \"s\"'): 'name' pluralizes regularly so no stem-swap chokepoint is needed, 0 stays '0 unique verifier names' and only exactly 1 becomes '1 unique verifier name'. One chokepoint, one string — the text face, the seam --json facts array and an in-process observations() caller all read the same 'found' list, so agreeing the string once agrees every face by construction (the r254/r259 precedent). The guard, verification_depth itself (which counts distinct names), and the score layer's separate 'shallow verification depth -5' reason are untouched. One pre-existing test pinned the buggy string at the 0 case (test_r58_fact_layer.py:105, 'quotes its real number' — corrected in the open, keeping its intent that the measured 0 rather than a hardcoded 1 is what gets rendered)",
      "default": True},
     {"id": "history-filter-disclosure", "since": "r324",
-     "summary": "mode_history narrows its row set with four filters parsed in one block — --since/--until (a time window, r220) and --grep/--exclude (text, validated as a pair by r310) — and its two reporting faces disclosed only HALF of them. history --json carried 'since' and 'grep' but had no key for 'until' or 'exclude', and the text header printed ', last N s' for --since and ', grep …' for --grep but nothing for the other two. There is no principled reason for the split: all four narrow the same rows, --grep/--exclude are refused together when empty, and --since/--until bracket one window. The consequence is that a host reading history --json --exclude deploy receives the surviving rows with no exclude key at all, which is indistinguishable from a history that simply holds that many rows — the narrowing is invisible on the machine face, the r245/r270 doctrine inverted (a host must be able to tell WHAT narrowed the rows it is about to act on) and the r254/r259 discipline violated per filter rather than per family. Live before-fix on a three-row history: history --exclude deploy printed '── mindseam ─ history (2 entries)' with JSON keys {grep, history_count, limit, reverse, rows, since, untrusted} and no exclude; history --until 7200 likewise had no until. The fix discloses the missing two on BOTH faces, mirroring the shape the existing clauses use: 'until' and 'exclude' keys in the payload (null when unset, so the key set is stable), and ', older than N s' and ', exclude …' clauses in the header. A call with neither flag renders byte-identically to before, and the r220 window grammar, r310 empty-needle refusal, r222 inverted-window refusal and r275/r278 filter-then-truncate order are all unchanged — this is a disclosure fix, not a filtering change. Scoped out and pre-identified as the next carrier: a repeated --grep/--exclude still takes the last value (argparse store), so --exclude a --exclude b silently drops the earlier needle; the new disclosure at least makes the applied value visible on both faces, but the silent drop itself is the r188/r205 family's refusal case",
+     "summary": "mode_history narrows its row set with four filters parsed in one block — --since/--until (a time window, r220) and --grep/--exclude (text, validated as a pair by r310) — and its two reporting faces disclosed only HALF of them. history --json carried 'since' and 'grep' but had no key for 'until' or 'exclude', and the text header printed ', last N s' for --since and ', grep …' for --grep but nothing for the other two. There is no principled reason for the split: all four narrow the same rows, --grep/--exclude are refused together when empty, and --since/--until bracket one window. The consequence is that a host reading history --json --exclude deploy receives the surviving rows with no exclude key at all, which is indistinguishable from a history that simply holds that many rows — the narrowing is invisible on the machine face, the r245/r270 doctrine inverted (a host must be able to tell WHAT narrowed the rows it is about to act on) and the r254/r259 discipline violated per filter rather than per family. Live before-fix on a three-row history: history --exclude deploy printed '── mindseam ─ history (2 entries)' with JSON keys {grep, history_count, limit, reverse, rows, since, untrusted} and no exclude; history --until 7200 likewise had no until. The fix discloses the missing two on BOTH faces, mirroring the shape the existing clauses use: 'until' and 'exclude' keys in the payload (null when unset, so the key set is stable), and ', older than N s' and ', exclude …' clauses in the header. A call with neither flag renders byte-identically to before, and the r220 window grammar, r310 empty-needle refusal, r222 inverted-window refusal and r275/r278 filter-then-truncate order are all unchanged — this is a disclosure fix, not a filtering change. A repeated --grep/--exclude took the last value (argparse store), silently dropping the earlier needle; r325 fixed that carrier — both flags now register with action=append and the repetition is refused with exit 2 naming every value given",
+     "default": True},
+    {"id": "repeated-text-filter-refused", "since": "r325",
+     "summary": "history registered --grep and --exclude with argparse's default store action, so a second value silently overwrote the first: 'history --exclude build --exclude deploy' exited 0 reading exclude 'deploy' and LEFT THE 'build: alpha' ROW IN THE OUTPUT — the exact row the first flag asked to drop. Unlike a purely undisclosed flag this is a WRONG ANSWER, the r188/r205 silent-wrong-at-exit-0 family on the text-filter pair r310 already refuses as a pair. Live before-fix on a three-row history: 'history --grep build --grep deploy' -> rc=0, header 'history (1 entry, grep 'deploy')', rows [deploy: beta]; 'history --exclude build --exclude deploy' -> rc=0, header 'history (2 entries, exclude 'deploy')', rows [build: alpha, test: gamma]. The fix registers both flags with action='append' so the repetition is VISIBLE at all (store had already discarded the first value by the time mode_history ran), then refuses it with exit 2 naming every value given, before any row is read and ahead of the destructive --keep rotation (the r276 placement doctrine) so a refused call never touches disk — verified by asserting history.json is byte-identical after a refused '--grep a --grep b --keep 0'. A single needle unwraps back to the scalar the rest of mode_history and both faces expect, so the r324 payload keys and header clauses keep their shape byte-for-byte (a no-flag call and a single-needle call are both unchanged), and the r310 empty-needle refusal and the r276/r320 row-id refusal still fire independently. Scoped out as the family's remaining carriers: history's other single-value flags (--since/--until/--head/--tail/--limit/--fields/--format/--row-id) still last-win; audit --since also last-wins. Only the text-filter pair loses a ROW the caller explicitly excluded, which is why it went first",
      "default": True},
 )
 
@@ -12023,10 +12062,12 @@ def main(argv=None):
         help="show oldest first (like git log --reverse), default is newest first")
     hist_p.add_argument("--since", dest="since", default=None,
         help="keep only rows from the last N seconds, a span (30s / 45m / 12h / 7d / 2w), or an ISO-8601 date (like docker logs --since 30m / git log --since); r173 grammar shared with audit")
-    hist_p.add_argument("--grep", dest="grep", default=None,
-        help="keep only rows whose next action contains TEXT (like git log --grep)")
-    hist_p.add_argument("--exclude", dest="exclude", default=None,
-        help="drop rows whose next action or msg contains TEXT (like git log --invert-grep)")
+    hist_p.add_argument("--grep", dest="grep", action="append", default=None,
+        metavar="TEXT",
+        help="keep only rows whose next action contains TEXT (like git log --grep); pass once only — a repeated --grep refused with exit 2 rather than silently keeping the last value (r325)")
+    hist_p.add_argument("--exclude", dest="exclude", action="append", default=None,
+        metavar="TEXT",
+        help="drop rows whose next action or msg contains TEXT (like git log --invert-grep); pass once only — a repeated --exclude refused with exit 2 rather than silently keeping the last value (r325)")
     hist_p.add_argument("--until", dest="until", default=None,
         help="drop rows newer than N seconds / a span / an ISO-8601 date ago (like git log --until, the upper bound on --since)")
     hist_p.add_argument("--keep", dest="keep", type=int, default=None,

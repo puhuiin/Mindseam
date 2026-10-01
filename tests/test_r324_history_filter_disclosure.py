@@ -43,10 +43,10 @@ exactly as before.
 Scope: only the general ``history`` face's payload and header changed.
 ``--since``/``--until``/``--grep``/``--exclude`` keep their r220/r310
 semantics, the r222 inverted-window refusal, and the r275/r278
-filter-then-truncate order. A repeated ``--grep``/``--exclude`` still
-takes the last value (argparse ``store``); that silent drop is the
-pre-identified next-round carrier, and the new disclosure at least makes
-the applied value visible on both faces.
+filter-then-truncate order. A repeated ``--grep``/``--exclude`` took the
+last value (argparse ``store``); that silent drop was this round's
+pre-identified carrier and r325 fixed it, so the test that documented the
+old behaviour now pins the refusal instead.
 """
 
 import json
@@ -235,13 +235,20 @@ class SemanticsPreservedTests(_Base):
         self.assertEqual([r["next"] for r in payload["rows"]],
                          ["deploy: beta", "test: gamma"])
 
-    def test_repeated_flag_still_takes_the_last_value(self):
-        # Documented, not fixed this round: argparse ``store`` means the
-        # later value wins, and the new disclosure makes it visible.
-        payload = self._json("--exclude", "deploy", "--exclude", "build")
-        self.assertEqual(payload["exclude"], "build")
-        self.assertIn("exclude 'build'", self._header("--exclude", "deploy",
-                                                      "--exclude", "build"))
+    def test_repeated_flag_is_now_refused(self):
+        # r324 scoped this out: a repeated --grep/--exclude took the last
+        # value (argparse store), so the earlier needle was silently
+        # dropped. r325 fixed it — the repetition is now refused with
+        # exit 2, and the disclosure this round added makes the applied
+        # value visible before the refusal ever needed to.
+        r = run_controller(self.ws, "history", "--exclude", "deploy",
+                           "--exclude", "build")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("CANNOT: --exclude was given 2 times", r.stderr)
+        self.assertEqual(r.stdout, "")
+        payload = self._json("--exclude", "deploy")
+        self.assertEqual(payload["exclude"], "deploy")
+        self.assertIn("exclude 'deploy'", self._header("--exclude", "deploy"))
 
 
 class CatalogPinTests(unittest.TestCase):
