@@ -305,7 +305,8 @@ class CatalogPinTests(unittest.TestCase):
         self.assertIn("r343", entry["summary"])
 
     def test_catalog_grew_by_one(self):
-        # 196 before r346; one entry lands.
+        # 196 before r346; r347 (and later rounds) keep appending above
+        # it, so this pin is a floor: the count can only grow.
         self.assertGreaterEqual(len(mindseam._FEATURE_CATALOG), 197)
 
     def test_catalog_shape_unchanged(self):

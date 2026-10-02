@@ -11436,3 +11436,83 @@ r346 row.
 Measured churn: exactly the three intended pins, and nothing else.
 
 Full suite after r346: 3955 passed, 0 failed (3929 before + 26 new).
+
+### Round 347 (test r347) — a one-column table was never a table
+
+THE SOURCE. A matrix that came up empty. The r158 two-faces rule
+(every renderer x `--json`, every command, 18 combinations) held
+everywhere — including the two refusals, both of which are documented:
+`seam --quiet --json` is r271's pinned exclusivity, and `note` has no
+`--json` flag at all because it is an editor that stays single-face
+(r254). With that clean, the next enumeration was the markdown
+classifier's own grammar: fifteen delimiter rows through
+`TABLE_DELIMITER`.
+
+THE GAP. `TABLE_DELIMITER` is the r244 structural classifier's table row
+— a line of dashes under a header row means "what follows is data the
+author chose to quote", so `ship` skips it rather than reporting the
+author's own quoted text as a leaked register marker. Its trailing cell
+group was `(?:\|\s*:?-{3,}:?\s*)` + `+` — **at least two** delimiter
+cells. A one-column table's delimiter row could never match, and a
+one-column table is an ordinary GFM construct. Live before-fix, through
+`ship` over a draft whose only content was a table quoting data:
+
+  | a | b |            | note |
+  | --- | --- |        | --- |
+  | step | DATA DATA | | DATA DATA seen here |
+    -> clean             -> "state markers in outgoing text: DATA DATA"
+
+The two-column form is the one the pattern was written for and it is
+excluded as quoted data; the single-column form fell through to the prose
+scan, which reported the author's own quoted table as a leaked marker.
+
+THE FIX is `+` -> `*`: one delimiter cell is a table, not two.
+
+THE BOUNDARY IS THE INTERESTING PART, and it is pinned rather than left
+to the suite. The **pipeless** form — `note` followed by `---` — is a
+setext H2, so the setext branch claims the pair before the table branch
+ever sees it, and the paragraph after it is prose. That is the correct
+answer, because a heading's body is not quoted table data, and it is the
+reason the no-pipe single-column case does NOT become quoted data while
+the piped one does. The same shape with two cells (`a | b / --- | ---`)
+is unambiguous because no setext rule can claim a line containing a pipe.
+
+TWO FORMS LEFT NARROWER THAN GFM ALLOWS, deliberately. `| - |` (a single
+dash per cell) and `| :-: |` (an alignment colon) both stay prose. The
+reason is r244's doctrine running the other way: quoted data is skipped
+only when the author really quoted it, so widening further would grow the
+exclusion surface and hide a planted marker inside it. A bare `---` line
+now matches as a single-cell delimiter, which changes nothing — a line of
+hyphens is already a thematic break and is structural either way — and
+that is pinned so the reasoning stays visible rather than being inferred
+from a passing suite.
+
+New test file tests/test_r347_single_column_table_delimiter.py (28
+tests, 6 classes): SingleColumnTableTests pins the piped single cell
+matches, the body below it is structural, and the live `ship` surface
+skips it — plus the setext boundary that makes the pipeless form prose;
+MultiColumnUnchangedTests re-pins two and three columns, no outer pipes,
+the aligned two-column case, and that a two-column table is still
+skipped; DeliberatelyNarrowTests pins the single-dash and alignment-colon
+forms stay prose, that a bare hyphen line is a thematic break either way,
+and that prose is not a table; ClassifierElsewhereTests re-pins every
+other r329 construct — headings, lists, setext both directions, thematic
+breaks, fences, and a fence containing a table; LiveShipSurfaceTests pins
+every column count quoting data is clean while a marker in prose and in a
+fence behave as they should; PatternShapeTests pins the cell group is
+star not plus, the dash count is still three or more, and the source
+comment names the round; CatalogPinTests pins the entry.
+
+Pins: r175 recent-count 167 -> 168; r200 empty-window bracket
+r347/r347 -> r348/r348. r346's exact catalog count retired to a >= floor.
+Catalog entry single-column-table-delimiter (since r347): import-verified
+catalog len 198, max since 347, r346's entry survived the append, module
+loads.
+
+Docs: SKILL.md's `ship FILE` line takes the r347 clause beside r345's;
+README.md and README.zh-CN.md round-note tables both take the r347 row.
+
+Measured churn: ZERO.
+
+Full suite after r347: 3983 passed, 0 failed (3955 before + 28 new).
+verify_suite 9/9, run bare, exit 0.
