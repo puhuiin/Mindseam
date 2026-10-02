@@ -10263,6 +10263,9 @@ _FEATURE_CATALOG = (
     {"id": "single-column-table-delimiter", "since": "r347",
      "summary": "TABLE_DELIMITER is the r244 structural classifier's table row: a line of dashes under a header row means 'what follows is data the author chose to quote', so `ship` skips it rather than reporting the author's own quoted text as a leaked register marker. The trailing cell group was (?:\\|\\s*:?-{3,}:?\\s*)+ — at least TWO delimiter cells — so a one-column table's delimiter row could never match, and a one-column table is an ordinary GFM construct. Live before-fix, through `ship` over a draft whose only content was a table quoting data: '| a | b | / | --- | --- | / | step | DATA DATA |' answered clean (the two-column form is the one the pattern was written for, and it is excluded as quoted data), while '| note | / | --- | / | DATA DATA seen here |' answered 'state markers in outgoing text: DATA DATA' — the author's own quoted table reported as a leaked marker. FOUND BY the r158 two-faces matrix (every renderer x --json, every command) coming up EMPTY, which held everywhere, so the next enumeration was the markdown classifier's own grammar: fifteen delimiter rows through the pattern, which showed exactly one family changed when the + became a *. THE FIX is + -> *: one delimiter cell is a table, not two. Two forms are deliberately left narrower than GFM allows and pinned that way, because r244's doctrine is that quoted data is skipped only when the author really quoted it — widening further would grow the exclusion surface and hide a planted marker inside it. '| - |' (a single dash per cell) stays prose: GFM allows it, but a one-dash cell is also ordinary row text. '| :-: |' (an alignment colon) stays prose for the same reason one level out. The pipeless form is the interesting boundary and is pinned as such: 'note' followed by '---' is a setext H2, so the setext branch claims the pair before the table branch ever sees it and the paragraph after it is prose — which is correct, because a heading's body is not quoted table data; the same shape with two cells ('a | b / --- | ---') is unambiguous because no setext rule can claim a line containing a pipe. A bare '---' line now matches as a single-cell delimiter, which changes nothing: a line of hyphens is already a thematic break and is structural either way — pinned so that reasoning stays visible rather than being inferred from a passing suite. The rest of the r329 classifier (headings, lists, setext, thematic breaks, fences, and a fence containing a table) is unchanged and re-pinned. Measured churn: ZERO",
      "default": True},
+    {"id": "manifest-text-face", "since": "r348",
+     "summary": "`info` carries six payload blocks — --health, --mtime, --content-hash, --changed, --manifest and --workspace-id. Five of them print their own section on the text face. --manifest did not. r242 found exactly this shape for --health and wrote the diagnosis down: 'the health block had no text face at all, so info --health printed the ordinary report and never the answer that was asked for — the same silent-drop shape as r202/r205, one layer lower because here the flag was simply never rendered', and gave it a section. --mtime (r163) and --content-hash / --changed (r166) each had one from the start. --manifest never got one, and r337 made it LOOK handled: that round added --manifest to the face/block exclusivity guard, so `info --version --manifest` is correctly refused — but `info --manifest` ALONE answered rc 0 with the plain report and no manifest section. Live before-fix, on a normal workspace: `info --manifest` printed 12 lines, the last of them the ordinary 'Audit: 3 items removable' summary, while `info --json --manifest` carried the full audit_manifest block with all nine tags and counts. A host that asked for the manifest got no signal it had not been rendered — the r202/r205/r337 family, a silently dropped request at exit 0, on the one block that round's own guard gave the appearance of covering. Found by an enumeration of the block family rather than a probe of one flag: six blocks x the plain report, looking for which ones add content of their own. Five did; --manifest added nothing. THE FIX adds the missing section in the shape its siblings use — one summary line, then one line per artefact, with the 'artefacts' being the tags. ALL tags are listed, including the ones that did not fire, because that is the block's stated purpose (r163): a missing tag means the detector did not run, not that it found nothing. The columns follow `pip list`'s two-column shape so a host can grep or awk on the result. Four contracts are re-pinned so the fix cannot drift: the text counts and the JSON counts agree for every tag (the r254/r259 one-value-every-projector discipline); the r337 guard still refuses every face paired with --manifest; two blocks still compose; and the sections print in source order rather than flag order, so `info --manifest --content-hash` and `info --content-hash --manifest` are byte-identical. --workspace-id is explicitly left a scalar with no section (r160's shape) and that exclusion is pinned too. Measured churn: ZERO",
+     "default": True},
 )
 
 def _resolve_path(payload, path):
@@ -11186,6 +11189,40 @@ def mode_info(book, json_flag=False, warnings_only=False,
         print("Content hash:")
         for name, h in payload["content_hash"].items():
             print("  %-22s  %s" % (name, h or "(missing)"))
+    if manifest and "audit_manifest" in payload:
+        # r348: the last payload block with no text face at all. r242
+        # found exactly this shape for ``--health`` — "the health block
+        # had no text face at all, so ``info --health`` printed the
+        # ordinary report and never the answer that was asked for — the
+        # same silent-drop shape as r202/r205, one layer lower because
+        # here the flag was simply never rendered" — and gave it a
+        # section. ``--mtime`` (r163) and ``--content-hash`` / ``--changed``
+        # (r166) each had one from the start. ``--manifest`` never did:
+        # r337 added it to the face/block exclusivity guard, so
+        # ``info --version --manifest`` is correctly refused, but
+        # ``info --manifest`` alone answered rc 0 with the plain report
+        # and no manifest section. A host that asked for the manifest
+        # got no signal it had not been rendered.
+        #
+        # Live before-fix: ``info --manifest`` printed 12 lines, the last
+        # of them the ordinary "Audit: N items removable" summary, while
+        # ``info --json --manifest`` carried the full ``audit_manifest``
+        # block with all nine tags. Every sibling block prints its own
+        # section; this one printed nothing.
+        #
+        # The section lists every tag with its count — including the
+        # tags that did not fire — because that is the block's stated
+        # purpose: a missing tag means the detector did not run, not that
+        # it found nothing. The columns follow ``pip list``'s two-column
+        # shape so a host can grep or awk on the result.
+        block = payload["audit_manifest"]
+        print()
+        print("Audit manifest: %d tag%s — %d fired, %d clean"
+              % (block["tags_total"],
+                 "" if block["tags_total"] == 1 else "s",
+                 block["tags_fired"], block["tags_clean"]))
+        for tag in AUDIT_TAGS:
+            print("  %-22s  %d" % (tag, block["by_tag"].get(tag, 0)))
     if changed and "changed" in payload:
         # r166: text face of the changed block. The
         # ``M`` / ``-`` column is borrowed from

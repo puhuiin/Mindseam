@@ -11516,3 +11516,85 @@ Measured churn: ZERO.
 
 Full suite after r347: 3983 passed, 0 failed (3955 before + 28 new).
 verify_suite 9/9, run bare, exit 0.
+
+### Round 348 (test r348) — the last payload block with no text face
+
+THE SOURCE. An enumeration of the block FAMILY rather than a probe of
+one flag. `info` carries six payload blocks — `--health`, `--mtime`,
+`--content-hash`, `--changed`, `--manifest` and `--workspace-id`. Five
+print their own section on the text face. `--manifest` did not.
+
+r242 found exactly this shape for `--health` and wrote the diagnosis
+down, so the round is a return to a closed family rather than a new
+one: "the health block had no text face at all, so ``info --health``
+printed the ordinary report and never the answer that was asked for —
+the same silent-drop shape as r202/r205, one layer lower because here
+the flag was simply never rendered", and it gave health a section.
+`--mtime` (r163) and `--content-hash` / `--changed` (r166) each had one
+from the start.
+
+`--manifest` never got one, and r337 made it LOOK handled. That round
+added `--manifest` to the face/block exclusivity guard, so
+`info --version --manifest` is correctly refused — but `info
+--manifest` ALONE answered rc 0 with the plain report and no manifest
+section. Live before-fix, on a normal workspace:
+
+    info --manifest        -> 12 lines, the last of them the ordinary
+                             "Audit: 3 items removable" summary
+    info --json --manifest -> the full audit_manifest block, all nine
+                             tags with counts
+
+A host that asked for the manifest got no signal it had not been
+rendered. That is the r202/r205/r337 family — a silently dropped
+request at exit 0 — on the one block that round's own guard gave the
+appearance of covering. It is also the reason the family enumeration
+was the right technique: a per-flag probe of `info --manifest` would
+have been satisfied by a `rc 0` and a plausible report, and the defect
+is only visible against its siblings.
+
+THE FIX adds the missing section in the shape its siblings use: one
+summary line, then one line per artefact, with the "artefacts" being
+the tags. ALL tags are listed, including the ones that did not fire,
+because that is the block's stated purpose (r163) — a missing tag means
+the detector did not run, not that it found nothing. The columns follow
+`pip list`'s two-column shape so a host can grep or awk on the result.
+
+FOUR CONTRACTS re-pinned so the fix cannot drift: the text counts and
+the JSON counts agree for every tag (the r254/r259 one-value-every-
+projector discipline); the r337 guard still refuses every face paired
+with `--manifest`; two blocks still compose; and the sections print in
+source order rather than flag order, so `info --manifest
+--content-hash` and `info --content-hash --manifest` are byte-identical.
+`--workspace-id` is explicitly left a scalar with no section (r160's
+shape) and that exclusion is pinned too — a fix for "a block with no
+face" must not turn into "every block gets a face", because
+`--workspace-id` is deliberately a scalar.
+
+New test file tests/test_r348_manifest_text_face.py (21 tests, 6
+classes): ManifestTextFaceTests pins the section prints, that the
+summary line's counts agree with the JSON block, that every tag is
+listed, that the per-tag counts match the JSON, and that a tag that did
+not fire is listed too; EveryBlockHasATextFaceTests pins the invariant
+the fix restores — every block adds content of its own beyond the plain
+report — and that `--workspace-id` stays a scalar;
+InteractionTests pins the r337 guard still refuses every face with
+`--manifest`, two blocks compose, the sections print in source order,
+the manifest precedes `--changed`, the JSON face is unchanged, and the
+render is not in the JSON-only path; SourceShapeTests pins the comment
+names the round, that the section is guarded on `manifest`, and that
+every sibling block still has its own guard; CatalogPinTests pins the
+entry.
+
+Pins: r175 recent-count 168 -> 169; r200 empty-window bracket
+r348/r348 -> r349/r349. r347's exact catalog count retired to a >= floor.
+Catalog entry manifest-text-face (since r348): import-verified catalog
+len 199, max since 348, r347's entry survived the append, module loads.
+
+Docs: SKILL.md's `info --manifest` line takes the r348 clause; README.md
+and README.zh-CN.md round-note tables both take the r348 row.
+
+Measured churn: ZERO — no test asserted the absence of a manifest
+section, because none of them expected one to be missing.
+
+Full suite after r348: 4004 passed, 0 failed (3983 before + 21 new).
+verify_suite 9/9, run bare, exit 0.
