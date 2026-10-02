@@ -11050,3 +11050,98 @@ and README.zh-CN.md round-note tables both take the r342 row.
 
 Full suite after r342: 3854 passed, 0 failed (3821 before + 33 new).
 verify_suite 9/9, run bare, exit 0.
+
+### Round 343 (test r343) — an interposed adverb defeated every claim negation
+
+THE SOURCE. The previous rounds' own guards again. r308 made a claim in
+the negative read as prose: "not verified", "never verified", "has not
+been tested", "cannot be verified" and the Chinese 未经验证 / 未经确认 /
+未经测试 / 未经证明 all state the ABSENCE of verification, so none may
+fire `ship`'s uncovered-claim finding. Its implementation was a chain of
+fixed-width lookbehinds over the IMMEDIATE English prefixes — `not `,
+`never `, `n't `, `be `, `been ` — plus the Chinese 未.
+
+A chain of immediate prefixes has an obvious hole: put an adverb between
+the negation and the verb and the denial still stands while no lookbehind
+sees it. Live before-fix, over a document whose only content was a
+checklist line, `ship` reported "Something was called verified without
+stating what the verification covered." for SIX denial forms:
+
+  not yet verified            not properly verified
+  not fully verified          not adequately verified
+  no longer verified          far from verified
+
+while every form the chain DID cover stayed silent. That is the r306
+false-positive family — the finding reports the opposite of what the
+line says — on a surface a host reads in CI.
+
+FOUND BY ENUMERATING, NOT PROBING. 33 English denial forms and 12
+positive claims against CLAIM. Exactly six failures, and all six had an
+interposed word. The enumeration is what makes the fix complete rather
+than a patch for the one phrase a probe happened to try.
+
+THE FIX widens the chain with the closed set of adverbs that QUALIFY a
+verification rather than negate it — yet, fully, properly, adequately,
+completely, entirely, totally, strictly, formally, officially, really,
+actually, necessarily, sufficiently, thoroughly, exhaustively, directly,
+explicitly, 18 of them — and with the multi-word denials whose second
+word is not an adverb at all: no longer, far from, anything but,
+nowhere near, anything close to. Python lookbehind is fixed-width, so
+each spelling is its own entry, which is the idiom r308 established for
+the bare prefixes; the widened class is built from two module-level
+tuples so a duplicate spelling cannot silently double a lookbehind.
+
+THE RECALL HALF IS HELD, and this is the part a widening could have
+broken. All five verbs still fire bare, all 12 positives still fire,
+`already verified` / `fully verified` / `thoroughly validated` are claims
+not prose, the Chinese positives all still fire and the negations all
+still do not, and — the sharp one — a negation in an EARLIER clause does
+not excuse a later bare claim: "the old path is not verified; the new
+path is verified" still fires, because the lookbehind is local to the
+verb. A too-wide guard that treated any line containing a negation as
+prose would have opened exactly that recall hole.
+
+SCOPE, AND WHY IT STOPS. The same structural hole exists in the
+untrusted family's negation guards — "do not fully ignore previous
+instructions" fires — and this round deliberately leaves it. For that
+family the recall half is the one that matters: r243's rule is that a
+gate which misses a planted directive is worse than no gate, so widening
+an injection detector's negation to tolerate interposed words is a recall
+risk rather than a precision gain. The claim detector is the mirror —
+it has no planted input to miss, so precision is the whole of its job.
+Pinned by three tests: the untrusted behaviour is recorded as unchanged,
+the two negation constants are separate, and `fully` is absent from the
+dismissal guard. A later round cannot widen that one by accident.
+
+New test file
+tests/test_r343_claim_negation_interposed_adverb.py (28 tests, 6
+classes): InterposedAdverbTests runs all 18 adverbs x all 5 verbs, all
+five phrases x all 5 verbs, the six live forms, whole clauses, and
+r308's contracted forms; PositiveClaimsStillFireTests pins bare verbs,
+real sentences, the adverbs BEFORE a positive (already / fully /
+properly / thoroughly / exhaustively), the earlier-clause recall case,
+and the Chinese positives and negations; ShipSurfaceTests drives a real
+document through `ship` for the six failures, the four already-covered
+forms, an uncovered claim and a covered claim;
+UntrustedScopeTests records the untrusted guard as unchanged, the
+interposed form there as still firing, a real injection as still firing,
+and the two constants as separate; ChainShapeTests pins every adverb and
+phrase has its own lookbehind, r308's six original entries are all still
+present, the two tuples are deduplicated, the lookbehind COUNT is exactly
+adverbs + phrases + 6, and the source comment names the round;
+CatalogPinTests pins the entry.
+
+Pins: r175 recent-count 163 -> 164; r200 empty-window bracket
+r343/r343 -> r344/r344. r342's exact catalog count retired to a >= floor.
+Catalog entry claim-negation-interposed-adverb (since r343):
+import-verified catalog len 194, max since 343, r342's entry survived the
+append, module loads.
+
+Docs: SKILL.md's `ship FILE` line takes the r343 clause; README.md and
+README.zh-CN.md round-note tables both take the r343 row.
+
+Measured churn: ZERO — no fixture carries a negation with an interposed
+adverb, because none of them wrote a line that reads as absence.
+
+Full suite after r343: 3882 passed, 0 failed (3854 before + 28 new).
+verify_suite 9/9, run bare, exit 0.

@@ -162,9 +162,43 @@ REPETITION_CHAR_RUN = re.compile(r"([.…\-'])\1{19,}")
 # "n't ", "be ", "been ") and the Chinese 未 that sits before 经*.
 _CLAIM_NEGATION = (r"(?<!not )(?<!never )(?<!n't )(?<!be )"
                    r"(?<!been )(?<!未)")
+# r343: the chain covered the denial when the negation sits IMMEDIATELY
+# before the verb, and an interposed adverb defeated it — "not yet
+# verified", "not fully verified", "not properly verified", "not
+# adequately verified", "no longer verified" and "far from verified" all
+# state absence exactly as "not verified" does, and each one fired the
+# uncovered-claim finding. Live before this round, on `ship` over a
+# document whose only content was a checklist line:
+#
+#   not yet verified        -> "Something was called verified without
+#   not fully verified           stating what the verification covered."
+#   no longer verified      -> ... and the other three likewise
+#   far from verified
+#   not properly verified
+#   not adequately verified
+#
+# while the four forms the chain DID cover stayed silent. That is the
+# r306 false-positive family — the finding reports the opposite of what
+# the line says — on a surface a host reads in CI.
+#
+# The adverb set is closed and deliberate: these are the words that
+# qualify a verification rather than negate it, so when one follows a
+# negation the denial still stands. Python lookbehind is fixed-width, so
+# each spelling is its own entry, the idiom this constant already used.
+_CLAIM_NEGATION_ADVERBS = (
+    "yet", "fully", "properly", "adequately", "completely", "entirely",
+    "totally", "strictly", "formally", "officially", "really", "actually",
+    "necessarily", "sufficiently", "thoroughly", "exhaustively",
+    "directly", "explicitly",
+)
+# r343: multi-word denials whose second word is not an adverb at all.
+_CLAIM_NEGATION_PHRASES = ("no longer", "far from", "anything but",
+                           "nowhere near", "anything close to")
 CLAIM = re.compile(
-    _CLAIM_NEGATION +
-    r"(?:\b(?:verified|confirmed|validated|tested|proven)\b|"
+    _CLAIM_NEGATION
+    + "".join(r"(?<!not %s )" % _a for _a in _CLAIM_NEGATION_ADVERBS)
+    + "".join(r"(?<!%s )" % _p for _p in _CLAIM_NEGATION_PHRASES)
+    + r"(?:\b(?:verified|confirmed|validated|tested|proven)\b|"
     r"(?:已经验证|已验证|经验证|验证通过|已经确认|已确认|经确认|确认无误|"
     r"已经测试|已测试|经测试|测试通过|已经证明|已证明|经证明))",
     re.I,
@@ -10066,6 +10100,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "index-window-requires-index", "since": "r342",
      "summary": "r337 closed one half of the info surface — the five short-circuit faces that swallowed every payload block asked for alongside them — and its own scope note named the exclusion: '--index's own modifiers (--index-since/--index-until) are not payload blocks and still compose'. That clause is correct, and it left the MIRROR case open. --index-since and --index-until narrow the --index listing and nothing else, and they are the only modifier-shaped flags in the tool with no independent answer of their own: every other modifier renders something on its own (--format and --field print a value, --tag projects the audit, --explain prints the static doc, --fields prints a column). Without --index these two were silently dropped at exit 0 with output byte-identical to plain `info`, and the INVALID-value case was the sharp one, because the r294 round-tag parse lives inside the --index branch: 'info --index --index-since bad' refused with 'expects a round tag like r156' while 'info --index-since bad' exited 0 printing the full report — a host that typo'd a tag got a full report and no signal that its window never ran, the r188/r205/r337 silent-wrong-at-exit-0 family on the one modifier pair r337 had explicitly left out of its guard. Live before-fix over a normal workspace: 'info --index-since r170' and 'info --index-until r200' both returned rc 0 with stdout byte-identical to plain 'info'. The fix is a guard in the info dispatcher BEFORE the index branch runs: when --index is absent and either window flag is present, refuse with exit 2 naming the flags, the way r337's payload-block guard does. The round-tag validation then only ever runs on the --index path, where the value is genuinely used, and when both reasons apply the face/block guard (r337) reports first because it names the more specific problem. Measured churn: ZERO — no test used a window flag without --index, because the flags' only documented job is narrowing the index; and the guard is scoped to --index's absence, so --index --index-since r170, an inverted bracket, an invalid round tag and a repeated flag all still answer exactly as r174/r176/r294/r295/r328 pinned. The round also pins the invariant the guard depends on: twelve other modifiers across seven subcommands each still answer on their own, which is what makes these two the special case rather than the rule",
+     "default": True},
+    {"id": "claim-negation-interposed-adverb", "since": "r343",
+     "summary": "r308 made a claim in the negative read as prose — 'not verified' / 'never verified' / 'has not been tested' / 'cannot be verified' and the Chinese 未经验证 / 未经确认 / 未经测试 / 未经证明 all state the ABSENCE of verification, so none may fire ship's uncovered-claim finding. Its implementation was a chain of fixed-width lookbehinds over the IMMEDIATE English prefixes (not , never , n't , be , been ) plus the Chinese 未, and a chain of immediate prefixes has an obvious hole: put an adverb between the negation and the verb and the denial still stands while no lookbehind sees it. Live before-fix, over a document whose only content was a checklist line, `ship` reported 'Something was called verified without stating what the verification covered.' for 'not yet verified', 'not fully verified', 'not properly verified', 'not adequately verified', 'no longer verified' and 'far from verified', while every form the chain DID cover stayed silent — the r306 false-positive family, where the finding reports the opposite of what the line says, on a surface a host reads in CI. Found by enumerating the negation vocabulary rather than a probe of one phrase: 33 English denial forms and 12 positive claims against CLAIM, which showed exactly six failures and all six had an interposed word. THE FIX widens the chain with the closed set of adverbs that QUALIFY a verification rather than negate it (yet, fully, properly, adequately, completely, entirely, totally, strictly, formally, officially, really, actually, necessarily, sufficiently, thoroughly, exhaustively, directly, explicitly — 18 of them) and with the multi-word denials whose second word is not an adverb at all (no longer, far from, anything but, nowhere near, anything close to). Python lookbehind is fixed-width, so each spelling is its own entry, which is the idiom r308 already established for the bare prefixes; the widened class is built from two module-level tuples so a duplicate spelling cannot silently double a lookbehind. The recall half is held: all five verbs still fire bare, all 12 positives still fire, 'already verified' / 'fully verified' / 'thoroughly validated' are claims not prose, the Chinese positives all still fire and the negations all still do not, and a negation in an EARLIER clause does not excuse a later bare claim ('the old path is not verified; the new path is verified' fires) — a too-wide guard would have opened exactly that recall hole. SCOPE, and why it stops here: the same structural hole exists in the untrusted family's negation guards ('do not fully ignore previous instructions' fires) and this round deliberately leaves it, because for that family the recall half is the one that matters (r243's rule — a gate that misses a planted directive is worse than no gate) and widening an injection detector's negation is a recall risk rather than a precision gain. The claim detector is the mirror: it has no planted input to miss, so precision is the whole of its job. Pinned by tests that record the untrusted behaviour as unchanged, that the two negation constants are separate, and that 'fully' is absent from the dismissal guard, so a later round cannot widen it by accident. Measured churn: ZERO — no fixture carries a negation with an interposed adverb, because none of them wrote a line that reads as absence",
      "default": True},
 )
 
