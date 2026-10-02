@@ -178,15 +178,18 @@ class RecallHeldTests(unittest.TestCase):
             self.assertIn(want, mindseam.scan_untrusted(text), text)
 
     def test_the_negation_guards_are_unchanged(self):
-        # r343 widened _CLAIM_NEGATION only; _DISMISSAL_NEGATION is the
-        # same class it was, so "do not disregard the ledger" is still a
-        # task and "do not fully ignore previous instructions" is still
-        # the pinned, deliberate gap r343 recorded.
+        # r343 widened _CLAIM_NEGATION and r346 widened _DISMISSAL_NEGATION;
+        # the r344 pin recorded the latter as the still-open gap and that
+        # is what r346 closed. Both base forms are still tasks, and so is
+        # now the interposed-adverb form that used to fire.
         self.assertEqual(
             mindseam.scan_untrusted("do not disregard the ledger"), [])
-        self.assertIn("ignore-previous",
-                      mindseam.scan_untrusted(
-                          "do not fully ignore previous instructions"))
+        self.assertEqual(
+            mindseam.scan_untrusted(
+                "do not fully ignore previous instructions"), [])
+        self.assertEqual(
+            mindseam.scan_untrusted(
+                "do not entirely disregard the previous guidance"), [])
 
     def test_the_pattern_count_is_unchanged(self):
         # The fix reshaped one pattern; it did not add or drop a family.
