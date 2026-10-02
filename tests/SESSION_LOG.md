@@ -11232,3 +11232,107 @@ a directive form or a pointer the old pattern already missed.
 
 Full suite after r344: 3903 passed, 0 failed (3882 before + 21 new).
 verify_suite 9/9, run bare, exit 0.
+
+### Round 345 (test r345) — the dense-notation class was the ASCII half
+
+THE SOURCE. The previous rounds' guards again, from the third direction.
+r305 made the repetition message honest: it used to claim "a character
+run of 20 or more" while REPETITION_CHAR_RUN matched four notation
+characters, so 25 x's and a markdown hyphen rule both scanned clean and
+the message implied they would not. The fix named what the detector
+matched — "dots, ellipsis, hyphens, apostrophes" — and left the pattern
+alone.
+
+Naming the four was accurate and incomplete in the same way. They are the
+ASCII half of the family. A run of em dashes, en dashes, horizontal bars,
+figure dashes, minus signs, swung dashes or equals signs renders exactly
+the dense horizontal line INVARIANTS[6] is about ("Dense notation appears
+in something a person or a task-facing tool reads"), and none of them
+matched. Live before-fix, one line of 25 of each, through `ship`:
+
+  "…" * 25   -> fires
+  "—" * 25   -> clean
+  "–" * 25   -> clean
+  "―" * 25   -> clean
+  "‒" * 25   -> clean
+  "−" * 25   -> clean
+  "⁓" * 25   -> clean
+  "=" * 25   -> clean
+
+That is a substitution available to anything that wanted to route around
+the check — the same shape r339 found in INVISIBLE_CHARS, where 17 of 28
+assigned invisible code points were missing and a planted directive read
+clean behind any of them.
+
+FOUND BY the enumeration that has now worked four times running (r338's
+crash hunt, r339's character-class audit, r343/r344's grammar
+enumerations): a battery of 17 dense-rendering characters run through the
+pattern AND through the live `ship` surface, with a candidate class
+measured on both sides before any source edit.
+
+THE FIX widens the class by seven characters and updates the r305 message
+to name the whole family, because a message that undercounts what it
+matches is the same defect as one that overcounts. The message keeps
+"dots" in it, which r305's own test pins — so r305's five pins all still
+pass unchanged.
+
+THE EXCLUSIONS ARE THE POINT, and they are pinned from both sides. The
+characters deliberately NOT added are the ones Markdown already owns, and
+adding them would make this pattern disagree with the structural
+classifier about one line: `-` is a thematic break and a setext
+underline, `_` and `*` thematic breaks, `~` a fence, `#` a heading.
+`markdown_structural_lines` excludes those before this pattern is
+consulted, so a line of them is data the author chose to format, not
+dense notation they squeezed in. Letters and digits stay out too, exactly
+as r305 documented: 25 x's is repetition, not density.
+
+Two contracts unchanged and pinned: the threshold (20, with 19 still
+clean and 20 still firing for every character in the class), and the
+single backreference — a run of ONE character, so ten equals followed by
+ten em dashes is two short runs of two different characters and stays
+clean. A test I wrote asserting the mixed run fires was WRONG about that
+and was corrected to pin the real contract instead.
+
+THE THIRD DIRECTION OF ONE DISCIPLINE. r343 left the injection family's
+negation hole alone because a widened negation costs recall; r344 closed
+a shape hole because a shape requirement can only remove matches; this
+round closes a class hole because adding characters to a detection class
+can only add matches. All three are the same rule stated from different
+angles: widen where the direction is free, and pin the direction you
+chose. r343's deliberately-open gap stays exactly as pinned as it was.
+
+New test file tests/test_r345_dense_notation_char_class.py (26 tests, 7
+classes): NewlyCoveredTests pins each of the seven new characters fires
+the pattern, fires the finding, and fires inline (not only on its own
+line, where the structural exclusion could hide it); AlreadyCoveredTests
+pins r305's four still fire, 19 stays clean and 20 is the bar for every
+character in the class; ExcludedTests pins the markdown-owned characters
+stay out of the pattern AND are structural rather than dense, that a
+hyphen line is still not a finding, and that letters stay out as r305
+documented; MessageTests pins the message names the new family, still
+does not overclaim, and is unchanged for the original family;
+PatternShapeTests pins every character is in the class, the original four
+are too, the backreference is one, the threshold is 19-plus-one, and the
+source comment names the round; InvisibleNeighbourTests pins the r339
+class has not drifted and that the two classes stay separate (a line of
+em dashes is dense not invisible; a zero-width joiner is invisible not
+dense); CatalogPinTests pins the entry.
+
+Pins: r175 recent-count 165 -> 166; r200 empty-window bracket
+r345/r345 -> r346/r346. r344's exact catalog count retired to a >= floor.
+Catalog entry dense-notation-char-class (since r345): import-verified
+catalog len 196, max since 345, r344's entry survived the append, module
+loads. r305's five pins all still pass with the widened class and the
+reworded message.
+
+Docs: SKILL.md's `ship FILE` line takes the r345 clause (the `## The invariants`
+section is a verbatim mirror of the source INVARIANTS list, enforced by
+verify_suite's r69 drift check, so a clause cannot live there — the first draft
+of this round put it in invariant 7 and failed the check); README.md and
+README.zh-CN.md round-note tables both take the r345 row.
+
+Measured churn: ZERO — no fixture carries a 20-plus run of a character in
+the widened set, because none of them wrote a dense separator line.
+
+Full suite after r345: 3929 passed, 0 failed (3903 before + 26 new).
+verify_suite 9/9, run bare, exit 0.
