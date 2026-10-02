@@ -10960,3 +10960,93 @@ coverage is genuinely new.
 
 Full suite after r341: 3821 passed, 0 failed (3766 before + 55 new). verify_suite 9/9, run
 bare, exit 0.
+
+### Round 342 (test r342) — the mirror of r337: a modifier with no face
+
+THE SOURCE. Not a paper this time — the previous round's own guard.
+r337 added a dispatcher guard refusing info's short-circuit faces that
+swallowed payload blocks, and its scope note said: "--index's own
+modifiers (--index-since/--index-until) are not payload blocks and still
+compose". That clause is correct. It left the MIRROR case open, and the
+mirror is the defect.
+
+THE GAP. --index-since and --index-until narrow the --index listing and
+nothing else. They are the only modifier-shaped flags in the tool with
+no independent answer of their own — every other modifier renders
+something on its own: --format and --field print a value, --tag projects
+the audit, --explain prints the static doc, --fields prints a column.
+Without --index, these two were silently dropped at exit 0 with output
+byte-identical to plain `info`. Live before-fix, over a normal
+workspace:
+
+  info --index-since r170   -> rc 0, stdout byte-identical to `info`
+  info --index-until r200   -> rc 0, stdout byte-identical to `info`
+
+The INVALID-value case was the sharp one, because the r294 round-tag
+parse lives INSIDE the --index branch:
+
+  info --index --index-since bad -> rc 2, "expects a round tag like r156"
+  info --index-since bad         -> rc 0, the full report
+
+A host that typo'd a tag got a full report and no signal that its window
+never ran — the r188/r205/r337 silent-wrong-at-exit-0 family, on the one
+modifier pair r337 had explicitly left out of its guard.
+
+Found by enumerating the flag surface rather than by probing a
+detector: a matrix of all fourteen modifier-shaped flags run WITHOUT
+their target face, plus an invalid value for each. Exactly one pair
+answered 0 where its face-bearing twin answered 2.
+
+THE FIX. A guard in the info dispatcher, placed BEFORE the index branch
+runs: when --index is absent and either window flag is present, refuse
+with exit 2 naming the flags, the way r337's payload-block guard does.
+Two consequences worth noting. The r294 round-tag validation now only
+ever runs on the --index path, where the value is genuinely used. And
+when both reasons apply — a face, a block, and a stray window flag — the
+r337 face/block guard reports first, because it names the more specific
+problem; the new test pins that ordering rather than assuming it.
+
+MEASURED CHURN: zero. No test used a window flag without --index,
+because the flags' only documented job is narrowing the index. The
+guard is also scoped to --index's ABSENCE, so --index --index-since
+r170, an inverted bracket (r295), an invalid round tag (r294) and a
+repeated flag (r328) all still answer exactly as their own rounds
+pinned — five index contracts re-pinned in the new file rather than
+assumed.
+
+The round also pins the INVARIANT the guard depends on, which is what
+makes it defensible rather than arbitrary: twelve other modifiers
+across seven subcommands each still answer on their own. That is what
+makes these two the special case rather than the rule, and it means a
+third modifier with no independent answer cannot be added later without
+this test noticing.
+
+New test file tests/test_r342_index_window_requires_index.py (33
+tests, 6 classes): WindowWithoutIndexRefusedTests pins each flag alone,
+both together, that the refusal names them, that the output is NOT the
+plain report, the invalid-value sweep, and every other info face
+refusing the window too; IndexPathUnchangedTests re-pins --index with
+the window, order independence, both windows, --index alone, the r294
+invalid-tag sweep, the r295 inverted bracket, the r200 JSON window
+face, and the r328 repeated-flag refusal;
+EveryOtherModifierStillAnswersTests pins the twelve other modifiers
+across seven subcommands, plain info, and every info face alone;
+InteractionTests pins that r337's block guard still fires and still
+wins when both apply, that the window guard fires with a block alone,
+that blocks and renderers alone still answer, and that a renderer with
+a face is still r337's refusal; RegistryTests pins the flags are
+registered, that info --help documents them as --index modifiers, and
+that the guard's source comment names the round; CatalogPinTests pins
+the entry.
+
+Pins: r175 recent-count 162 -> 163; r200 empty-window bracket
+r342/r342 -> r343/r343. r341's exact catalog count retired to a >=
+floor. Catalog entry index-window-requires-index (since r342):
+import-verified catalog len 193, max since 342, r341's entry survived
+the append, module loads.
+
+Docs: SKILL.md's `info --index` line takes the r342 clause; README.md
+and README.zh-CN.md round-note tables both take the r342 row.
+
+Full suite after r342: 3854 passed, 0 failed (3821 before + 33 new).
+verify_suite 9/9, run bare, exit 0.

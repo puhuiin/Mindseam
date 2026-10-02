@@ -10064,6 +10064,9 @@ _FEATURE_CATALOG = (
     {"id": "thin-evidence-reward-hacking", "since": "r341",
      "summary": "Borrowed from SWE-Marathon (arXiv 2606.07682), which audited 1,300 real long-horizon agent rollouts and found 13.8% carrying an 'exploit-shaped action ... to bypass the intended workflow', 10.2% of them shipping a clear verifier bypass. Mindseam's coverage gate is exactly such a verifier: COVERAGE (r306/r307) refuses a --by value that names no coverage vocabulary, implementing INVARIANTS[5] ('Something was called verified without stating what the verification covered') — the letter enforced, the purpose not, because a value that is ONLY the vocabulary passes. Live before-fix on a fresh workspace: 'note --check \"done the thing\" --by \"cases\"' recorded '✓01 done the thing — verified by: cases' at exit 0, stating that coverage exists and naming nothing: not a case, a bound, a platform or a sample. inputs / samples / bounds / edges / including / random / randomized / Windows / Chrome and 'all cases' all passed the same way — the deterministic shape of 'satisfy the verifier, bypass the intent'. THE FIX has two halves. Write path: a new verifier_names_coverage() predicate replaces the raw keyword match at the gate, so a value that keeps only the keyword is refused with the SAME INVARIANTS[5] message; a numeric bound is a statement about scope (n<=6, n = 3, up to 10 cases, and r341 also adds the bare '>' to the operator branch, whose mirror '<' was present while '>' was missing so 'n > 8' was refused and 'n < 8' recorded), and so is any substantive word surviving after the keywords are removed ('including empty and maximum'); the Chinese set behaves identically (覆盖 alone is thin, 验证方式与覆盖范围 is not). Read path: a hand-written ledger was recorded under the old rule, so a ninth audit tag thin-evidence (id letter T) reports it — grouped by verifier text the way next-stall groups by the repeated value, so five checkpoints all reading 'by: cases' are ONE finding naming five rows, with row_text carried so the r245 untrusted framing rides it as the sibling Verified-section tags already do. SCOPE is load-bearing and pinned: the detector fires only on the reward-hacking shape — a verifier that MATCHED the gate and then stated nothing. A verifier with no coverage vocabulary at all (verified by: brute force) is a different, older defect r306 already refuses at the write path, so it is excluded rather than reported as though this round found it. That scope is what held the churn to five taxonomy pins and zero detector-output changes: no existing fixture carries the reward-hacking shape. A structural consequence worth naming: a verifier carrying a planted directive is substantive by the very rule that decides thinness (any surviving word counts), so the two concerns are disjoint on the verifier, and the finding quotes only the verifier plus the row pointer — pinned rather than assumed",
      "default": True},
+    {"id": "index-window-requires-index", "since": "r342",
+     "summary": "r337 closed one half of the info surface — the five short-circuit faces that swallowed every payload block asked for alongside them — and its own scope note named the exclusion: '--index's own modifiers (--index-since/--index-until) are not payload blocks and still compose'. That clause is correct, and it left the MIRROR case open. --index-since and --index-until narrow the --index listing and nothing else, and they are the only modifier-shaped flags in the tool with no independent answer of their own: every other modifier renders something on its own (--format and --field print a value, --tag projects the audit, --explain prints the static doc, --fields prints a column). Without --index these two were silently dropped at exit 0 with output byte-identical to plain `info`, and the INVALID-value case was the sharp one, because the r294 round-tag parse lives inside the --index branch: 'info --index --index-since bad' refused with 'expects a round tag like r156' while 'info --index-since bad' exited 0 printing the full report — a host that typo'd a tag got a full report and no signal that its window never ran, the r188/r205/r337 silent-wrong-at-exit-0 family on the one modifier pair r337 had explicitly left out of its guard. Live before-fix over a normal workspace: 'info --index-since r170' and 'info --index-until r200' both returned rc 0 with stdout byte-identical to plain 'info'. The fix is a guard in the info dispatcher BEFORE the index branch runs: when --index is absent and either window flag is present, refuse with exit 2 naming the flags, the way r337's payload-block guard does. The round-tag validation then only ever runs on the --index path, where the value is genuinely used, and when both reasons apply the face/block guard (r337) reports first because it names the more specific problem. Measured churn: ZERO — no test used a window flag without --index, because the flags' only documented job is narrowing the index; and the guard is scoped to --index's absence, so --index --index-since r170, an inverted bracket, an invalid round tag and a repeated flag all still answer exactly as r174/r176/r294/r295/r328 pinned. The round also pins the invariant the guard depends on: twelve other modifiers across seven subcommands each still answer on their own, which is what makes these two the special case rather than the rule",
+     "default": True},
 )
 
 def _resolve_path(payload, path):
@@ -12884,6 +12887,34 @@ def main(argv=None):
                       "payload blocks belong to the full report (or to "
                       "--json, which keeps every key).", file=sys.stderr)
                 return 2
+
+    if args.cmd == "info" and not getattr(args, "index", False):
+        # r342: the two window flags narrow the INDEX and nothing else.
+        # They are the only modifier-shaped flags in the tool with no
+        # independent answer of their own — every other modifier
+        # (--format, --field, --tag, --explain, --fields) renders something
+        # on its own — so without --index they were silently dropped at
+        # exit 0 with output byte-identical to plain `info`, and an
+        # INVALID value was swallowed along with them: the round-tag
+        # parse below lives inside the --index branch, so
+        # ``info --index-since bad`` exited 0 while the same call with
+        # --index refused. A host that typo'd a tag got a full report and
+        # no signal that its window never ran — the r188/r205/r337
+        # silent-wrong-at-exit-0 family, on the one modifier pair the
+        # r337 scope note had explicitly left out of its guard.
+        # Refuse naming the flags, the way r337's block guard does.
+        stray = [name for name, picked in (
+            ("--index-since",
+             getattr(args, "index_since", None) is not None),
+            ("--index-until",
+             getattr(args, "index_until", None) is not None),
+        ) if picked]
+        if stray:
+            print("CANNOT: %s narrows the --index listing and would be "
+                  "silently dropped; add --index or drop %s."
+                  % (" / ".join(stray), " / ".join(stray)),
+                  file=sys.stderr)
+            return 2
 
     if args.cmd == "info" and getattr(args, "index", False):
         # r174: flat, line-oriented index. Borrowed from
