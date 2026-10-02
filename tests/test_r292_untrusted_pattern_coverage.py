@@ -59,17 +59,18 @@ class UntrustedPatternCoverageTests(unittest.TestCase):
             self.assertIn("obedience", hits, phrase)
 
     def test_ordinary_work_stays_clean(self):
+        # r344: "new instructions are in the ticket" is no longer skipped.
+        # The pattern anchors on the noun phrase alone, so a POINTER to
+        # ordinary work fired the same verdict as a directive; it now
+        # requires the directive's own shape, exactly as r243 stated for
+        # `override`. The skip this replaces was the round's own record of
+        # the false positive — pinning it clean is what closes it.
         for phrase in ("drop previous versions from the changelog",
                        "follow my commit message style",
                        "forget the test name and re-run",
                        "act as if the bug is fixed",
                        "new instructions are in the ticket"):
             hits = mindseam.scan_untrusted(phrase)
-            # "new instructions are in the ticket" is a pointer to
-            # ordinary work, not an override — the pattern anchors on
-            # the noun phrase as a directive, not a reference.
-            if phrase == "new instructions are in the ticket":
-                continue
             self.assertEqual(hits, [], phrase)
 
     def test_catalog_entry_present(self):
