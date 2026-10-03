@@ -104,10 +104,15 @@ class MtimeTests(InfoMtimeBase):
         payload = json.loads(r.stdout)
         self.assertIn("workspace_files", payload)
         files = payload["workspace_files"]
-        self.assertEqual(
-            set(files.keys()),
-            {"WORKSPACE.md", "history.json",
-             "metacognition.json", "skillbook.md"})
+        # r350: this was an exact four-name equality, which is the SAME
+        # hand-kept copy that made --tag's help drift in r349 and left
+        # the archive invisible in r350. It now asserts the block equals
+        # LEDGER_ARTEFACTS — the single source of truth — so the pin
+        # keeps its original intent ("every artefact is listed") and
+        # stops being a second place to forget one. The archive's
+        # presence is r350's own subject, pinned there.
+        self.assertEqual(set(files.keys()),
+                         set(mindseam.LEDGER_ARTEFACTS))
 
     def test_existing_file_has_mtime_and_size(self):
         self._ledger()

@@ -249,7 +249,7 @@ class IndexSinceContractTests(unittest.TestCase):
         # r169 landed. r349's entry was the 170th in the r170-onward
         # window and r350's is the 171st, which is what moved this pin
         # off 170.
-        self.assertEqual(len(recent), 170)
+        self.assertEqual(len(recent), 171)
         for line in recent:
             self.assertIn(line, full)
 

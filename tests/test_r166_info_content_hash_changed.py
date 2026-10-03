@@ -137,10 +137,13 @@ class HashHelperTests(unittest.TestCase):
 
     def test_content_hash_snapshot_lists_every_artefact(self):
         snap = mindseam._content_hash_snapshot()
-        self.assertEqual(
-            set(snap.keys()),
-            {"WORKSPACE.md", "history.json",
-             "metacognition.json", "skillbook.md"})
+        # r350: this was the same exact four-name equality as r165's,
+        # i.e. a THIRD hand-kept copy of the artefact set. Both are now
+        # assertions against LEDGER_ARTEFACTS, so the set has one home
+        # and these two pins state their real intent — "the block covers
+        # every artefact" — without restating what the artefacts are.
+        self.assertEqual(set(snap.keys()),
+                         set(mindseam.LEDGER_ARTEFACTS))
 
     def test_content_hash_snapshot_empty_for_missing(self):
         snap = mindseam._content_hash_snapshot()

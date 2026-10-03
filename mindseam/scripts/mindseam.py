@@ -59,6 +59,40 @@ METACOGNITION_KEYS = {
 METACOGNITION_EVENT_KEYS = ("error", "outcome", "extra_steps")
 HISTORY_MAX = 500
 HISTORY_ARCHIVE = os.path.join(LEDGER_DIR, "history.archive.json")
+METACOGNITION = os.path.join(LEDGER_DIR, "metacognition.json")
+SKILLBOOK = os.path.join(LEDGER_DIR, "skillbook.md")
+
+# r350: the CLOSED SET of artefacts `info --mtime`, `--content-hash` and
+# `--changed` report on, as basenames in ``.mindseam/``.
+#
+# This list used to be spelled out inline in _workspace_files_snapshot()
+# and it had drifted the way r349's `--tag` help had: it named FOUR
+# artefacts and the directory holds more. `history.archive.json` — the
+# file compact_history() writes on every rotation — was missing, so
+# three blocks reported "nothing changed" about the one ledger file
+# that grows without bound and is the only record of rotated-out rows.
+# Live before-fix, seeding HISTORY_MAX+1 rows so a seam compacts:
+#
+#   .mindseam/ on disk : history.archive.json  history.json
+#                        metacognition.json    skillbook.md
+#   info --mtime        : WORKSPACE.md  history.json
+#                        metacognition.json  skillbook.md
+#   files on disk not named by --mtime : ['history.archive.json']
+#
+# `info-state.json` and `aliases.json` also live in `.mindseam/` and
+# are deliberately NOT here: info-state.json is the controller's own
+# bookkeeping for `--changed` (hashing it would make every call report
+# itself as changed, which is a self-referential loop), and
+# aliases.json is host-authored config rather than a ledger artefact.
+# Both exclusions are pinned by tests, because "the list is closed" is
+# only meaningful if the exclusions are as deliberate as the inclusions.
+LEDGER_ARTEFACTS = (
+    "WORKSPACE.md",
+    "history.json",
+    "history.archive.json",
+    "metacognition.json",
+    "skillbook.md",
+)
 # The row schema ``--filter`` accepts, in the order the append path
 # writes them. ``msg`` is optional, the rest are always present.
 HISTORY_ROW_FIELDS = (
@@ -9338,12 +9372,7 @@ def _workspace_files_snapshot():
     ``ls -lh`` lists them, so a host that knows the names
     can read the block in any order.
     """
-    artefacts = [
-        "WORKSPACE.md",
-        "history.json",
-        "metacognition.json",
-        "skillbook.md",
-    ]
+    artefacts = list(LEDGER_ARTEFACTS)
     out = {}
     for name in artefacts:
         path = os.path.join(LEDGER_DIR, name)
@@ -10268,6 +10297,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "audit-tag-help-rendered", "since": "r349",
      "summary": "`audit --tag`'s help string enumerated the audit tags by HAND, and the hand copy had drifted: it named seven of the nine tags in AUDIT_TAGS, silently omitting thin-evidence (added r341) and msg-stall (added r340). Both omitted tags were accepted at runtime with rc 0, so the CLI contradicted itself — `audit --help` said seven tags existed while the refusal message a few lines away printed all nine on the line 'known tags: delete, stdlib, thin-evidence, yagni, shrink, goal-stale, next-stall, msg-stall, core-drift'. The drift was order-preserving, which dates it: the help is AUDIT_TAGS with the two later tags deleted, exactly what appending a tag to the tuple without revisiting the prose produces. Why it matters: `audit --explain <tag>` exists so a host meeting a finding can look the tag up (r171), and unknown tags are refused with exit 2 — so the help is the only place a host can DISCOVER the vocabulary before guessing, and it was the one surface understating it. A host reading the help could conclude thin-evidence and msg-stall were not tags, and the CLI would never correct it. Found by the r158 family enumeration applied to the tag vocabulary rather than to a single flag: enumerate AUDIT_TAGS, then ask which surfaces name a tag and compare. The control case is what makes it a real defect rather than a stylistic one — `--intensity` names its own runtime set (INTENSITY_LEVELS) in its help and names all THREE, so the drift is not a house convention of describing a set loosely; `--tag` is the only place in the module that copies a runtime set into prose by hand, confirmed by an AST sweep of every module-level enumerated family. THE FIX renders the list from AUDIT_TAGS instead of writing it out, so the copy that could go stale no longer exists and the next tag cannot be forgotten. This is the difference between correcting today's omission and removing the omission's cause; the previous seven-of-nine state was itself only ever a snapshot, and the two tags it lost were lost the same way the next one would have been. The surrounding sentence, the 'unknown tags are refused' clause, the 'the full audit still runs' semantics and the exit-2 contract are untouched. Measured churn: ZERO — no test asserted the seven-tag spelling, because none of them expected it to be wrong",
+     "default": True},
+    {"id": "archive-in-artefact-blocks", "since": "r350",
+     "summary": "The three ledger-artefact blocks were blind to the history archive. `info --mtime`, `info --content-hash` and `info --changed` all derive from _workspace_files_snapshot(), which listed FOUR artefacts by hand -- WORKSPACE.md, history.json, metacognition.json, skillbook.md. The directory holds a fifth that the controller itself writes: history.archive.json, created by compact_history() on every rotation past HISTORY_MAX. It is the only unbounded file in .mindseam/ and the only record of rows that have aged out of history.json, so it is exactly the artefact a host most wants to see move. Live before-fix, seeding HISTORY_MAX+1 rows so the next seam compacts: the directory listing showed history.archive.json while info --mtime named the other four, and files-on-disk-not-named-by---mtime was exactly [history.archive.json]. THE CONSEQUENCE is the actual defect: --changed answers which ledger artefacts changed since the last info call, so a rotation reported any_changed for the four files it could see and said NOTHING about the one file the rotation created. A host watching for rotation -- a cache to invalidate, a backup to take, an audit trail to close -- got a change report true of everything except the thing it was watching for. FOUND BY ASKING THE SECOND QUESTION r348 did not: that round enumerated the six payload blocks and asked which ones render a section, and the follow-up nobody asked is whether a rendering block's CONTENT is complete. This repository's own .mindseam/ holds all five files, so the discovery needed no synthetic fixture -- it needed ls. SAME TECHNIQUE AS r349 one level over, and the two are one rule: enumerate a closed set in code, compare it against every surface that reports on it, and distrust any surface whose copy is typed out. Both had drifted by exactly the amount the set had grown since someone typed the copy. THE FIX introduces LEDGER_ARTEFACTS as the single source of truth and has the snapshot iterate it, so the next artefact cannot be omitted the way the archive was. TWO EXCLUSIONS ARE DELIBERATE and pinned, because a closed set is only meaningful if what is left out is as decided as what is in: info-state.json is the controller's OWN --changed bookkeeping, so hashing it would make every call rewrite it and report itself as changed (a self-referential loop), and aliases.json is host-authored config the controller reads and never writes, so its mtime answers a different question. SKILLBOOK moved up beside the other LEDGER_DIR path constants and METACOGNITION was added, so the tuple names basenames without repeating either spelling in a second place; the --mtime help also spelled out four names by hand and takes the fifth. MEASURED CHURN: TWO, and both are this same defect one level over. r165 and r166 each asserted the block key set as an exact four-name equality -- two more hand-kept copies of the very set this round centralised -- so both failed on the added archive. Neither intent was that there are exactly four; both were that every artefact is listed, which the fix satisfies more completely than the pin did. Both now assert against LEDGER_ARTEFACTS, so the set has ONE home and the two pins state their real intent without restating what the artefacts are. A pin that retypes its subject breaks the next time the subject grows, and r349 proved that discovery costs a round. Everything else is unchanged, including the rotation itself: a seeded 501-row log still compacts to 500 + 2, because this is a REPORTING change. The probe was wrong twice before it was right, which is the useful part: history --keep 2 does not create an archive, and neither does seeding 501 rows and calling info, because compact_history() is called from append_history() and therefore sits on the WRITE path -- only a seam produces one.",
      "default": True},
 )
 
@@ -11290,7 +11322,9 @@ SKILLBOOK_MAX_ENTRIES = 20
 # way Claude Code's memory protocol verifies a recalled fact before
 # recommending it. Inclusive: age_seams >= SKILLBOOK_STALE_SEAMS.
 SKILLBOOK_STALE_SEAMS = 10
-SKILLBOOK = os.path.join(LEDGER_DIR, "skillbook.md")
+# r350: SKILLBOOK moved up beside the other LEDGER_DIR path constants so
+# the r350 LEDGER_ARTEFACTS tuple can name the artefacts as basenames
+# without repeating the "skillbook.md" spelling in a second place.
 
 
 def extract_skillbook(hist):
@@ -12861,7 +12895,7 @@ def main(argv=None):
     info_p.add_argument("--manifest", dest="manifest", action="store_true",
         help="emit an audit_manifest block listing every tag the audit can fire and how many findings each produced, including tags that did not fire (seen-but-clean) so a host can verify the audit actually ran the full detector set")
     info_p.add_argument("--mtime", dest="mtime", action="store_true",
-        help="emit a workspace_files block listing each ledger artefact (WORKSPACE.md, history.json, metacognition.json, skillbook.md) with mtime, size, and presence, so a host can see which file was written last (like find -printf with T mtime, size, path / stat --format='mtime, size, name')")
+        help="emit a workspace_files block listing each ledger artefact (WORKSPACE.md, history.json, history.archive.json, metacognition.json, skillbook.md; r350 added the archive) with mtime, size, and presence, so a host can see which file was written last (like find -printf with T mtime, size, path / stat --format='mtime, size, name')")
     info_p.add_argument("--health", dest="health", action="store_true",
         help="emit a health block rolling up lock_state + workspace_id + audit_summary.lean + warnings + last_seam.long_gap + untrusted_ledger into a single status enum (ok / degraded / unhealthy) with a list of reasons (like kubectl get componentstatus / systemctl is-system-running)")
     info_p.add_argument("--text", dest="text_only", action="store_true",

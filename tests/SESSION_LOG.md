@@ -11853,3 +11853,232 @@ is correct (`commit.gpgsign=true`, key 23A849EA5C45AAE5) and the
 commit must be signed, not merely made. When gpg works on this host,
 `git commit -S -F .git/r349_msg.txt && git push origin main` lands it
 with no further edits.
+
+r350 — the three artefact blocks were blind to the history archive.
+
+`info --mtime`, `info --content-hash` and `info --changed` all report on
+the ledger's files, and all three derive from one function,
+`_workspace_files_snapshot()`, which listed FOUR artefacts by hand:
+
+    artefacts = ["WORKSPACE.md", "history.json",
+                 "metacognition.json", "skillbook.md"]
+
+The directory holds a fifth that the controller itself writes:
+`history.archive.json`, which `compact_history()` creates on every
+rotation past `HISTORY_MAX` (500). It is the only unbounded file in
+`.mindseam/` and the only record of rows that have aged out of
+`history.json` — so it is exactly the artefact a host most wants to see
+move.
+
+Live before-fix, seeding `HISTORY_MAX + 1` rows so the next seam
+compacts:
+
+    .mindseam/ on disk : history.archive.json  history.json
+                         metacognition.json    skillbook.md
+    info --mtime       : WORKSPACE.md  history.json
+                         metacognition.json  skillbook.md
+    files on disk not named by --mtime : ['history.archive.json']
+
+And the consequence, which is the actual defect: `--changed` answers
+"which ledger artefacts changed since the last info call", so a rotation
+reported `any_changed` for the four files it could see and said NOTHING
+about the one file the rotation created. A host watching for rotation —
+a cache to invalidate, a backup to take, an audit trail to close — got a
+change report that was true of everything except the thing it was
+watching for. That is the r202/r205/r337 family, and r349's family too:
+a closed set restated by hand and left behind.
+
+FOUND BY ASKING THE SECOND QUESTION r348 did not. r348 enumerated the six
+payload blocks and asked which ones render a section. The follow-up
+nobody asked is the one that found this: for each block that DOES
+render, is its CONTENT complete? This repository's own `.mindseam/` holds
+five files and the blocks named four — the discovery did not need a
+synthetic fixture, it needed `ls`.
+
+SAME TECHNIQUE AS r349, one level over, and worth stating as one rule:
+enumerate the closed set in code, then compare it against every surface
+that reports on it, and distrust any surface whose copy is typed out.
+r349 did that to `AUDIT_TAGS` in a help string; r350 did it to the
+artefact list in a snapshot function. Both had drifted by exactly the
+amount the set had grown since someone typed the copy.
+
+THE FIX introduces `LEDGER_ARTEFACTS` as the single source of truth and
+has the snapshot iterate it, so the next artefact cannot be omitted the
+way the archive was. `SKILLBOOK` moved up beside the other `LEDGER_DIR`
+path constants (it was defined ~1100 lines away) and a `METACOGNITION`
+constant was added, so the tuple names basenames without repeating either
+spelling in a second place. The `--mtime` help also spelled out four
+names by hand and would have stayed wrong; it takes the fifth.
+
+TWO EXCLUSIONS ARE DELIBERATE and pinned, because a closed set is only
+meaningful if what is left out is as decided as what is in:
+
+- `info-state.json` is the controller's OWN `--changed` bookkeeping.
+  Hashing it would make every `--changed` call rewrite the state file and
+  therefore report itself as changed — a self-referential loop where the
+  answer is always "yes".
+- `aliases.json` is host-authored config that the controller reads and
+  never writes, so its mtime answers a different question: when a human
+  edited their config, not what moved in the ledger.
+
+New test file tests/test_r350_archive_visible_to_artefact_blocks.py (27
+tests, 4 classes): ArchiveIsSeenTests pins that all three blocks name the
+archive, that its hash is a real 8-char digest, that the mtime entry
+carries the true size, that `--changed` reports it across two rotations,
+and that both text faces render it (r348 gave every block a text face;
+the new artefact must appear there too, not only in the JSON);
+TheSetIsClosedTests pins the two exclusions, states the set as one
+equality so it can neither lose a member nor gain one, checks every
+member against a real path constant so a typo cannot accumulate, and
+pins that a MISSING archive is still reported (`exists: false`, hash
+`""`) rather than dropped — otherwise a host cannot tell "no archive
+yet" from "this build does not know about archives";
+SingleSourceOfTruthTests pins the fix's SHAPE: the snapshot iterates the
+shared tuple, an AST count finds exactly ONE place listing the artefact
+names (a second would be r349's failure mode all over again), the help
+names the archive, and the exclusions are written down where the tuple
+is defined; SurroundingContractUnchangedTests pins that the other four
+artefacts and the per-entry shape (path/exists/mtime/size) are untouched,
+that the two blocks still agree on the set, and that a seeded 501-row log
+still compacts to 500 + 2 — the fix is a REPORTING change and must not
+alter the rotation that creates the archive.
+
+REVERSE-VERIFIED: with the fix reverted to the four-artefact list, 11 of
+the 27 fail. A test that cannot fail on its defect is not evidence.
+
+One test of mine was wrong on the first run and is worth recording: it
+asserted `on_disk - named == {"info-state.json"}`, reasoning that the
+bookkeeping file would be on disk. It is not — `info-state.json` is only
+created once `--changed` has run, and that test had not called it. The
+assertion now states the direction that carries the meaning ("on disk
+implies named") and the exclusion is checked separately, where it
+belongs.
+
+THE PROBE WAS WRONG TWICE BEFORE IT WAS RIGHT, and the wrong turns are
+the useful part. First attempt: `history --keep 2`, no archive appeared
+— that flag is not the rotation. Second attempt: seed 501 rows and call
+`info`, still no archive — because `compact_history()` is called from
+`append_history()` (line 1230), so it sits on the WRITE path and nothing
+on the read path compacts. Only a `seam` produces one. An early coverage
+probe also read the block as a list when it is a dict and reported COUNT
+0 for all four artefacts, which would have made the whole comparison
+meaningless. Two of my own hypotheses were falsified this round and both
+are written down rather than quietly fixed: the pipe hypothesis for
+r349's verify_suite timeout (measured, pipe was not slower) and the
+on-disk bookkeeping assumption above.
+
+Pins advanced: r175 recent-count 170 -> 171; r200 empty-window bracket
+r350/r350 -> r351/r351 — this bracket has to move every round, because
+each round's own catalog entry lands inside the window the round before
+it left empty, and the comment now says so instead of restating the
+round number as if it were stable. No exact-max head pin existed to
+retire (searched `assertEqual(max(` and `== 349`: both empty), and the
+new test uses a `>=` floor rather than minting the same debt.
+
+Catalog entry archive-in-artefact-blocks (since r350): import-verified
+catalog len 201 (was 200), max since 350, r349's entry survived, ids
+unique, every entry shape unchanged, module loads.
+
+Docs: SKILL.md's `info --mtime` line takes the r350 clause (the command
+line only — `## The invariants` is a verbatim mirror of the source
+INVARIANTS list and r69's drift check校 it, so no clause went there;
+and the clause deliberately names no flag, because r69's reverse check
+harvests every ` --flag` token off a `mindseam.py ` line and `--help`
+would fail it, which is the r349 lesson applied pre-emptively this
+time). README.md and README.zh-CN.md round-note tables both take the
+r350 row; both files stay pure CRLF (505 and 487 CRLF after the insert,
+zero bare LF), inserted in binary mode.
+
+MEASURED CHURN: TWO, and both are this same defect one level over,
+which is the point of the round. r165 and r166 each asserted the block
+key set as an exact FOUR-name equality:
+
+    self.assertEqual(set(files.keys()),
+                     {"WORKSPACE.md", "history.json",
+                      "metacognition.json", "skillbook.md"})
+
+Two more hand-kept copies of the very set this round centralised, so
+both failed on the added archive — and neither intent was "there are
+exactly four". Both were "every artefact is LISTED", which is what the
+r165 test's own name says, and which the fix satisfies more completely
+than the pin did. Both now assert `set(...) == set(LEDGER_ARTEFACTS)`, so
+the set has one home and the pins state their real intent without
+restating what the artefacts are. A pin that retypes its subject breaks
+the next time the subject grows, and r349 proved that discovery costs a
+round.
+
+That is the second time in two rounds that a hand-typed copy of a
+closed set has been the defect or the pin, which is enough evidence to
+state the rule as a standing one: enumerate the closed set in code,
+compare it against every surface that reports on it, and when a fix
+centralises the set, grep the tests for other literals of it BEFORE
+running the suite rather than after.
+
+Full suite after r350: 4059 passed, 0 failed (4032 before + 27 new). One
+intermediate run reported 2 failures — the r165/r166 pins above — and
+both were fixed rather than recorded as acceptable; the second full run
+is 4059/OK, exit 0.
+
+verify_suite: 8 passed, 0 failed, exit 0 with `--skip-unittest`. Run
+BARE (no pipe, so the exit code is real) the ninth check,
+`unittest discover within timeout`, is expected to fail on this host for
+the reason r349 measured and r350 did not solve: 600 s against a suite
+that needs ~1300 s here. r350's contribution to that runtime is
+measured and negligible, and the "just raise the budget" remedy was
+TESTED and FALSIFIED in r349 (a diagnostic copy at timeout=2400 also
+failed), so the cause remains unmeasured and is not asserted.
+
+NOT LANDED. The GPG-signed commit hangs on this host and the mechanism
+is now diagnosed rather than guessed: gpg 2.4.9 creates a lock file,
+immediately judges it stale, removes it and recreates it, forever —
+"removing stale lockfile (created by <pid>)" with a DIFFERENT pid on
+each run, so nothing external holds it. Signing with an explicit EMPTY
+passphrase hangs identically, which is what WITHDRAWS r349's earlier
+guess that a passphrase was being asked for. Clearing `~/.gnupg/.#lk*`,
+`gpgconf --kill all`, and removing the dead agent sockets all leave the
+loop intact. This also explains why `git log --show-signature` and even
+`git log --format` hung earlier in the session: git shells out to the
+same gpg, so the history was never the problem.
+
+Deliberately NOT done: no `--no-gpg-sign`, no `commit.gpgsign=false`, no
+config or plugin edit. The rule is to try the commit first and never
+bypass a block by editing the config, and this block's cause is outside
+the repository. The signing config is correct (`commit.gpgsign=true`, key
+23A849EA5C45AAE5) so the commit must be signed, not merely made.
+
+
+r350 LANDING STATE (both rounds staged, neither committed)
+-----------------------------------------------------------
+HEAD is still r348 (7e780ef). Eleven paths are STAGED and the working
+tree is clean of drafts:
+
+  README.md  README.zh-CN.md  mindseam/SKILL.md
+  mindseam/scripts/mindseam.py  tests/SESSION_LOG.md
+  tests/test_r165_info_mtime_health_text.py
+  tests/test_r166_info_content_hash_changed.py
+  tests/test_r175_info_index_since.py
+  tests/test_r200_info_faces_exclusive.py
+  tests/test_r349_audit_tag_help_rendered.py
+  tests/test_r350_archive_visible_to_artefact_blocks.py
+
+Commit messages are preserved at `.git/r349_msg.txt` and
+`.git/r350_msg.txt` so each round lands as its own commit with no
+further editing:
+
+    git commit -S -F .git/r349_msg.txt
+    git commit -S -F .git/r350_msg.txt
+    git push origin main
+
+They must be two commits, not one: the standing rule is one thing per
+commit, and r349 (a help string rendered from AUDIT_TAGS) and r350 (an
+artefact list centralised into LEDGER_ARTEFACTS) are different defects
+in different files. Note that `git add -A` staged both rounds together,
+so the FIRST commit will take everything staged; splitting them means
+resetting the index (`git reset` then re-add per round) before the two
+commits above.
+
+The blocker is unchanged and now fully diagnosed in the r350 entry
+above: gpg 2.4.9 on this host loops on its own lock file, with a fresh
+pid each run, so no external process holds it, and an explicit empty
+passphrase hangs identically (which is what withdrew r349's passphrase
+theory).
