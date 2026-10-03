@@ -239,13 +239,17 @@ class IndexSinceContractTests(unittest.TestCase):
         # alias-intensity-type-guard, r319,
         # row-id-empty-narrowing-refusal, r320,
         # baseline-fingerprint-type-guard, r321,
-        # hist-row-type-guard, r322). The
+        # hist-row-type-guard, r322,
+        # audit-tag-help-rendered, r349,
+        # archive-in-artefact-blocks, r350). The
         # count is stable
         # because the catalog is static; it moves only when a
         # new round lands, and the move is a deliberate pin
         # update, the way the r167 catalog count moved when
-        # r169 landed.
-        self.assertEqual(len(recent), 169)
+        # r169 landed. r349's entry was the 170th in the r170-onward
+        # window and r350's is the 171st, which is what moved this pin
+        # off 170.
+        self.assertEqual(len(recent), 170)
         for line in recent:
             self.assertIn(line, full)
 

@@ -11598,3 +11598,258 @@ section, because none of them expected one to be missing.
 
 Full suite after r348: 4004 passed, 0 failed (3983 before + 21 new).
 verify_suite 9/9, run bare, exit 0.
+
+r349 — the tag list in `audit --tag`'s help was a hand copy, and it
+had drifted.
+
+`AUDIT_TAGS` carries nine tags:
+
+    delete, stdlib, thin-evidence, yagni, shrink,
+    goal-stale, next-stall, msg-stall, core-drift
+
+The help string for `--tag` named them BY HAND, and the hand copy was
+missing two. Live before-fix, through the real CLI surface:
+
+    audit --help        -> names SEVEN tags: delete, stdlib, yagni,
+                           shrink, goal-stale, next-stall, core-drift
+    audit --tag thin-evidence -> rc 0, runs normally
+    audit --tag msg-stall-> rc 0, runs normally
+    audit --tag zzz     -> rc 2
+                           CANNOT: --tag zzz is not a recognised audit
+                           tag.
+                             known tags: delete, stdlib,
+                             thin-evidence, yagni, shrink, goal-stale,
+                             next-stall, msg-stall, core-drift
+
+So the CLI contradicted itself with a gap of two lines: the help said
+seven tags existed, and the refusal message printed all nine. A host
+that read the help could conclude `thin-evidence` and `msg-stall` were
+not tags, and nothing in the tool would ever correct it.
+
+THE DIAGNOSIS that matters is the direction of the drift. It was
+ORDER-PRESERVING — the help list was AUDIT_TAGS with the two later
+tags deleted, not shuffled or truncated. That is the signature of
+appending a tag to the tuple without revisiting the prose, so the
+seven-of-nine state was never a stable fact. It was a snapshot that
+had already expired twice: `msg-stall` arrived in r340 and
+`thin-evidence` in r341, both after the help was written. The next tag
+would have gone missing the same way, which is why correcting the
+omission is not the fix.
+
+WHY A STALE TAG LIST IS A DEFECT rather than a cosmetic one:
+r171 added `audit --explain <tag>` so a host meeting a finding can
+look the tag up, and an unknown tag refuses with exit 2. The help is
+therefore the only surface on which a host can DISCOVER the vocabulary
+before guessing at it — and it was the one surface understating it.
+This is the r202/r205/r337 silently-wrong-at-exit-0 family, arriving
+through documentation rather than through a dropped flag.
+
+FOUND BY family enumeration, applied to the vocabulary instead of to a
+single flag: enumerate AUDIT_TAGS, then ask which surfaces name a tag,
+and compare the two sets. The per-flag probe would have been satisfied
+by `audit --tag thin-evidence` answering rc 0 — the tag WORKS, which
+is exactly why the defect is invisible to a functional check.
+
+THE CONTROL CASE is what separates this from a house style of
+describing sets loosely: `--intensity` names its own runtime set
+(INTENSITY_LEVELS) in its own help and names all THREE members. Then
+an AST sweep of every module-level enumerated family in the module
+(SECTIONS, METACOGNITION_KEYS, HISTORY_ROW_FIELDS, RISK_LEVELS,
+INVARIANTS, INNER_ONLY, MARKERS, the two negation families,
+HISTORY_TEXT_FIELDS, HISTORY_COUNT_FIELDS, AUDIT_TAGS,
+INTENSITY_LEVELS) confirmed `--tag` is the only place that copies a
+runtime set into prose by hand. That is what makes a one-site fix the
+whole fix.
+
+THE FIX renders the list from AUDIT_TAGS:
+
+    help="comma-separated list of audit tags to include (%s); ..."
+         % ",".join(AUDIT_TAGS)
+
+The copy that could go stale no longer exists, so there is nothing to
+keep in step. Everything else about the flag is untouched: the
+"unknown tags are refused" clause, the "the full audit still runs"
+semantics, the exit-2 contract, and the registry order (not
+alphabetical — the help and the refusal message now read alike).
+
+NOTE FOR THE NEXT ROUND, learned the hard way here: argparse
+hard-wraps help at ~24 columns and breaks INSIDE a hyphenated token,
+so the raw help text contains `goal-\n stale`. Every assertion about
+the tag list has to run against an unwrapped string
+(`re.sub(r"-\s*\n\s*", "-", text)` then collapse whitespace), or it
+pins argparse's column budget instead of the tag list. This is also
+why the original defect was not visible by eye: the two missing tags
+were missing from a paragraph that was already wrapped.
+
+ALSO PINNED, because this round touched the flag and the temptation
+was to "improve" its neighbour: `--tag` is in `_SINGLE_USE_FLAGS`
+(r328), so a REPEATED `--tag` is REFUSED with exit 2, not
+accumulated. That refusal is the contract — a repeated --tag means the
+findings you see are not the ones you asked for. Do not reverse it.
+
+New test file tests/test_r349_audit_tag_help_rendered.py (28 tests, 5
+classes): TagHelpNamesEveryTagTests pins that the help names every
+tag, names the two that were dropped BY NAME, understates nothing, and
+agrees with the refusal message in both directions (every documented
+tag is really accepted, and every accepted tag is really documented);
+HelpIsRenderedNotWrittenTests pins the fix's SHAPE rather than its
+text — the `--tag` help is not a bare ast.Constant, it is derived from
+AUDIT_TAGS, and no literal in it names three or more real tags, which
+is the check that would have caught the original defect on the day it
+was written; SurroundingContractUnchangedTests pins the exit-2
+refusal, the refusal message's tag list, both surviving help clauses,
+comma-separated parsing, the r328 repeat refusal, and r171's
+per-tag `--explain`; CatalogPinTests pins the entry and the floor;
+IndexCountTests pins the new entry in the index and the window.
+
+REVERSE-VERIFIED, not just green: with the fix reverted to the
+hand-written seven-tag literal, 10 of the 28 tests fail — the
+behavioural ones and the shape guards together. A test that cannot
+fail on the defect it describes is not evidence.
+
+Pins advanced: r175 recent-count 169 -> 170 (this round's entry is the
+170th in the r170-onward window); r200 empty-window bracket
+r349/r349 -> r350/r350, because r349 is no longer past the catalog —
+this round's own entry put it inside the window, so the bracket that
+used to be empty now matches and had to move up. No exact-max
+head pin existed to retire this round: r347's exact catalog count was
+already a `>=` floor in r348, and a full-suite search for
+`assertEqual(max(` / `== 348` found nothing. The new test uses
+`assertGreaterEqual(..., 200)` rather than an exact count, so it does
+not mint the same debt.
+
+Catalog entry audit-tag-help-rendered (since r349): import-verified
+catalog len 200 (was 199), max since 349, r348's entry survived the
+append, ids unique, module loads.
+
+Docs: SKILL.md's `audit --tag` line takes the r349 clause (the command
+line only — the `## The invariants` section is a verbatim mirror of the
+source INVARIANTS list and is checked by verify_suite's drift check, so
+no clause was added there); README.md and README.zh-CN.md round-note
+tables both take the r349 row. Both READMEs are pure CRLF (504 and 486
+CRLF after the insert, zero bare LF); the row was added in binary mode
+so a 147 KB file's line endings were not normalised.
+
+Measured churn: ONE, and it was mine, so it is recorded rather than
+quietly fixed. No test asserted the seven-tag spelling, because none of
+them expected it to be wrong — but r69's reverse doc-drift check
+(`test_documented_commands_exist_in_the_parser`) FAILED on the SKILL.md
+clause this round added, and the failure is the interesting part: the
+clause said "`audit --help` now names every tag", and the check
+harvests every ` --flag` token off a SKILL.md line carrying
+`mindseam.py `, then requires an `add_argument("--flag"` in the source.
+`--help` is an argparse BUILT-IN, so it is never registered by an
+`add_argument` call and the check cannot ever find it. The prose was
+therefore documenting a real flag, truthfully, in the one place that
+forbids naming it.
+
+The clause now reads "the `--tag` help text now names EVERY tag" and
+names no flag, which is the wording it should have had from the start.
+Two lessons worth carrying: a doc-only round is not automatically a
+zero-churn round, and r69's reverse check punishes prose that reaches
+for a flag token on a command line — so a doc clause about `X --help`
+has to be written as "X's help", the way this one now is.
+
+Full suite after r349: 4032 passed, 0 failed (4004 before + 28 new).
+The first full run reported 1 failure, the r69 check above; after the
+clause was reworded the suite is green.
+
+verify_suite, run BARE (no pipe, so the exit code is real): 8 passed,
+1 failed — `unittest discover within timeout`, exit 1. The eight
+substantive checks all pass (repo layout, mindseam.py exists, imports
+cleanly, all 31 public functions present, the two int constants,
+`main --help` exits 0, tests/ has test_*.py). The ninth check is a
+600-second wall-clock budget on an inner `unittest discover`, and this
+machine takes 1309 s for the 4032-test suite, so the budget is
+exhausted by I/O wait rather than by any failure — the suite itself
+finishes OK, which is why the same run reports OK from the discover it
+launches. Measured attribution: r349's 28 tests cost 0.76 s, which is
+0.06% of the 1309 s, and the round moved the test count by +0.7%; at
+this machine's 0.325 s/test, 600 s covers ~1847 tests, fewer than the
+4004 that were already there before r349. So the ninth check was
+already out of budget on this host and r349 did not cause it.
+
+NOT fixed here, deliberately: the fix would be to raise that budget, and
+a budget is a pinned contract like any other — raising it in the same
+commit that is accused of slowing the suite would be exactly the kind of
+edit this project's rules exist to prevent.
+
+AND A HYPOTHESIS OF MINE, FALSIFIED WHILE CHECKING IT. The natural
+guess is that 600 s is simply too small for a suite this size, so the
+obvious remedy is to scale the budget to the host. I tested that rather
+than asserting it: a diagnostic copy of verify_suite with
+`timeout=2400` (the committed file left untouched, sha256 verified
+before and after) still reported `FAIL unittest discover within
+timeout` after roughly 43 minutes. So 2400 s is NOT enough either, and
+the "just raise the number" story is wrong on this host.
+
+What is measured, and what is not:
+- MEASURED: the suite run directly is 4032 tests, OK, exit 0, in 1309 s.
+- MEASURED: under verify_suite's own invocation the same discover does
+  not finish inside 2400 s.
+- MEASURED: r349 contributes 0.76 s of that, 0.06% of the direct run.
+- NOT MEASURED, and this is the open part: why verify_suite's invocation
+  is slower than the direct one. The two differ in that verify_suite
+  passes `env["PYTHONPATH"] = str(skill_root / "scripts")` and runs the
+  child with `capture_output=True` (a pipe, not a console), which changes
+  the child's stdout buffering. That is a plausible mechanism and it is
+  NOT a conclusion — nobody has measured it, so it stays a hypothesis.
+
+So the honest statement is narrower than "raise the budget": the ninth
+check is failing for a reason this round did not introduce and did not
+fully explain, and the next round should measure the invocation
+difference before changing any number. Writing "2400 covers this host"
+into the log as though it were verified would be exactly the kind of
+unverified claim these logs exist to prevent.
+
+COMMIT NOT LANDED AS OF THIS ENTRY, and the reason is recorded rather
+than worked around. The GPG-signed commit (`-S`) hung three times in a
+non-interactive shell — 8, 11 and 12 minutes with no output and no exit
+— because the pinentry needs a passphrase this shell cannot supply. The
+working tree is clean of drafts, all eight paths are STAGED, and the
+commit message is preserved at `.git/r349_msg.txt` so the round can be
+landed with one command once signing is available:
+
+    git commit -S -F .git/r349_msg.txt
+
+Deliberately NOT done: `--no-gpg-sign`, `commit.gpgsign=false`, or any
+other config/plugin edit to get the commit through. This project's
+standing rule is to try the commit first and never bypass a block by
+editing the plugin or the config, and a hung pinentry is a block with a
+cause outside the repository. Signing was verified as CONFIGURED and
+correct — `commit.gpgsign=true`, key 23A849EA5C45AAE5 — so the commit
+must be signed, not merely made. The one thing not established is
+whether r348 and earlier landed the same way on a different host; `git
+log --show-signature` also hung here, so the prior commits' signature
+status is UNKNOWN from this session and is not asserted either way.
+
+GPG DIAGNOSIS SHARPENED (r350 side-investigation, still not landed).
+The first note above said the hang was a passphrase this shell cannot
+supply. That was WRONG and is withdrawn: gpg 2.4.9 signs fine when
+asked for its version, and signing with an explicit EMPTY passphrase
+(`--pinentry-mode loopback --passphrase ""`) hangs exactly the same
+way, so no passphrase is being asked for. The real mechanism is a lock
+loop. Every attempt prints, repeatedly and forever:
+
+    gpg: removing stale lockfile (created by <pid>)
+
+and the pid is DIFFERENT on each run (1952, 2156, 2514), so nothing
+external is holding the lock — gpg creates the lock, immediately judges
+it stale, removes it, and recreates it. Clearing `~/.gnupg/.#lk*`,
+`gpgconf --kill all`, and removing the dead agent sockets
+(`S.gpg-agent*`, `S.dirmngr`, `S.scdaemon`, `S.keyboxd`) all leave
+the loop intact, and the homedir is the single
+`C:/Users/26955/.gnupg` (no roaming-homdir variant). This reads as a
+gpg 2.4.9 / Windows filesystem interaction, not a repository problem
+and not something this round can fix from inside the tree.
+
+It also explains an earlier mystery in this same session: `git log
+--show-signature` and even `git log --format` hung, because git shells
+out to the same gpg. Nothing was wrong with the history.
+
+Still NOT done, per the standing rule: no `--no-gpg-sign`, no
+`commit.gpgsign=false`, no config or plugin edit. The signing config
+is correct (`commit.gpgsign=true`, key 23A849EA5C45AAE5) and the
+commit must be signed, not merely made. When gpg works on this host,
+`git commit -S -F .git/r349_msg.txt && git push origin main` lands it
+with no further edits.
