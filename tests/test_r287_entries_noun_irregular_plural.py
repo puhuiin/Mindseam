@@ -102,7 +102,7 @@ class HistoryHeaderPluralTests(_WorkspaceBase):
         self._seam(3)
         res = invoke_cli(self.workspace, ["history", "--limit", "1"])
         self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertIn("(1 entry)", res.stdout)
+        self.assertIn("(1 entry, last 1 rows)", res.stdout)
         self.assertNotIn("(1 entries)", res.stdout)
 
 

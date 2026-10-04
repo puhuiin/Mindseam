@@ -213,8 +213,9 @@ class SingleNeedleUnchangedTests(_Base):
     def test_no_flag_payload_keys_and_values_unchanged(self):
         payload = self._json()
         self.assertEqual(sorted(payload.keys()),
-                         ["exclude", "grep", "history_count", "limit",
-                          "reverse", "rows", "since", "until", "untrusted"])
+                         ["exclude", "grep", "head", "history_count",
+                          "keep", "limit", "reverse", "rows", "since",
+                          "until", "untrusted"])
         for key in ("grep", "exclude", "since", "until"):
             self.assertIsNone(payload[key])
 

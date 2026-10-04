@@ -258,7 +258,7 @@ class PlacementTests(_Base):
         # rotation; a list there raised TypeError.
         r = run_controller(self.ws, "history", "--keep", "2")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("(2 entries)", r.stdout)
+        self.assertIn("(2 entries, keep 2)", r.stdout)
 
     def test_negative_counts_still_refuse(self):
         for case in (["--keep", "-1"], ["--head", "-1"], ["--tail", "-2"],
@@ -281,15 +281,15 @@ class SingleUseUnchangedTests(_Base):
 
     def test_text_faces(self):
         cases = (
-            (["--head", "2"], "(2 entries)"),
-            (["--head", "0"], "(0 entries)"),
-            (["--tail", "2"], "(2 entries)"),
-            (["--limit", "3"], "(3 entries)"),
-            (["-n", "3"], "(3 entries)"),
+            (["--head", "2"], "(2 entries, first 2 rows)"),
+            (["--head", "0"], "(0 entries, first 0 rows)"),
+            (["--tail", "2"], "(2 entries, last 2 rows)"),
+            (["--limit", "3"], "(3 entries, last 3 rows)"),
+            (["-n", "3"], "(3 entries, last 3 rows)"),
             (["--row-id", "2"], "(row 2 of 4)"),
             (["--since", "100000"], "last 100000 s"),
             (["--until", "7200"], "older than 7200 s"),
-            (["--keep", "2"], "(2 entries)"),
+            (["--keep", "2"], "(2 entries, keep 2)"),
             (["--grep", "build"], "grep 'build'"),
             (["--exclude", "deploy"], "exclude 'deploy'"),
         )
@@ -323,8 +323,9 @@ class SingleUseUnchangedTests(_Base):
     def test_payload_key_set_is_unchanged(self):
         payload = self._json()
         self.assertEqual(sorted(payload.keys()),
-                         ["exclude", "grep", "history_count", "limit",
-                          "reverse", "rows", "since", "until", "untrusted"])
+                         ["exclude", "grep", "head", "history_count",
+                          "keep", "limit", "reverse", "rows", "since",
+                          "until", "untrusted"])
 
     def test_single_values_still_filter(self):
         # --head takes from the oldest end and --tail from the newest, so
@@ -344,7 +345,7 @@ class SingleUseUnchangedTests(_Base):
         # occurrence trips the refusal.
         r = run_controller(self.ws, "history", "--head", "0")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("(0 entries)", r.stdout)
+        self.assertIn("(0 entries, first 0 rows)", r.stdout)
 
     def test_limit_alias_shares_one_dest(self):
         # --limit and -n share dest=limit, so mixing them twice is a

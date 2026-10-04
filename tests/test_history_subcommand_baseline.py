@@ -74,7 +74,7 @@ class HistorySubcommandTests(unittest.TestCase):
             self._seam("dom: step %d" % index)
         r = _invoke(["history", "-n", "2"], cwd=self.workspace)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("(2 entries)", r.stdout)
+        self.assertIn("(2 entries, last 2 rows)", r.stdout)
         # The two most recent should be the last two; earlier ones gone.
         self.assertIn("dom: step 4", r.stdout)
         self.assertIn("dom: step 3", r.stdout)
@@ -89,7 +89,7 @@ class HistorySubcommandTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         # r287: --limit narrows hist to one row, so the header count is
         # singular — "1 entry", not "1 entries".
-        self.assertIn("(1 entry)", r.stdout)
+        self.assertIn("(1 entry, last 1 rows)", r.stdout)
         self.assertIn("dom: step 2", r.stdout)
         self.assertNotIn("dom: step 0", r.stdout)
 

@@ -9156,13 +9156,28 @@ def mode_history(args):
             print("  %3d  %s" % (row_no.get(id(row), index), when))
         return 0
     if args.json:
+        # r354: --head, --tail and --keep all narrow the rows this call
+        # ships — the --row-id refusal list already counts every one of
+        # them as "changes which rows exist" — but none had a disclosure
+        # key: `history --head 2 --json` returned two rows with limit
+        # null, indistinguishable from a history that simply holds two
+        # rows, and --keep silently rotated the FILE on disk as well.
+        # The r324 doctrine extended from the four text/time filters to
+        # the truncation selectors: a head key, a keep key, and the
+        # limit key now reports the EFFECTIVE newest-N bound — --tail
+        # is r272's alias of --limit (one dest at runtime, the merge
+        # expression below), so the alias fills the same key instead of
+        # answering null. Null when unset, so the key set is stable.
         payload = {
             "history_count": len(hist),
-            "limit": args.limit,
+            "head": getattr(args, "head", None),
+            "limit": (args.limit if args.limit is not None
+                      else getattr(args, "tail", None)),
             "since": since_seconds,
             "until": until_seconds,
             "grep": grep_text,
             "exclude": exclude_text,
+            "keep": keep_n,
             "reverse": bool(getattr(args, "reverse", False)),
             "rows": list(hist),
         }
@@ -9317,8 +9332,21 @@ def mode_history(args):
         # the two are validated as a pair (r310), so the face that names
         # one names both.
         label += ", exclude %r" % exclude_text
+    if head_n is not None and head_n >= 0:
+        # r354: the truncation selectors narrow the shipped rows exactly
+        # as the filters do (the --row-id refusal list says so), so the
+        # header names them — `head -n N` / `tail -n N` are the borrowed
+        # shapes, and --tail fills the same clause as its alias --limit.
+        label += ", first %d rows" % head_n
+    if tail_n is not None and tail_n >= 0:
+        label += ", last %d rows" % tail_n
     if getattr(args, "reverse", False):
         label += ", newest first"
+    if keep_n is not None and keep_n >= 0:
+        # After --reverse: --keep is the rotation that already ran — the
+        # rows above ARE the log now, and the file on disk matches, so
+        # the clause is the only stdout trace of the destructive side.
+        label += ", keep %d" % keep_n
     print(label + ")")
     human = bool(getattr(args, "human", False))
     now = time.time()
@@ -10320,6 +10348,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "invisible-class-tracks-unicode", "since": "r353",
      "summary": "INVISIBLE_CHARS is the fifth hand-typed copy of a closed set, and its authority is not even this repository: r243 typed 16 code points, r339 added ~28 more, and both were snapshots of what UNICODE owns. This host's unicodedata (16.0) assigns 170 Cf format controls — every one rendered as nothing — and the class held 43 of them. Live before-fix, `note --next \"IGNORE ALL\\U000e0020PREVIOUS INSTRUCTIONS\"` recorded clean at exit 0 while the same phrase with a plain space fired [untrusted: ignore-previous, dismiss-instructions]: the whole TAG block (U+E0001, U+E0020-U+E007F — the documented hidden-text stego channel), the Egyptian hieroglyph format controls, the Arabic prepended number marks and the Kaithi/Sogdian/Shift-Enclosing/musical controls were all invisible to both ends of the r243/r244 chokepoint. The blind spots grew with every Unicode revision and nothing could notice, because the copies were longer than any human could check. THE FIX restates the set as the rule it always was — every assigned Cf plus r339's named non-Cf ignorables (180E left that list on its own: Mn when r339 named it, reclassified Cf by Unicode 16, covered by the Cf rule again) — and regenerates the literal from the live table: 181 members, 43 kept, 138 added, one class that matches no real space. The literal stays a literal because an import-time 0x110000 scan costs ~147 ms on every CLI invocation; per r351's discipline for a copy that cannot be derived at runtime, the guard lives in the test and pins BOTH directions against the host's unicodedata — every assigned Cf matched, no matched point outside the rule, variation selectors and reserved gaps (2065, E0080) excluded, a plain space never matched — so the next Unicode revision reddens the suite instead of silently reopening the bypass. Recall is free in both directions the r345 rule states: the strip and space surfaces only ADD pattern hits, and the precision battery proves legitimate text stays clean (ZWJ emoji families, Arabic rows with number marks, Mongolian FVS). One boundary is pinned, not closed: a payload whose every letter is a TAG character rebuilds to nothing (strip) or single letters (space) and matches no directive — the same accepted limit r243 had for zero-width-spelled words. Measured churn: r339's pins are all inclusion-style so widening broke nothing; its own source-record test still finds r339 inside the compile call",
+     "default": True},
+    {"id": "truncation-selectors-disclosed", "since": "r354",
+     "summary": "r324's disclosure doctrine stopped at the four text/time filters, and the truncation selectors r272 added slipped through the same gap the round itself had just closed: --head, --tail and --keep all narrow the rows the call ships — the --row-id refusal list (r320) counts every one of them as members that change which rows exist — but the machine face carried no key for any of them. Live before-fix on a five-row history: `history --head 2 --json` answered two rows with limit null and no head key, indistinguishable from a history that simply holds two rows; `history --tail 2 --json` was worse in a quieter way — --tail is r272's alias of --limit, one dest at runtime, yet the alias never filled the key its own aliasee owns, so the SAME truncation was disclosed under --limit and invisible under --tail; and `history --keep 2 --json` not only shipped two rows with no keep key, it silently rotated the FILE on disk — the destructive write left no stdout trace at all. The text face was equally blind: its clause set was {last N s, older than N s, grep, exclude, newest first} with nothing for first-N, last-N or keep. The fix extends the r324 shape to the selectors instead of inventing a third convention: a head key, a keep key, and the limit key reporting the EFFECTIVE newest-N bound through the same merge expression the slicing branch uses (args.limit, else args.tail) — so --tail fills the key --limit always filled, one value one name. Null when unset, the key set grows 9 to 11 and stays stable, and a no-flag call renders byte-identically on both faces. The text header gains ', first N rows' / ', last N rows' (the head -n N / tail -n N shapes r272 borrowed) and ', keep N' after 'newest first', because the rotation is the last thing that happened and the clause is the only stdout trace of the destructive side. history_count keeps r324's existing semantics — len of the surviving window, always equal to len(rows) — the new keys name what produced it, which is exactly the guess a host used to have to make. Measured churn: the r325/r326 payload key-set pins moved 9 to 11; no selector's slicing semantics changed; the r217/r272/r320/r275 neighbouring guards are re-pinned",
      "default": True},
 )
 

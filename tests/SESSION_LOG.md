@@ -12314,3 +12314,74 @@ README.zh-CN.md's r339 row all take the r353 clause.
 
 Measured churn: zero runtime faces changed; the widening is recall
 only, and the strip/space surfaces only ADD pattern hits.
+
+── r354 ── the truncation selectors had no disclosure on either face
+
+r324's disclosure doctrine stopped at the four text/time filters and
+left the truncation selectors out — the ones r272 added and the r320
+--row-id refusal list already counts as members that "change which
+rows exist". Live before-fix, on a five-row history, all at exit 0:
+`history --head 2 --json` answered 2 rows with limit null and no head
+key (indistinguishable from a history that holds 2 rows);
+`history --tail 2 --json` was worse in a quieter way — --tail is
+r272's alias of --limit, one dest at runtime, yet the alias never
+filled the key its own aliasee owns, so the SAME truncation was
+disclosed under --limit and invisible under --tail; and
+`history --keep 2 --json` not only shipped 2 rows with no keep key,
+it silently rotated the FILE on disk with no stdout trace at all. The
+text face's clause set was {last N s, older than N s, grep, exclude,
+newest first} with nothing for first-N / last-N / keep.
+
+Fix: extend the r324 shape to the selectors instead of inventing a
+third convention — a head key, a keep key, and the limit key reporting
+the EFFECTIVE newest-N bound through the same merge expression the
+slicing branch uses (args.limit, else args.tail), so --tail fills the
+key --limit always filled; one value, one name. Null when unset, key
+set 9 -> 11 and stable, a no-flag call byte-identical on both faces.
+The text header gains ", first N rows" / ", last N rows" (the
+`head -n N` / `tail -n N` shapes r272 borrowed) and ", keep N" AFTER
+"newest first", because the rotation is the last thing that happened
+and the clause is the only stdout trace of the destructive side.
+history_count keeps r324's existing semantics — len of the surviving
+window, always equal to len(rows) — the new keys name what produced
+it, which is exactly the guess a host used to have to make. (The
+first draft of this round's own test asserted history_count stays the
+full log — wrong: it never did; the pin was corrected to the existing
+semantics, not the semantics bent to the test.)
+
+New tests: test_r354_history_truncation_disclosure.py — 24 tests,
+5 classes (JsonDisclosure, TextHeader, KeepRotation,
+NeighbouringGuards, CatalogPin). Neighbouring pins advanced by design:
+r325/r326 payload key-set pins 9 -> 11, and five header literal pins
+("(2 entries)") moved to the full new headers ("(2 entries, keep 2)")
+— each literal had stopped asserting the moment the clause landed,
+which is the drift shape r352 documented from the other side.
+(The full-suite sweep then found two more of the same family the
+per-file runs could not see: r287's two singular-header literals
+moved to "(1 entry, last 1 rows)" — the first draft wrongly moved
+the NO-FLAG singular pin too, whose header carries no clause, and
+it was restored; and r69 caught SKILL.md's r354 clause naming
+--limit, whose add_argument("-n", "--limit") registration has
+never matched the test's add_argument("--limit" literal — the
+command lines had always used the -n alias, so the clause now
+says the -n alias too. r69 did its job: the doc named a flag with
+no literal the guard could find.)
+
+Next carrier (scoped out): the sub-projector JSON faces (--csv,
+--dedup, --row-id detail) ship their own {columns, rows, untrusted}
+payloads with no narrowing keys either — r324 scoped to the general
+face and this round follows the same scoping; also audit --tag
+narrowing has no disclosure key on the audit JSON face.
+
+Pins: r175 recent-count 174 -> 175; r200 empty-window bracket
+r354/r354 -> r355/r355.
+
+Catalog entry truncation-selectors-disclosed (since r354):
+import-verified catalog len 205, module loads, summary names head and
+keep. Docs: SKILL.md's --head/--tail/--keep lines and both READMEs'
+r324 disclosure rows take the r354 clause.
+
+Measured churn: key-set pins 9 -> 11 in two files; five header
+literals; no selector's slicing semantics changed; the r217 negative
+refusal, r272 zero windows, r275 filter-then-truncate order and the
+r320 --row-id refusal are all re-pinned green.
