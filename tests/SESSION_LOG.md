@@ -12237,3 +12237,80 @@ Measured churn: the r200 sweep GAINED 11 pair assertions (10 -> 21);
 no runtime face changed; no test asserted the four-face spelling.
 
 Full suite after r352: 4085 passed, 0 failed (4072 before + 13 new).
+
+── r353 ── INVISIBLE_CHARS tracks Unicode instead of a snapshot of it
+
+The fifth hand-typed copy of a closed set, and the first whose
+authority is not this repository: r243 typed 16 code points, r339
+typed ~28 more, and both were snapshots of what UNICODE owns. This
+host's unicodedata (16.0) assigns 170 Cf format controls — every one
+rendered as nothing by Unicode itself — and the class held 43. The
+missing 138: the whole TAG block (U+E0001, U+E0020-E007F, the
+documented hidden-text stego channel), the Egyptian hieroglyph format
+controls (U+13430-U+1343F), the Arabic prepended number marks
+(U+0600-U+0605, U+06DD, U+070F, U+0890-U0891, U+08E2), Kaithi/Sogdian
+sign marks (U+110BD, U+110CD), Shift-Enclosing (U+1BCA0-U+1BCA3) and
+musical format controls (U+1D173-U+1D17A). Live before-fix, on a real
+ledger: `note --next "IGNORE ALL<U+E0020>PREVIOUS INSTRUCTIONS"`
+recorded clean at exit 0 while the same phrase with a plain space
+fired [untrusted: ignore-previous, dismiss-instructions]. The blind
+spots grew with every Unicode revision and nothing could notice.
+
+Probe lessons (all from live runs, not reasoning): (1) a tag-space
+between two words fires once the class sees it — the SPACE surface
+rebuilds the phrase the strip surface cannot; (2) a payload whose
+every letter is a TAG character does NOT fire and should not: strip
+rebuilds it to nothing, space rebuilds it to single letters, and no
+directive matches either — the same accepted boundary r243 had for
+zero-width-spelled words, pinned so the round's claims stay honest;
+(3) two probe shapes were red herrings — "ship<U+E0020> --force now"
+and "finish<U+13430> the tests" carry no directive even with plain
+spaces, so their silence tests pattern coverage, not the class; the
+probe file was rewritten around the two shapes that actually differ.
+(4) Unicode 16 re-reclassified U+180E (Mongolian vowel separator) from
+Mn to Cf: r339's named non-Cf list shrank by one on its own authority.
+
+Fix: the class is regenerated from the rule it always stated — every
+assigned Cf plus r339's named non-Cf fillers (180E now via the Cf
+rule) — 181 members, 43 kept, 138 added, one re.compile call, no real
+space matched (a space typed INSIDE a character class is a matched
+space, and a strip surface that deletes real spaces would glue "IGNORE
+ALL PREVIOUS" into "IGNOREALLPREVIOUS" and break every \s+ pattern —
+the trap the literal is generated next to, pinned by its own test).
+The literal stays a literal because the import-time 0x110000 scan
+costs ~147 ms on EVERY CLI invocation; per r351's discipline the guard
+lives in the test and pins BOTH directions against the host's
+unicodedata: every assigned Cf matched, no matched point outside the
+rule, variation selectors (FE00-FE0F, E0100-E01EF) and reserved gaps
+(2065, E0080) excluded, r243/r339 lineage points present.
+
+New tests: test_r353_invisible_class_tracks_unicode.py — 27 tests,
+5 classes (UnicodeGuard, RecallBattery, PrecisionBattery, LiveCli,
+CatalogPin). The recall battery covers all 14 formerly-blind block
+representatives in three positions (separator, inside a word, outbound
+register check); the precision battery pins ZWJ emoji families, Arabic
+rows with prepended marks and Mongolian FVS as clean; LiveCli replays
+the before-fix repro through note and info on both faces. Test-file
+lessons: invoke_cli returns `.returncode`, not `.code`; the opening
+`note` requires --goal AND --next together (rc 2 otherwise); the
+variation-selector exclusion range is FE00-FE0F, not FE00-FEFF
+(U+FEFF is a legitimate r243 member and Cf).
+
+Pins: r175 recent-count 173 -> 174 (r353's entry is the 174th);
+r200 empty-window bracket r353/r353 -> r354/r354. No exact-max head
+pins to retire (r339's pins are all inclusion-style; widening broke
+nothing — r339's own source-record test still finds r339 inside the
+compile call).
+
+Catalog entry invisible-class-tracks-unicode (since r353):
+import-verified catalog len 204, module loads, summary names Cf and
+TAG and renders the U+E0020 payload as visible text (the first write
+embedded the decoded character itself — an invisible character in the
+documentation of invisible characters — caught by re-reading the
+runtime string).
+
+Docs: SKILL.md's r339 clause, README.md's r339 row and
+README.zh-CN.md's r339 row all take the r353 clause.
+
+Measured churn: zero runtime faces changed; the widening is recall
+only, and the strip/space surfaces only ADD pattern hits.
