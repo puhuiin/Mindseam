@@ -12082,3 +12082,96 @@ above: gpg 2.4.9 on this host loops on its own lock file, with a fresh
 pid each run, so no external process holds it, and an explicit empty
 passphrase hangs identically (which is what withdrew r349's passphrase
 theory).
+### Round 351 (test r351) — the explain entries are nine more hand-typed copies
+
+THE SOURCE. The r349/r350 rule, applied to the next closed set: every
+hand-typed copy of a closed set drifts by exactly the amount the set has
+grown since someone typed it. `AUDIT_TAG_EXPLAIN` is nine hand-typed
+copies of nine detectors' evidence shapes — one per tag, each describing
+the evidence keys its detector emits.
+
+This copy cannot be rendered the way `audit --tag`'s help now is, because
+r202 established that `audit --explain` runs NO audit — the face is
+static data by design — so the evidence descriptions have to stay
+hand-written prose. That makes the drift it cannot prevent real:
+
+    "thin-evidence" live keys:  count, row_text, rows, verifier
+    "thin-evidence" doc string: "row index, the verifier text,
+                                 the rows sharing it"
+
+The entry named a `row` key that does not exist and never mentioned
+`row_text` or `count`. The drift happened INSIDE r341: the entry was
+written first, and `row_text` was added to the evidence later in the
+same round so the r245 framing had a row pointer to ride. The round's
+own tests asserted the entry was PRESENT and its three fields were
+non-empty — never that it matched what the detector emits — so a green
+suite coexisted with a wrong doc.
+
+FOUND BY sweeping the whole family rather than probing one tag: fire
+every tag on a ledger built to trip all nine, read the live evidence
+keys each detector emits, and compare each entry against them. Six of
+nine matched. The one that did not was the newest — the same
+order-preservation signature r349 diagnosed in the `--tag` help.
+
+THE FIX has two halves, because the drift has two sides.
+
+  1. The entry now names all four keys the detector emits.
+  2. A two-sided guard fires EVERY tag (plus a second ledger for
+     `delete`'s answered-by branch, because that detector has two
+     branches that cannot fire on the same row) and asserts both
+     directions: every live evidence key has a corresponding phrase in
+     the entry, and the phrase map covers exactly the keys that exist —
+     no orphans naming keys a detector dropped.
+
+The phrase map lives in the TEST, which is the r349 remedy rebuilt for a
+copy that cannot be rendered: a detector that gains or loses an evidence
+key fails the test until both the map and the entry are updated. The
+drift becomes a red suite instead of a silent lie.
+
+TWO PROBE LESSONS from getting the ledger wrong twice before it was
+right, both recorded in the test docstring because they are the kind of
+thing the next sweep needs:
+
+  - a ledger that fires all nine tags is not one that fires eight by
+    accident: `shrink` needs a blank-next row and `msg-stall` a repeated
+    NON-empty message, so the two want opposite things of the same
+    column — the fix is one blank row placed FIRST so it stays out of
+    the last-5 window and does not starve `next-stall`;
+  - `delete`'s answered-by branch fires only when the Open row's
+    _audit_norm text EQUALS a Verified row's — the prefix is stripped
+    but the tail is compared verbatim, so "settled by: t" never matches
+    "verified by: a test".
+
+New test file tests/test_r351_explain_evidence_drift.py (13 tests, 5
+classes): ExplainMatchesLiveEvidenceTests pins both ledgers fire every
+tag, every key's phrase appears in its entry, the phrase map equals the
+live key set per tag, and the exact r351 drift is fixed;
+ExplainFaceTests pins the entry is reachable through `audit --explain`,
+that r202's refusal of every audit flag is untouched, and that r171's
+completeness contract holds; RulePinnedTests pins the source names the
+round and that the guard covers every tag in AUDIT_TAGS (a new tag
+without a phrase map fails here); CatalogPinTests pins the entry.
+
+Pins: r175 recent-count 171 -> 172; r200 empty-window bracket
+r351/r351 -> r352/r352. r350's catalog floor annotated.
+Catalog entry explain-evidence-drift (since r351): import-verified
+catalog len 202, max since 351, r350's entry survived the append, module
+loads.
+
+Docs: SKILL.md's `audit --explain` line takes the r351 clause; README.md
+and README.zh-CN.md round-note tables both take the r351 row.
+
+Measured churn: ZERO.
+
+verify_suite, run BARE: 9 passed, 0 failed, exit 0 — on the SECOND and
+third and fourth consecutive runs. The FIRST run of the session reported
+8 passed, 1 failed on `unittest discover within timeout`, which is the
+same host condition r349's entry measured at length: the ninth check has
+a 600-second wall-clock budget that a cold-start discover on this host
+can exceed by I/O wait alone, and it passes on every warm run. r351 adds
+13 tests to a 4059-test suite (0.3%), the same order as r349's 0.06% —
+the flakiness predates this round and is not caused by it. Recorded
+here because a bare-run pass on a later attempt is not the same thing as
+a reliable pass, and the distinction is the honest one.
+
+Full suite after r351: 4072 passed, 0 failed (4059 before + 13 new).

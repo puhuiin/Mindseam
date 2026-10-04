@@ -323,6 +323,8 @@ class SingleSourceOfTruthTests(unittest.TestCase):
         # exact-max head pin anywhere in the suite to retire this
         # round (searched: assertEqual(max( and == 349 both come up
         # empty), so this round adds none either.
+        # r351 (and later rounds) keep appending above this floor,
+        # so the pin is a floor: the count can only grow.
         self.assertGreaterEqual(len(mindseam._FEATURE_CATALOG), 201)
 
     def test_the_new_entry_is_reachable_from_the_index(self):
