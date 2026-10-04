@@ -10304,6 +10304,9 @@ _FEATURE_CATALOG = (
     {"id": "explain-evidence-drift", "since": "r351",
      "summary": "AUDIT_TAG_EXPLAIN is the next hand-typed copy of a closed set, and the r349/r350 rule found it: every hand-typed copy drifts by exactly the amount the set has grown since someone typed it. This copy cannot be rendered the way `audit --tag`'s help now is, because r202 established that `audit --explain` runs NO audit — the face is static data by design — so the evidence descriptions have to stay hand-written prose. That makes the drift it cannot prevent real: thin-evidence's live evidence keys are count, row_text, rows, verifier, while its entry said 'row index, the verifier text, the rows sharing it' — naming a `row` key that does not exist and never mentioning `row_text` or `count`. The drift happened INSIDE r341: the entry was written first and `row_text` was added to the evidence later in the same round so the r245 framing had a row pointer to ride. The round's own tests asserted the entry was PRESENT and its three fields were non-empty — never that it matched what the detector emits — so a green suite coexisted with a wrong doc. Found by sweeping the whole family rather than probing one tag: fire every tag on a ledger built to trip all nine, read the live evidence keys each detector emits, and compare each entry against them — six of nine matched, and the one that did not was the newest. THE FIX has two halves because the drift has two sides. The entry now names all four keys the detector emits, and a new two-sided guard fires every tag (plus a second ledger for delete's answered-by branch, because that detector has two branches that cannot fire on the same row) and asserts both directions: every live evidence key has a corresponding phrase in the entry, and the phrase map covers exactly the keys that exist — no orphans naming keys a detector dropped. The phrase map lives in the TEST, which is the r349 remedy rebuilt for a copy that cannot be rendered: a detector that gains or loses an evidence key fails the test until both the map and the entry are updated, so the drift becomes a red suite instead of a silent lie. The guard is deliberately per-tag because the entries are prose — seam_indices is documented as 'seam indices', row_text as itself — so the key-to-phrase correspondence is stated once and the two set-equalities keep it honest in both directions. r202's contract (explain runs no audit, refuses every audit flag) and r171's completeness contract (every tag has a non-empty trigger/fix/evidence) are unchanged and re-pinned. Measured churn: ZERO",
      "default": True},
+    {"id": "face-set-copies-rendered", "since": "r352",
+     "summary": "The short-circuit-face set is the fourth hand-typed copy of a closed set, and the r349 rule found all THREE copies drifted at once: the live set is seven flags {--index, --version, --check, --memory, --list-fields, --explain, --warnings-only}, five predated r200, --explain joined in r202 and --warnings-only in r205, and every copy written before those arrivals stayed at its snapshot. `info --index`'s argparse help promised exclusivity against four of the six other faces, naming neither of the two newest; SKILL.md and both READMEs copied that four-face list; and the r200 test's own FACES tuple kept the original five, so the round's own pair-sweep covered 10 of the 21 pairs. Live before-fix, `info --index --warnings-only` and `info --index --explain info-memory` refused with exit 2 while the help — the only place a host can discover the contract before guessing — described a CLI that accepts them. The control case again proves this is a defect rather than a style choice: the dispatcher already iterates one tuple and refuses every pair, so the runtime was always right and only the copies understated it. THE FIX renders the copies from the set so the copy that could go stale no longer exists: INFO_FACE_FLAGS is the single (flag, dest) source the dispatcher guard iterates, info_other_faces() renders --index's help clause from it minus --index, the r200 test's FACES tuple reads the constant so its sweep covers all 21 pairs, and the docs' lines name all six others with the r352 clause attached. The guard's CANNOT lines are byte-identical in constant order, --json stays out of the set (the r158 two-faces rule), and the r172/r337/r342/r205/r161 neighbouring guards are re-pinned to survive the render. Found by applying r158's family enumeration to the face vocabulary the way r349 applied it to the tag vocabulary — enumerate the runtime set, then ask which surfaces name it and compare each. Measured churn: the r200 sweep GAINED 11 pair assertions (10 -> 21) and no test asserted the four-face spelling",
+     "default": True},
 )
 
 def _resolve_path(payload, path):
@@ -11695,6 +11698,39 @@ AUDIT_TAG_EXPLAIN = {
 INTENSITY_LEVELS = ("off", "lite", "full")
 INTENSITY_ENV = "MINDSEAM_INTENSITY"
 
+# r352: the short-circuit faces are a closed set the way AUDIT_TAGS is
+# -- seven flags, and the info dispatcher refuses any pair of them.
+# Until now the set was typed out by hand in three places, and all
+# three had drifted exactly the way r349's tag-list copy did: the set
+# grew from five to seven when --explain joined (r202) and
+# --warnings-only joined (r205), but --index's argparse help still
+# named four of the six other faces, SKILL.md and both READMEs copied
+# that four, and even the r200 test's own FACES tuple kept the
+# five-face snapshot -- so its pair-sweep covered 10 of the 21 pairs.
+# Live before-fix, ``info --index --warnings-only`` and
+# ``info --index --explain info-memory`` refused with exit 2 while the
+# help a host reads said only the four older faces were exclusive.
+# The set now lives here once: the dispatcher guard iterates it,
+# --index's help renders its exclusivity clause from it, the docs'
+# lines name all six others, and the test copies read it too. Order is
+# the guard's message order -- the rendered CANNOT lines stay
+# byte-identical to the hand-typed tuple they replaced.
+INFO_FACE_FLAGS = (
+    ("--index", "index"),
+    ("--version", "version_only"),
+    ("--check", "check_only"),
+    ("--memory", "memory_only"),
+    ("--list-fields", "list_fields"),
+    ("--explain", "explain"),
+    ("--warnings-only", "warnings_only"),
+)
+
+
+def info_other_faces(exclude):
+    """Slash-joined display names of every info face except ``exclude``."""
+    return "/".join(flag for flag, _ in INFO_FACE_FLAGS
+                    if flag != exclude)
+
 
 def resolve_intensity(explicit=None):
     """Resolve the verbosity ladder: flag > MINDSEAM_INTENSITY > full.
@@ -12936,7 +12972,7 @@ def main(argv=None):
         metavar="FEATURE-ID",
         help="print the static documentation for one capability id (summary, since, default) and exit, like kubectl explain; reads the built-in feature catalog, so it works in an empty workspace; unknown ids refuse with exit 2")
     info_p.add_argument("--index", dest="index", action="store_true",
-        help="print a flat, line-oriented index of subcommand.flag names and their since round, the way pytest's fixture listing does; line-per-entry, greppable, exits 0, works in an empty workspace. r200: --json emits the same list as {\"index\": [...]}; mutually exclusive with the other short-circuit faces (--version/--check/--memory/--list-fields) and with --format/--field — combined calls are refused with exit 2")
+        help="print a flat, line-oriented index of subcommand.flag names and their since round, the way pytest's fixture listing does; line-per-entry, greppable, exits 0, works in an empty workspace. r200: --json emits the same list as {\"index\": [...]}; mutually exclusive with the other short-circuit faces (" + info_other_faces("--index") + ") and with --format/--field — combined calls are refused with exit 2. r352: the face list renders from INFO_FACE_FLAGS, the same set the dispatcher guard iterates — the hand copy had dropped --explain (r202) and --warnings-only (r205)")
     info_p.add_argument("--index-since", dest="index_since",
                          action="append", default=None, metavar="ROUND",
         help="with --index, only list features introduced in this round or later; r175 borrows from the listing flag of `tldr` / `git log --since` (filter an index by recency), the way `git log --since` filters a log by date. Accepts the literal round tag (r156, r175) the SESSION_LOG and the commit subject use")
@@ -13117,15 +13153,11 @@ def main(argv=None):
         # the renderers are {--format, --field}. --json is NOT in
         # either set — every face carries its own machine sub-face
         # (r158 two-faces rule), --index's arrived in r200.
-        faces = [name for name, picked in (
-            ("--index", getattr(args, "index", False)),
-            ("--version", getattr(args, "version_only", False)),
-            ("--check", getattr(args, "check_only", False)),
-            ("--memory", getattr(args, "memory_only", False)),
-            ("--list-fields", getattr(args, "list_fields", False)),
-            ("--explain", getattr(args, "explain", None) is not None),
-            ("--warnings-only", getattr(args, "warnings_only", False)),
-        ) if picked]
+        # r352: the set is INFO_FACE_FLAGS; the loop below iterates it.
+        faces = [flag for flag, dest in INFO_FACE_FLAGS
+                 if ((getattr(args, dest, None) is not None)
+                     if dest == "explain"
+                     else bool(getattr(args, dest, False)))]
         if len(faces) > 1:
             print("CANNOT: %s are mutually exclusive info faces; pick one."
                   % ", ".join(faces), file=sys.stderr)

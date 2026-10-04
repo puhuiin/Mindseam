@@ -247,9 +247,10 @@ class IndexSinceContractTests(unittest.TestCase):
         # new round lands, and the move is a deliberate pin
         # update, the way the r167 catalog count moved when
         # r169 landed. r349's entry was the 170th in the r170-onward
-        # window and r350's is the 171st, which is what moved this pin
-        # off 170.
-        self.assertEqual(len(recent), 172)
+        # window, r350's the 171st, r351's the 172nd and
+        # r352's (face-set-copies-rendered) the 173rd, which is
+        # what moved this pin off 172.
+        self.assertEqual(len(recent), 173)
         for line in recent:
             self.assertIn(line, full)
 

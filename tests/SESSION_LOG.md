@@ -12175,3 +12175,65 @@ here because a bare-run pass on a later attempt is not the same thing as
 a reliable pass, and the distinction is the honest one.
 
 Full suite after r351: 4072 passed, 0 failed (4059 before + 13 new).
+
+## r352 — the short-circuit-face set was hand-typed in three copies
+
+The r349 rule (enumerate a closed set in code, distrust every
+hand-typed copy) found its FOURTH instance, and this time all THREE
+copies of one set drifted at once. The info short-circuit-face set is
+seven flags {--index, --version, --check, --memory, --list-fields,
+--explain, --warnings-only}; five predated r200, --explain joined in
+r202 and --warnings-only in r205. Every copy written before those
+arrivals stayed at its snapshot: `info --index`'s argparse help
+promised exclusivity against four of the six other faces (naming
+neither of the two newest), SKILL.md and both READMEs copied that
+four-face list, and the r200 test's own FACES tuple kept the original
+five — so the round's pair-sweep covered 10 of the 21 pairs, and the
+--explain x --warnings-only face had never been swept against its
+newest siblings by that file. Live before-fix: `info --index
+--warnings-only` and `info --index --explain info-memory` refused
+with exit 2 while the help — the only place a host can discover the
+contract before guessing — described a CLI that accepts them.
+
+The control case again proves defect rather than style: the
+dispatcher already iterated one tuple and refused every pair, so the
+runtime was always right and only the copies understated it.
+
+Fix: INFO_FACE_FLAGS, one (flag, dest) source — the dispatcher guard
+iterates it, info_other_faces() renders --index's help clause from it
+minus --index, the r200 test's FACES reads the constant (FACE_ARGS
+supplies --explain's value; a bare --explain dies as an argparse
+error, not the refusal under test), and the docs' --index lines name
+all six others. The guard's CANNOT lines are byte-identical in
+constant order; --json stays out of the set (the r158 two-faces rule).
+
+New tests: test_r352_info_face_copies.py — 13 tests, 5 classes
+(FaceSetShape, HelpCopy, DocsCopy, LiveSweep, CatalogPin). The guard
+is two-sided in every direction: the help must contain the derived
+six-face parenthetical AND must no longer contain the stale four-face
+snapshot; each doc's --index line must contain the derived list (the
+zh doc's expectation is built from the constant with backticks and
+full-width parens); the live sweep asserts the exact CANNOT message
+in constant order for all 21 pairs. argparse word-wraps help at
+terminal width and splits hyphenated tokens mid-word
+(--list-\nfields), so help comparisons run whitespace-free.
+
+Found by applying r158's family enumeration to the face vocabulary
+the way r349 applied it to the tag vocabulary: enumerate the runtime
+set, ask which surfaces name it, compare each.
+
+Pins: r175 recent-count 172 -> 173; r200 empty-window bracket
+r352/r352 -> r353/r353. Catalog count pins already floors (r349/r350/
+r351 each landed as >=).
+
+Catalog entry face-set-copies-rendered (since r352): import-verified
+catalog len 203, max since r352, module loads, INFO_FACE_FLAGS len 7.
+
+Docs: SKILL.md's `info --index` line, README.md's `info --index` row
+and README.zh-CN.md's `--index` row all take the six-face list + the
+r352 clause.
+
+Measured churn: the r200 sweep GAINED 11 pair assertions (10 -> 21);
+no runtime face changed; no test asserted the four-face spelling.
+
+Full suite after r352: 4085 passed, 0 failed (4072 before + 13 new).

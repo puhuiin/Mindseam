@@ -17,6 +17,14 @@ r200 refuses two classes:
   * any short-circuit face together with ``--format``/``--field``
     (the renderers only read the full payload those faces skip).
 
+The sweep ran over the five faces r200 knew. --explain (r202) and
+--warnings-only (r205) joined the set afterwards, and this file's own
+hand-typed FACES tuple never grew — the r352 drift the controller
+round fixed by rendering the set from INFO_FACE_FLAGS. This file's
+sweep now reads the same constant, so it covers all 21 pairs, and
+FACE_ARGS supplies --explain's value wherever a combination probe
+needs a complete call.
+
 ``--json`` is in neither class: every face already carries its own
 machine sub-face (the r158 two-faces rule) except ``--index``, whose
 ``--index --json`` used to print text and leave the host's JSON parser
@@ -47,7 +55,17 @@ import mindseam
 from _controller_helper import invoke_cli
 
 
-FACES = ("--index", "--version", "--check", "--memory", "--list-fields")
+# r352: read the set from the controller's single source instead of
+# the hand copy — the five-face snapshot omitted --explain and
+# --warnings-only, the two faces that joined in r202/r205, so the
+# pair-sweep below covered 10 of 21 pairs and the explain/warnings
+# face had never been swept against its newest siblings by this file.
+FACES = tuple(flag for flag, _ in mindseam.INFO_FACE_FLAGS)
+# --explain takes a FEATURE-ID value; a bare --explain in a
+# combination probe dies as an argparse error, not the refusal under
+# test. --warnings-only needs no value but answers from the health
+# gate, which every fixture below already satisfies.
+FACE_ARGS = {"--explain": ["info-memory"]}
 
 
 class InfoFaceExclusivityTests(unittest.TestCase):
@@ -74,7 +92,8 @@ class InfoFaceExclusivityTests(unittest.TestCase):
         for i in range(len(FACES)):
             for j in range(i + 1, len(FACES)):
                 a, b = FACES[i], FACES[j]
-                r = self._run("info", a, b)
+                r = self._run("info", a, *FACE_ARGS.get(a, ()),
+                              b, *FACE_ARGS.get(b, ()))
                 self.assertEqual(r.returncode, 2, (a, b))
                 self.assertIn("mutually exclusive info faces", r.stderr,
                               (a, b))
@@ -84,17 +103,19 @@ class InfoFaceExclusivityTests(unittest.TestCase):
 
     def test_face_with_renderer_is_refused(self):
         for face in FACES:
-            r = self._run("info", face, "--format", "version")
+            r = self._run("info", face, *FACE_ARGS.get(face, ()),
+                          "--format", "version")
             self.assertEqual(r.returncode, 2, face)
             self.assertIn("full payload", r.stderr, face)
             self.assertIn(face, r.stderr, face)
-            r = self._run("info", face, "--field", "version")
+            r = self._run("info", face, *FACE_ARGS.get(face, ()),
+                          "--field", "version")
             self.assertEqual(r.returncode, 2, face)
             self.assertIn("--field", r.stderr, face)
 
     def test_single_faces_still_work(self):
         for face in FACES:
-            r = self._run("info", face)
+            r = self._run("info", face, *FACE_ARGS.get(face, ()))
             self.assertEqual(r.returncode, 0, "%s -> %s" % (face, r.stderr))
             self.assertNotEqual(r.stdout, "", face)
 
@@ -150,13 +171,13 @@ class IndexJsonFaceTests(unittest.TestCase):
 
     def test_empty_result_is_empty_list(self):
         # A window that matches nothing yields [], not an error or the
-        # text face leaking through. r352 is past the catalog (r351 is
+        # text face leaking through. r353 is past the catalog (r352 is
         # the highest entry — each round's own catalog entry lands
         # inside the window the round before it left empty, so this
         # bracket has to move up every round), so the bracket is valid
         # but empty.
         r = self._run("info", "--index", "--json",
-                      "--index-since", "r352", "--index-until", "r352")
+                      "--index-since", "r353", "--index-until", "r353")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(json.loads(r.stdout), {"index": []})
 
