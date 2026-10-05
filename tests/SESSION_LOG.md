@@ -12548,3 +12548,53 @@ import-verified catalog len 208, module loads. Docs: SKILL.md's
 
 Measured churn: one helper, four call sites; the --csv TEXT face
 stays pure data with no keys riding into the cells.
+
+── r358 ── two narrowing flags were never disclosed, on any face
+
+The r349 rule caught this one by comparing two copies of the SAME
+closed set. r320's --row-id refusal list enumerates ELEVEN narrowing
+flags (--filter, --since, --until, --grep, --exclude, --empty, --head,
+--tail, --limit, --reverse, --keep — every one "changes which rows
+exist"); r324/r354/r357 built the disclosure keys from a DIFFERENT
+enumeration (r324's "four filters parsed in one block" plus r354's
+selectors) and reached eight. The gap was there from the day r320
+wrote its list. Live before-fix, on a five-row history, at exit 0:
+`history --filter next=dom1: action 1` answered one row and
+`history --empty --json` answered zero rows under the same key set
+the bare call answers with — a host could not tell a content-filtered
+window from an empty history, on every face the helper feeds (general
+--json plus the r357 --csv/--dedup/--empty faces).
+
+Fix: the helper gains a filter key disclosing its KEY=VALUE LIST
+(--filter is repeatable and ANDs, so the list is the truth — a scalar
+would understate a multi-needle call) and an empty key disclosing its
+boolean. Key order in the helper: head, limit, since, until, grep,
+exclude, filter, empty, keep, reverse. --tail keeps sharing --limit's
+key (r354's alias merge is the one deliberate many-to-one). The
+completeness is pinned as a flag-to-key map over all eleven
+refusal-list members in BOTH directions: no orphan keys, no
+undisclosed flags, and a live call per flag proving its key answers.
+
+Fixture lesson: --dedup and --empty are mutually exclusive renderers
+(r274), so a sub-face test that combines them tests r274's refusal
+instead of the disclosure it meant to pin — one call per renderer.
+
+Key-set pins advanced with the two new keys: r325/r326 (11 -> 13),
+r354 KEYS (11 -> 13), r357 NARROWING_KEYS (8 -> 10) and its three
+derived key sets; the r357 null-when-unset loops now exempt both
+boolean keys (reverse, empty).
+
+New tests: test_r358_narrowing_disclosure_complete.py — 17 tests, 4
+classes (FilterDisclosure, RefusalListCompleteness,
+NeighbouringGuards, CatalogPin).
+
+Pins: r175 recent-count 178 -> 179; r200 empty-window bracket
+r358/r358 -> r359/r359.
+
+Catalog entry narrowing-disclosure-complete (since r358):
+import-verified catalog len 209, module loads. Docs: SKILL.md's
+--filter and --empty lines, both READMEs' disclosure-family row.
+
+Measured churn: two keys on four faces; r320/r274/r278/r310
+neighbouring guards re-pinned green; no refusal, validation or
+rendering semantics changed.

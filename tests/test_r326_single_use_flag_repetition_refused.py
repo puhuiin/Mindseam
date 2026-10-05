@@ -323,9 +323,9 @@ class SingleUseUnchangedTests(_Base):
     def test_payload_key_set_is_unchanged(self):
         payload = self._json()
         self.assertEqual(sorted(payload.keys()),
-                         ["exclude", "grep", "head", "history_count",
-                          "keep", "limit", "reverse", "rows", "since",
-                          "until", "untrusted"])
+                         ["empty", "exclude", "filter", "grep", "head",
+                          "history_count", "keep", "limit", "reverse",
+                          "rows", "since", "until", "untrusted"])
 
     def test_single_values_still_filter(self):
         # --head takes from the oldest end and --tail from the newest, so

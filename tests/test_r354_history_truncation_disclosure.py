@@ -49,8 +49,8 @@ from _controller_helper import invoke_cli
 ROWS = [{"t": 1700000000 + i, "next": "dom%d: action %d" % (i % 3, i),
          "msg": "m%d" % i, "verified": 1, "open": 0} for i in range(5)]
 
-KEYS = ["exclude", "grep", "head", "history_count", "keep", "limit",
-        "reverse", "rows", "since", "until", "untrusted"]
+KEYS = ["empty", "exclude", "filter", "grep", "head", "history_count",
+        "keep", "limit", "reverse", "rows", "since", "until", "untrusted"]
 
 
 class DisclosureBase(unittest.TestCase):

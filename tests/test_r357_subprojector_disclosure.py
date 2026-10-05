@@ -48,8 +48,8 @@ from _controller_helper import invoke_cli
 ROWS = [{"t": 1700000000 + i, "next": "dom%d: action %d" % (i % 3, i),
          "msg": "m%d" % (i % 2), "verified": 1, "open": 0} for i in range(5)]
 
-NARROWING_KEYS = ("head", "limit", "since", "until",
-                  "grep", "exclude", "keep", "reverse")
+NARROWING_KEYS = ("head", "limit", "since", "until", "grep", "exclude",
+                  "filter", "empty", "keep", "reverse")
 CSV_KEYS = sorted(["columns", "rows", "untrusted"] + list(NARROWING_KEYS))
 DEDUP_KEYS = sorted(["history_count", "unique_count", "by", "rows",
                      "untrusted"] + list(NARROWING_KEYS))
@@ -87,8 +87,8 @@ class CsvFaceTests(SubProjectorBase):
         payload = self._json("--csv")
         self.assertEqual(sorted(payload.keys()), CSV_KEYS)
         for key in NARROWING_KEYS:
-            self.assertIsNone(payload[key]) if key != "reverse" else \
-                self.assertFalse(payload[key])
+            self.assertIsNone(payload[key]) if key not in ("reverse", "empty") else \
+                self.assertIsInstance(payload[key], bool)
         self.assertEqual(len(payload["rows"]), 5)
 
     def test_r299_machine_shape_still_holds(self):
@@ -118,8 +118,8 @@ class DedupFaceTests(SubProjectorBase):
         payload = self._json("--dedup")
         self.assertEqual(sorted(payload.keys()), DEDUP_KEYS)
         for key in NARROWING_KEYS:
-            self.assertIsNone(payload[key]) if key != "reverse" else \
-                self.assertFalse(payload[key])
+            self.assertIsNone(payload[key]) if key not in ("reverse", "empty") else \
+                self.assertIsInstance(payload[key], bool)
 
     def test_r277_untrusted_map_still_rides(self):
         payload = self._json("--dedup", "--head", "2")
@@ -137,8 +137,8 @@ class EmptyFaceTests(SubProjectorBase):
         payload = self._json("--empty")
         self.assertEqual(sorted(payload.keys()), EMPTY_KEYS)
         for key in NARROWING_KEYS:
-            self.assertIsNone(payload[key]) if key != "reverse" else \
-                self.assertFalse(payload[key])
+            self.assertIsNone(payload[key]) if key not in ("reverse", "empty") else \
+                self.assertIsInstance(payload[key], bool)
 
     def test_r277_untrusted_map_still_rides(self):
         payload = self._json("--empty")

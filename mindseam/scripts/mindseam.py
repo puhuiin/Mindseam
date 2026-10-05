@@ -8320,7 +8320,15 @@ def _history_narrowing_payload(args, since_seconds, until_seconds,
     general face told before r324. One helper, four faces, nothing to
     drift: null when unset, the limit key reports the EFFECTIVE
     newest-N bound (--tail fills it, per r354), and the key names are
-    the general face's."""
+    the general face's. r358: the key set now covers every narrowing
+    flag the --row-id refusal list (r320) enumerates — --filter and
+    --empty were members of that closed set from the day r320 wrote
+    it, but the disclosure keys were enumerated from r324's "four
+    filters" plus r354's selectors and missed both, so
+    ``history --filter next=build --json`` and ``history --empty
+    --json`` narrowed every face with no key naming it. --filter
+    discloses its KEY=VALUE list (repeatable, ANDs — the list is the
+    truth), --empty discloses its boolean."""
     return {
         "head": getattr(args, "head", None),
         "limit": (args.limit if args.limit is not None
@@ -8329,6 +8337,8 @@ def _history_narrowing_payload(args, since_seconds, until_seconds,
         "until": until_seconds,
         "grep": grep_text,
         "exclude": exclude_text,
+        "filter": (getattr(args, "filter", None) or None),
+        "empty": bool(getattr(args, "empty", False)),
         "keep": keep_n,
         "reverse": bool(getattr(args, "reverse", False)),
     }
@@ -10392,6 +10402,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "subprojector-faces-disclosed", "since": "r357",
      "summary": "two rounds of deliberate scoping (r324 fixed the general --json face; r354 extended it to the truncation selectors and scoped the sub-projectors out again, citing r324's own scoping) left three row-shipping machine faces with NO disclosure at all: `history --csv --json --head 2` answered two rows under {columns, rows, untrusted}, `history --dedup --json --head 2` answered two rows under {history_count, unique_count, by, rows, untrusted}, and `history --empty --json --since 3600` named no window — the exact pre-r324 lie (a host cannot tell a head-truncated window from a two-row history) surviving on the faces the pre-r324 round itself had set aside. The fix extracts the disclosure keys into one helper (_history_narrowing_payload) that every row-shipping face spreads into its payload — the r254/r259 single-source discipline applied to the disclosure surface itself: the general face keeps r354's exact key order and semantics (the --tail alias still fills the limit key through the same merge expression), and the three sub-faces gain the same eight keys, null when unset, so each face's key set is stable and the same narrowing says the same thing on every face. Scoped out and recorded: --span and --domains are aggregate reflections, not row shipments, and --row-id refuses narrowing outright (r276/r320), so it has nothing to disclose. Measured churn: the general face's payload construction now reads through the helper (byte-identical output — the r354 key set and values are re-pinned through it); the --csv TEXT face stays pure data with no keys riding into the cells",
+     "default": True},
+    {"id": "narrowing-disclosure-complete", "since": "r358",
+     "summary": "the r349 rule caught two copies of the SAME closed set drifting — r320's --row-id refusal list enumerates ELEVEN narrowing flags (--filter, --since, --until, --grep, --exclude, --empty, --head, --tail, --limit, --reverse, --keep, every one of them 'changes which rows exist'), while r324/r354/r357 built the disclosure keys from a different enumeration (r324's four filters plus r354's selectors) and reached only eight. The gap was there from the day the refusal list was written: --filter and --empty are refusal-list members but never had disclosure keys, so `history --filter next=build --json` answered one row and `history --empty --json` answered zero rows under the same key set the bare call answers with — a host could not tell a content-filtered window from an empty history, on every face the helper feeds. The fix closes the enumeration: the helper gains a filter key disclosing its KEY=VALUE LIST (the flag is repeatable and ANDs, so the list is the truth — a scalar would understate a multi-needle call) and an empty key disclosing its boolean, and the completeness is PINNED as a flag-to-key map over all eleven refusal-list members in both directions: no orphan keys, no undisclosed flags, and a live call per flag shows its key answering non-falsily. --tail keeps sharing --limit's key (r354's alias merge is the one deliberate many-to-one). Fixture lesson from the round's own first draft: --dedup and --empty are mutually exclusive renderers (r274), so the sub-face test needed one call per renderer instead of a combined call that r274 correctly refuses. Measured churn: the r325/r326/r354/r357 key-set pins all moved with the two new keys (11 to 13 and 8 to 10); no refusal, validation or rendering semantics changed",
      "default": True},
 )
 

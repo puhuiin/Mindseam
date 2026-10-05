@@ -171,13 +171,13 @@ class IndexJsonFaceTests(unittest.TestCase):
 
     def test_empty_result_is_empty_list(self):
         # A window that matches nothing yields [], not an error or the
-        # text face leaking through. r358 is past the catalog (r357 is
+        # text face leaking through. r359 is past the catalog (r358 is
         # the highest entry — each round's own catalog entry lands
         # inside the window the round before it left empty, so this
         # bracket has to move up every round), so the bracket is valid
         # but empty.
         r = self._run("info", "--index", "--json",
-                      "--index-since", "r358", "--index-until", "r358")
+                      "--index-since", "r359", "--index-until", "r359")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(json.loads(r.stdout), {"index": []})
 
