@@ -101,6 +101,29 @@ HISTORY_ROW_FIELDS = (
     "error", "outcome", "extra_steps",
 )
 
+# r361: the prose ``info --list-fields`` renders for each row field.
+# The KEY SET of the schema is this dict's keys and the dict is
+# guarded against HISTORY_ROW_FIELDS in both directions by
+# test_r361 — before r361 the schema hand-typed only the five
+# original fields, so the seven r4-era detector fields (marker,
+# confidence, verifier, risk, error, outcome, extra_steps) were
+# invisible on the one face whose whole job is self-description while
+# ``--filter`` and ``--fields`` accepted them live.
+HISTORY_ROW_FIELD_DOCS = {
+    "t": "epoch seconds when the seam was appended",
+    "next": "the next action that the model picked",
+    "verified": "count of verified checkpoints at that seam",
+    "open": "count of open questions at that seam",
+    "msg": "optional annotation, the way git commit -m adds a message",
+    "marker": "machine marker the seam fired (the r4 detector layer)",
+    "confidence": "model-declared confidence tag for the seam",
+    "verifier": "what the verification covered, named per r341",
+    "risk": "declared risk rung; one of low/medium/high",
+    "error": "error marker the seam hit",
+    "outcome": "declared outcome of the attempted action",
+    "extra_steps": "count of unplanned extra steps taken",
+}
+
 # The closed domain of the ``risk`` row field, ordered worst-last so the
 # ordered comparison in _fuse_run can read it as a ladder. Unlike marker,
 # confidence, verifier and error, risk is not free text: the health score
@@ -10412,6 +10435,9 @@ _FEATURE_CATALOG = (
     {"id": "intensity-ladder-copies-rendered", "since": "r360",
      "summary": "r349 cited --intensity's help as the CONTROL case proving the module does not loosely describe its sets — the help names all three rungs of INTENSITY_LEVELS — but that round enumerated the TAG vocabulary's surfaces, not the ladder's, and the ladder's three doc copies were left at a snapshot from before lite arrived: SKILL.md's --intensity line said '(full/off; MINDSEAM_INTENSITY sets the default)' while being the command `audit --intensity lite`, and both READMEs' rows named only `full` and `off`. The line demonstrated a level its own parenthetical denied existed; a host reading any of the three could conclude the ladder had two rungs and the CLI would never correct it, because every level works live. Probed away first: MINDSEAM_INTENSITY's invalid-value refusal already renders the tuple from INTENSITY_LEVELS (r349's render), uppercase env values normalise, and --strict composing with --tag is design adequately disclosed by r355/r356. The fix: all three doc lines state the off/lite/full ladder with needles DERIVED from mindseam.INTENSITY_LEVELS in the test (r352's discipline, line-scoped so this round's own prose about the old state cannot collide with the assertion — a lesson learned the hard way twice), and the one refusal that still hand-typed a slice of the set — the off refusal's 'set --intensity lite|full' — now renders its runnable rungs from INTENSITY_LEVELS minus off, so a fourth rung cannot go missing there the way lite went missing in the docs. Measured churn: zero runtime semantics changed; the off refusal's message content is unchanged on this host's three-rung ladder",
      "default": True},
+    {"id": "list-fields-renders-row-fields", "since": "r361",
+     "summary": "info --list-fields exists so a host can introspect what info/history/seam will produce without reading the source, and its own docstring promises the text and JSON faces expose the same vocabulary — but the schema's history_row section was a HAND-TYPED copy of the row schema that stopped at the five original fields while HISTORY_ROW_FIELDS carries twelve. The seven r4-era detector fields (marker, confidence, verifier, risk, error, outcome, extra_steps) were invisible on the one face whose whole job is self-description, and the CLI contradicted itself live: info --list-fields --json answered five history_row keys while history --filter confidence=0 and history --fields confidence,verifier both exited 0 accepting the undocumented fields. A host that built a consumer off the schema would believe confidence or risk could not be filtered on — the r349 shape, where the closed set is owned by the validators and the reporting face was a hand copy that predated the detector layer. The fix renders the schema's key set from HISTORY_ROW_FIELDS itself, in append order; the prose stays hand-written in HISTORY_ROW_FIELD_DOCS, pinned against HISTORY_ROW_FIELDS in BOTH directions (no missing doc, no orphan doc — r351's discipline for prose that cannot be derived), the ledger section gets the same two-directional guard against SECTIONS, and a live call per field proves --filter accepts everything the schema now describes. The risk doc names its closed domain (RISK_LEVELS — the one row field that is not free text, per the repair boundary). Measured churn: the JSON face's history_row grew 5 to 12 keys in append order; the text face renders 12 rows; the refusal message that renders HISTORY_ROW_FIELDS was already correct and is re-pinned as the control case",
+     "default": True},
 )
 
 def _resolve_path(payload, path):
@@ -11127,13 +11153,12 @@ def mode_info(book, json_flag=False, warnings_only=False,
                 "open": "questions that still need settling",
                 "next": "the next action the model is going to take",
             },
-            "history_row": {
-                "t": "epoch seconds when the seam was appended",
-                "next": "the next action that the model picked",
-                "verified": "count of verified checkpoints at that seam",
-                "open": "count of open questions at that seam",
-                "msg": "optional annotation, the way git commit -m adds a message",
-            },
+            # r361: the key set renders from HISTORY_ROW_FIELDS — the
+            # hand-typed five-field copy predated the r4 detector
+            # fields and understated the schema --filter and --fields
+            # both accept live.
+            "history_row": {name: HISTORY_ROW_FIELD_DOCS[name]
+                            for name in HISTORY_ROW_FIELDS},
             "info_payload": {
                 "ledger": "the ledger section above",
                 "history_count": "number of rows in history.json",

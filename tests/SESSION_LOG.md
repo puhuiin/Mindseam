@@ -12697,3 +12697,47 @@ import-verified catalog len 211, module loads.
 
 Measured churn: three doc lines + one refusal message now derived;
 zero runtime semantics changed on this host's three-rung ladder.
+
+── r361 ── the self-describing schema understated its own row schema
+
+Probed several closed-set candidates this round; two came clean (the
+--filter refusal's "e.g. --filter marker=OPEN" example — marker IS in
+HISTORY_ROW_FIELDS; and finding-id letters, which derive from the tag
+name). The one that held: `info --list-fields`, whose docstring
+promises "a host or human can introspect what info/history/seam will
+produce without reading the source" and "both faces expose the same
+vocabulary", carried a HAND-TYPED history_row section with only the
+five original fields while HISTORY_ROW_FIELDS carries twelve. Live
+before-fix, at exit 0: `info --list-fields --json` answered 5
+history_row keys while `history --filter confidence=0` and
+`history --fields confidence,verifier` both accepted the
+undocumented fields — the CLI contradicting itself, the r349 shape
+where the closed set is owned by the validators and the reporting
+face was a hand copy that predated the r4 detector layer. The seven
+invisible fields: marker, confidence, verifier, risk, error,
+outcome, extra_steps.
+
+Fix: the schema's history_row section renders from
+HISTORY_ROW_FIELDS itself, in append order; the prose stays
+hand-written in HISTORY_ROW_FIELD_DOCS, pinned against
+HISTORY_ROW_FIELDS in BOTH directions (r351's discipline for prose
+that cannot be derived); the ledger section gets the same
+two-directional guard against SECTIONS; and a live call per field
+proves --filter accepts everything the schema now describes. The
+risk doc names its closed domain (RISK_LEVELS — the one row field
+that is not free text, per the repair boundary, which is re-pinned).
+
+New tests: test_r361_list_fields_row_schema.py — 15 tests, 4 classes
+(SchemaCompleteness, TextFace, NeighbouringGuards, CatalogPin).
+
+Pins: r175 recent-count 181 -> 182; r200 empty-window bracket
+r361/r361 -> r362/r362.
+
+Catalog entry list-fields-renders-row-fields (since r361):
+import-verified catalog len 212, module loads. Docs: the
+--list-fields command lines in SKILL.md and both READMEs.
+
+Measured churn: the JSON face's history_row grew 5 to 12 keys in
+append order; the text face renders 12 rows; the --filter refusal
+that renders HISTORY_ROW_FIELDS was already correct and is re-pinned
+as the control case.
