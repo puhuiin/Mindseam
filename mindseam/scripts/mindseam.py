@@ -10406,6 +10406,9 @@ _FEATURE_CATALOG = (
     {"id": "narrowing-disclosure-complete", "since": "r358",
      "summary": "the r349 rule caught two copies of the SAME closed set drifting — r320's --row-id refusal list enumerates ELEVEN narrowing flags (--filter, --since, --until, --grep, --exclude, --empty, --head, --tail, --limit, --reverse, --keep, every one of them 'changes which rows exist'), while r324/r354/r357 built the disclosure keys from a different enumeration (r324's four filters plus r354's selectors) and reached only eight. The gap was there from the day the refusal list was written: --filter and --empty are refusal-list members but never had disclosure keys, so `history --filter next=build --json` answered one row and `history --empty --json` answered zero rows under the same key set the bare call answers with — a host could not tell a content-filtered window from an empty history, on every face the helper feeds. The fix closes the enumeration: the helper gains a filter key disclosing its KEY=VALUE LIST (the flag is repeatable and ANDs, so the list is the truth — a scalar would understate a multi-needle call) and an empty key disclosing its boolean, and the completeness is PINNED as a flag-to-key map over all eleven refusal-list members in both directions: no orphan keys, no undisclosed flags, and a live call per flag shows its key answering non-falsily. --tail keeps sharing --limit's key (r354's alias merge is the one deliberate many-to-one). Fixture lesson from the round's own first draft: --dedup and --empty are mutually exclusive renderers (r274), so the sub-face test needed one call per renderer instead of a combined call that r274 correctly refuses. Measured churn: the r325/r326/r354/r357 key-set pins all moved with the two new keys (11 to 13 and 8 to 10); no refusal, validation or rendering semantics changed",
      "default": True},
+    {"id": "baseline-write-disclosed", "since": "r359",
+     "summary": "audit --baseline-write is destructive — it creates or OVERWRITES the baseline file every later audit gates against — yet its success was invisible: the stdout was byte-identical to a plain audit (no line named the file, the write, or the findings it committed), the JSON payload carried no key, and an overwrite was silent too — the --keep hole r354 closed on history, one command over. The sharper edge was the tagged run: the write records the UNPROJECTED finding list by design (a baseline is a commitment about the ledger state, not about this run's projection), so under --tag next-stall the display answered 'Grade: B (1 fresh item)' while the file silently recorded all five findings — a host reading the tagged run would believe it had committed one finding, and a later full audit would report the other four as [baselined]: acknowledged debt the host never acknowledged. The fix closes it on both faces: the payload gains a baseline_write key (null when not writing; {path, recorded, overwritten, previous_count} when it ran, key set 12 and stable), and both the findings path and the r356 clean path print a confirmation line — 'Baseline written: P (N findings recorded).' or 'Baseline overwritten: P (N findings recorded; was M).' — with the tagged run appending that the write records the full ledger state and --tag shaped the display above only. The write-vs-display split itself is NOT changed: writing the full state is the r162 design and the safe direction (an under-recording write is what r201 refuses windows for); what changed is that the split is now named where it happens. Measured churn: one JSON key; r201 window refusal, r162 chained write+baseline gate, the finding-list file shape and the r156/r356 clean literals all re-pinned",
+     "default": True},
 )
 
 def _resolve_path(payload, path):
@@ -12375,6 +12378,26 @@ def _audit_baseline_read(path):
     return data
 
 
+def _audit_baseline_confirm(info, chosen):
+    """The r359 confirmation line for a successful --baseline-write.
+
+    The write is destructive (create or overwrite) and records the
+    UNPROJECTED finding list, so under --tag the line names the
+    write-vs-display split instead of letting the projected grade
+    stand as the whole story."""
+    if info["overwritten"]:
+        line = ("Baseline overwritten: %s (%d findings recorded; was %d)."
+                % (info["path"], info["recorded"],
+                   info["previous_count"]))
+    else:
+        line = ("Baseline written: %s (%d findings recorded)."
+                % (info["path"], info["recorded"]))
+    if chosen:
+        line += (" The write records the full ledger state; --tag shaped"
+                 " the display above only.")
+    return line
+
+
 def _audit_baseline_write(path, findings):
     """Write a new baseline file with the current findings."""
     parent = os.path.dirname(os.path.abspath(path)) or os.curdir
@@ -12784,6 +12807,7 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
         names = finding_untrusted_names(finding)
         if names:
             finding["untrusted"] = names
+    baseline_write_info = None
     # Baseline write runs before baseline read so a chained
     # ``--baseline-write X --baseline X`` invocation records the
     # current state and then gates against it in one shot — the
@@ -12794,11 +12818,29 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
     # commitment about the ledger state, not about this run's
     # projection.
     if baseline_write:
+        # r359: the write is destructive (it creates or OVERWRITES the
+        # baseline file) yet its success used to be invisible — the
+        # stdout was byte-identical to a plain audit and the JSON
+        # carried no key, the --keep hole r354 closed on history.
+        # Worse, under --tag the DISPLAY showed the projected grade
+        # while the file silently recorded the full finding list, and
+        # nothing on any face named that split. Disclose both: the
+        # payload gains a baseline_write key (null when not writing)
+        # and the text face gains a confirmation line.
+        prior = None
+        if os.path.exists(baseline_write):
+            prior = _audit_baseline_read(baseline_write)
         problem = _audit_baseline_write(baseline_write, full_findings)
         if problem:
             print("CANNOT: --baseline-write failed: %s" % problem,
                   file=sys.stderr)
             return 2
+        baseline_write_info = {
+            "path": baseline_write,
+            "recorded": len(full_findings),
+            "overwritten": prior is not None,
+            "previous_count": len(prior) if prior is not None else None,
+        }
     # Baseline read: any (tag, what) fingerprint already in the
     # baseline file is a *known* finding.
     baseline_findings = _audit_baseline_read(baseline) if baseline else []
@@ -12851,6 +12893,7 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
             "tags": chosen or list(AUDIT_TAGS),
             "by_tag": by_tag,
             "history_window": window,
+            "baseline_write": baseline_write_info,
             "findings": fresh_findings,
             "baselined_findings": [f for f in findings if f.get("baselined")],
         }
@@ -12884,6 +12927,8 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
                   % (at_row, rows_in))
         else:
             print("Lean already%s. Ship." % window_bits)
+        if baseline_write_info is not None:
+            print(_audit_baseline_confirm(baseline_write_info, chosen))
         return 0
     # r355: the header now names the projections that shaped the
     # findings below it — --at has had its clause since r161 and
@@ -12972,6 +13017,11 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
     else:
         print("Net: %d item%s removable."
               % (net, "" if net == 1 else "s"))
+    if baseline_write_info is not None:
+        # r359: the only stdout trace of the destructive side — the
+        # file this call just created or overwrote, how many findings
+        # it committed, and (under --tag) the write-vs-display split.
+        print(_audit_baseline_confirm(baseline_write_info, chosen))
     # Strict gates on fresh (non-baselined) findings only —
     # baselined findings are acknowledged debt and do not fail
     # the gate, the way eslint --baseline keeps old violations

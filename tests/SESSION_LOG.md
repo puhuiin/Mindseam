@@ -12598,3 +12598,50 @@ import-verified catalog len 209, module loads. Docs: SKILL.md's
 Measured churn: two keys on four faces; r320/r274/r278/r310
 neighbouring guards re-pinned green; no refusal, validation or
 rendering semantics changed.
+
+── r359 ── a successful --baseline-write used to be invisible
+
+Probed as a refusal question ("does --tag compose with
+--baseline-write?") and the answer reframed the round: the write DOES
+compose with --tag, and it records the UNPROJECTED finding list by
+design ("a baseline is a commitment about the ledger state, not about
+this run's projection"). The defect was the silence around it. Live
+before-fix, at exit 0: `audit --baseline-write b.json` answered with
+stdout byte-identical to a plain audit — no line named the file, the
+write, or the five findings it committed; the JSON payload carried no
+key; and overwriting an existing baseline was equally silent. The
+sharper edge: under `--tag next-stall` the display answered "Grade: B
+(1 fresh item)" while the file recorded all five findings — a host
+reading the tagged run would believe it committed one finding, and a
+later full audit would report the other four as [baselined]:
+acknowledged debt the host never acknowledged. The --keep hole r354
+closed on history, one command over, with a write/display split
+underneath it.
+
+Fix: the payload gains a baseline_write key (null when not writing;
+{path, recorded, overwritten, previous_count} when it ran — key set
+12, stable) and both the findings path and the r356 clean path print
+a confirmation line via _audit_baseline_confirm: "Baseline written:
+P (N findings recorded)." / "Baseline overwritten: P (N findings
+recorded; was M).", the tagged run appending "The write records the
+full ledger state; --tag shaped the display above only." The
+full-state write design is NOT changed — under-recording is what
+r201 refuses windows for; what changed is that the split is named
+where it happens.
+
+New tests: test_r359_baseline_write_disclosure.py — 18 tests, 4
+classes (TextConfirmation, JsonFace, NeighbouringGuards, CatalogPin).
+Sorting lesson: json key-sorted pins must place "baseline_write"
+before "baselined" ("_" < "d").
+
+Pins: r175 recent-count 179 -> 180; r200 empty-window bracket
+r359/r359 -> r360/r360.
+
+Catalog entry baseline-write-disclosed (since r359): import-verified
+catalog len 210, module loads. Docs: SKILL.md's --baseline-write
+line, both READMEs' disclosure-family row.
+
+Measured churn: one JSON key + one confirmation line on two paths;
+r201 window refusal, the r162 chained write+baseline gate, the
+finding-list file shape and the r156/r356 clean literals all
+re-pinned green.
