@@ -12441,3 +12441,56 @@ import-verified catalog len 206, module loads. Docs: SKILL.md's
 Measured churn: zero JSON keys changed; r159 unknown-tag refusal,
 r161 --at range and clean literal, r188 --at/window exclusivity and
 the three r156 clean literals all re-pinned green.
+
+── r356 ── the clean line could not name the window that cleaned it
+
+r355 named the projections on the audit findings header, but the CLEAN
+branch has no header — it answers in a single line — and the window
+was unnamed there. Live before-fix, on a ledger whose full audit
+answered "Grade: B (1 fresh item)" (goal-stale over 12 seams, none
+re-anchoring the goal): `audit --since 3600` answered
+"Lean already. Ship." — byte-identical to the clean answer an EMPTY
+history gives with no flags at all. The window that just made a
+finding disappear was indistinguishable from a ledger that never had
+one, on the only face a clean call answers with; the JSON
+history_window was always there, so the clean line was the lying half.
+The tagged clean line was equally blind: `audit --tag next-stall
+--since 3600` answered "Lean on next-stall. Ship." with the window
+unnamed.
+
+Fix: append the window to the clean line's own parenthesis, on r355's
+principle that the same narrowing says the same thing everywhere (the
+r324 history wording again): the tagged branch reads "Lean on X
+(last N s). Ship.", the bare branch "Lean already (last N s). Ship."
+/ "(older than N s)". --at already names its slice (r161) and cannot
+compose with the window (r188), so its r161 literal keeps standing
+alone byte-identically; the r156 bare clean literal is unchanged
+whenever no window was asked for — the narrowing is named only when a
+narrowing happened.
+
+Fixture lesson (caught by the round's own test, not the suite): a
+--since flag IS a window even when it keeps every row — --until 7200
+keeps 2023-era rows and --since 604800 empties them — so an
+"unchanged" pin must use a genuinely windowless call. The r355
+clean-on-chosen pin had been written with --since 604800 in its
+fixture; it moved to the windowed spelling with a note, because that
+is the call its fixture actually makes.
+
+Also probed this round: SKILL.md's invariants mirror section vs the
+code's INVARIANTS tuple (8 vs 8, text-identical — no drift, so no
+round; the resume face renders the tuple directly, so the mirror is
+the only copy and it happens to be honest today).
+
+New tests: test_r356_audit_clean_window_disclosure.py — 14 tests,
+3 classes (CleanWindow, NeighbouringGuards, CatalogPin).
+
+Pins: r175 recent-count 176 -> 177; r200 empty-window bracket
+r356/r356 -> r357/r357; r355's clean-on-chosen literal moved to the
+windowed spelling (fixture was windowed).
+
+Catalog entry audit-clean-window-disclosed (since r356):
+import-verified catalog len 207, module loads. Docs: SKILL.md's
+audit --since line, both READMEs' `audit --at 5` rows.
+
+Measured churn: one r355 pin advanced; zero JSON keys changed; the
+r156/r161/r188 clean literals and refusals re-pinned green.

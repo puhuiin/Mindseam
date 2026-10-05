@@ -171,7 +171,8 @@ class NeighbouringGuardsTests(AuditHeaderBase):
         r = invoke_cli(ws, ["audit", "--tag", "next-stall",
                             "--since", "604800"])
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(r.stdout, "Lean on next-stall. Ship.\n")
+        self.assertEqual(r.stdout, "Lean on next-stall (last 604800 s). Ship.\n")
+        # r356: the --since flag IS a window; the clean line names it.
 
     def test_r161_clean_at_literal_untouched(self):
         # The --at clean branch keeps its r161 wording. The LEAN book

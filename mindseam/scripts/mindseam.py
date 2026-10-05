@@ -10355,6 +10355,9 @@ _FEATURE_CATALOG = (
     {"id": "audit-header-names-projections", "since": "r355",
      "summary": "r161 gave --at a text-header clause and r162 gave --baseline its Baselined: N line, but --tag and the --since/--until window printed under a bare header while the audit JSON face disclosed both all along (the tags key and history_window). Live before-fix, on a ledger whose full audit answered Grade: D (5 fresh items): audit --tag next-stall printed a bare header over 'Grade: B (1 fresh item)' and audit --since 1 a bare header over 'Grade: C (2 fresh items)' — the projection was invisible and the grade read as the whole story, because the r156/r180 grade is computed over whatever set survives the narrowing and nothing on the page said the set had been narrowed. r161 fixed the one locator it added and missed the projector and the window it did not: the same face, the same doctrine r324 stated for history. The fix joins every locator and projection into one parenthesised clause list built the way the r352 face set is: one bits list, every clause derived from the flag state, r161's exact (at seam N of M) preserved, a tags: X clause (comma-joined, the way --tag a,b parses) following it, and the window reusing the history face's r324 wording (last N s / older than N s) so the same narrowing says the same thing on both subcommands. --at and the window are mutually exclusive (r188), so at most one locator appears; --tag composes with both; a no-flag call renders byte-identically. The JSON face is untouched — tags and history_window already carried the machine truth, which is exactly why the text face was the lying half. The clean branch's r156 literals (Lean already. Ship. / Lean on X. Ship. / Lean already (at seam N of M). Ship.) are untouched and re-pinned — the clean branch has no header and stays the next carrier. Measured churn: zero JSON keys changed; r159 unknown-tag, r161 --at range, r188 --at/window exclusivity and all three clean literals re-pinned",
      "default": True},
+    {"id": "audit-clean-window-disclosed", "since": "r356",
+     "summary": "r355 named the projections on the audit findings header, but the clean branch has no header — it answers in a single line — and the window was unnamed there. Live before-fix, on a ledger whose full audit answered Grade: B (goal-stale over 12 seams, none re-anchoring the goal): audit --since 3600 answered 'Lean already. Ship.' — byte-identical to the clean answer an EMPTY history gives with no flags at all. The window that just made a finding disappear was indistinguishable from a ledger that never had one, on the only face a clean call answers with; the JSON history_window was always there, so the clean line was the lying half. The tagged clean line was equally blind: audit --tag next-stall --since 3600 answered 'Lean on next-stall. Ship.' with the window unnamed. The fix appends the window to the clean line's own parenthesis on r355's principle that the same narrowing says the same thing everywhere — the r324 history wording again: the tagged branch reads 'Lean on X (last N s). Ship.', the bare branch 'Lean already (last N s). Ship.' / '(older than N s)'. --at already names its slice (r161) and cannot compose with the window (r188), so its r161 literal keeps standing alone byte-identically, and the r156 bare clean literal is unchanged whenever no window was asked for — the narrowing is named only when a narrowing happened. Fixture lesson from this round's own first draft: a --since flag IS a window even when it keeps every row (--until 7200 keeps 2023-era rows), so 'unchanged' pins must use genuinely windowless calls — the r355 clean-on-chosen pin moved to the windowed spelling with a note, because its fixture used --since 604800. Measured churn: one r355 pin advanced; zero JSON keys changed; r156/r161/r188 clean literals and refusals re-pinned",
+     "default": True},
 )
 
 def _resolve_path(payload, path):
@@ -12809,13 +12812,30 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0 if not strict else (0 if not fresh_findings else 1)
     if not findings:
+        # r356: the window is named on the clean line too. Before,
+        # `audit --since 3600` over a window that held no evidence
+        # printed the same bytes as a full clean audit — the narrowing
+        # that just made a finding disappear was invisible on the only
+        # face a clean call answers with (the JSON history_window was
+        # always there). Live before-fix: a ledger whose full audit
+        # answered Grade B (goal-stale over 12 seams) answered
+        # "Lean already. Ship." under --since 3600, byte-identical to
+        # an empty history's clean audit. --at already names its slice
+        # (r161) and cannot compose with the window (r188), so the two
+        # parenthesised shapes never coexist; the r156 bare literal
+        # stays byte-identical when no window was asked for.
+        window_bits = ""
+        if since_seconds is not None:
+            window_bits = " (last %d s)" % since_seconds
+        elif until_seconds is not None:
+            window_bits = " (older than %d s)" % until_seconds
         if chosen:
-            print("Lean on %s. Ship." % ", ".join(chosen))
+            print("Lean on %s%s. Ship." % (", ".join(chosen), window_bits))
         elif at_row is not None:
             print("Lean already (at seam %d of %d). Ship."
                   % (at_row, rows_in))
         else:
-            print("Lean already. Ship.")
+            print("Lean already%s. Ship." % window_bits)
         return 0
     # r355: the header now names the projections that shaped the
     # findings below it — --at has had its clause since r161 and
