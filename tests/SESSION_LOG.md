@@ -12385,3 +12385,59 @@ Measured churn: key-set pins 9 -> 11 in two files; five header
 literals; no selector's slicing semantics changed; the r217 negative
 refusal, r272 zero windows, r275 filter-then-truncate order and the
 r320 --row-id refusal are all re-pinned green.
+
+── r355 ── the audit text header did not name its projections
+
+r161 gave --at a header clause and r162 gave --baseline its
+"Baselined: N" line, but --tag and the --since/--until window printed
+under a bare header while the JSON face disclosed both all along (the
+"tags" key and history_window). Live before-fix, on a ledger whose
+full audit answered "Grade: D (5 fresh items)": `audit --tag
+next-stall` printed a bare header over "Grade: B (1 fresh item)" and
+`audit --since 1` a bare header over "Grade: C (2 fresh items)". The
+projection was invisible and the grade read as the whole story — the
+r156/r180 grade is computed over whatever set survives the narrowing,
+and nothing on the page said the set had been narrowed. r161 fixed
+the one locator it added and missed the projector and the window it
+did not: the same face, the same doctrine r324 stated for history.
+
+Fix: one bits list, every clause derived from the flag state (the
+r352 face-set way of building a rendered surface) — r161's exact
+"(at seam N of M)" preserved, a "tags: X" clause following it
+(comma-joined, the way --tag a,b parses), then the window reusing the
+history face's r324 wording ("last N s" / "older than N s") so the
+same narrowing says the same thing on both subcommands. --at and the
+window are mutually exclusive (r188), so at most one locator appears;
+--tag composes with both; a no-flag call renders byte-identically.
+The JSON face is untouched — tags and history_window already carried
+the machine truth, which is exactly why the text face was the lying
+half. The clean branch's r156 literals ("Lean already. Ship." /
+"Lean on X. Ship." / "Lean already (at seam N of M). Ship.") are
+untouched and re-pinned — the clean branch has no header and stays
+the next carrier.
+
+Fixture lesson: the --at clean branch needs a LEAN book — yagni and
+core-drift read the ledger directly and are NOT narrowed by the
+--at slice, so the FIVE_FINDINGS book kept answering 2 fresh items
+under --at 2. The r156 clean-on-chosen branch does filter the ledger
+findings (--tag drops them), so "Lean on next-stall. Ship." is
+reachable with the dirty book.
+
+New tests: test_r355_audit_header_projection.py — 22 tests, 5 classes
+(HeaderProjection, GradeProjection, JsonFaceUnchanged,
+NeighbouringGuards, CatalogPin). Doc lesson reused from r354: before
+writing a "--tag" literal into a SKILL command line, check the
+registration spelling — add_argument("--tag" exists (action="append"),
+so the clause is safe for r69.
+
+Pins: r175 recent-count 175 -> 176; r200 empty-window bracket
+r355/r355 -> r356/r356. No header literal pins broke (r161's tests
+assert the --at clause without pinning the surrounding header).
+
+Catalog entry audit-header-names-projections (since r355):
+import-verified catalog len 206, module loads. Docs: SKILL.md's
+--tag and --since lines, both READMEs' `audit --at 5` rows.
+
+Measured churn: zero JSON keys changed; r159 unknown-tag refusal,
+r161 --at range and clean literal, r188 --at/window exclusivity and
+the three r156 clean literals all re-pinned green.

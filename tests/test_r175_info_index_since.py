@@ -249,10 +249,11 @@ class IndexSinceContractTests(unittest.TestCase):
         # r169 landed. r349's entry was the 170th in the r170-onward
         # window, r350's the 171st, r351's the 172nd,
         # r352's (face-set-copies-rendered) the 173rd,
-        # r353's (invisible-class-tracks-unicode) the 174th and
-        # r354's (truncation-selectors-disclosed) the 175th, which is
-        # what moved this pin off 174.
-        self.assertEqual(len(recent), 175)
+        # r353's (invisible-class-tracks-unicode) the 174th,
+        # r354's (truncation-selectors-disclosed) the 175th and
+        # r355's (audit-header-names-projections) the 176th, which is
+        # what moved this pin off 175.
+        self.assertEqual(len(recent), 176)
         for line in recent:
             self.assertIn(line, full)
 

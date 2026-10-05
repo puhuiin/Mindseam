@@ -10352,6 +10352,9 @@ _FEATURE_CATALOG = (
     {"id": "truncation-selectors-disclosed", "since": "r354",
      "summary": "r324's disclosure doctrine stopped at the four text/time filters, and the truncation selectors r272 added slipped through the same gap the round itself had just closed: --head, --tail and --keep all narrow the rows the call ships — the --row-id refusal list (r320) counts every one of them as members that change which rows exist — but the machine face carried no key for any of them. Live before-fix on a five-row history: `history --head 2 --json` answered two rows with limit null and no head key, indistinguishable from a history that simply holds two rows; `history --tail 2 --json` was worse in a quieter way — --tail is r272's alias of --limit, one dest at runtime, yet the alias never filled the key its own aliasee owns, so the SAME truncation was disclosed under --limit and invisible under --tail; and `history --keep 2 --json` not only shipped two rows with no keep key, it silently rotated the FILE on disk — the destructive write left no stdout trace at all. The text face was equally blind: its clause set was {last N s, older than N s, grep, exclude, newest first} with nothing for first-N, last-N or keep. The fix extends the r324 shape to the selectors instead of inventing a third convention: a head key, a keep key, and the limit key reporting the EFFECTIVE newest-N bound through the same merge expression the slicing branch uses (args.limit, else args.tail) — so --tail fills the key --limit always filled, one value one name. Null when unset, the key set grows 9 to 11 and stays stable, and a no-flag call renders byte-identically on both faces. The text header gains ', first N rows' / ', last N rows' (the head -n N / tail -n N shapes r272 borrowed) and ', keep N' after 'newest first', because the rotation is the last thing that happened and the clause is the only stdout trace of the destructive side. history_count keeps r324's existing semantics — len of the surviving window, always equal to len(rows) — the new keys name what produced it, which is exactly the guess a host used to have to make. Measured churn: the r325/r326 payload key-set pins moved 9 to 11; no selector's slicing semantics changed; the r217/r272/r320/r275 neighbouring guards are re-pinned",
      "default": True},
+    {"id": "audit-header-names-projections", "since": "r355",
+     "summary": "r161 gave --at a text-header clause and r162 gave --baseline its Baselined: N line, but --tag and the --since/--until window printed under a bare header while the audit JSON face disclosed both all along (the tags key and history_window). Live before-fix, on a ledger whose full audit answered Grade: D (5 fresh items): audit --tag next-stall printed a bare header over 'Grade: B (1 fresh item)' and audit --since 1 a bare header over 'Grade: C (2 fresh items)' — the projection was invisible and the grade read as the whole story, because the r156/r180 grade is computed over whatever set survives the narrowing and nothing on the page said the set had been narrowed. r161 fixed the one locator it added and missed the projector and the window it did not: the same face, the same doctrine r324 stated for history. The fix joins every locator and projection into one parenthesised clause list built the way the r352 face set is: one bits list, every clause derived from the flag state, r161's exact (at seam N of M) preserved, a tags: X clause (comma-joined, the way --tag a,b parses) following it, and the window reusing the history face's r324 wording (last N s / older than N s) so the same narrowing says the same thing on both subcommands. --at and the window are mutually exclusive (r188), so at most one locator appears; --tag composes with both; a no-flag call renders byte-identically. The JSON face is untouched — tags and history_window already carried the machine truth, which is exactly why the text face was the lying half. The clean branch's r156 literals (Lean already. Ship. / Lean on X. Ship. / Lean already (at seam N of M). Ship.) are untouched and re-pinned — the clean branch has no header and stays the next carrier. Measured churn: zero JSON keys changed; r159 unknown-tag, r161 --at range, r188 --at/window exclusivity and all three clean literals re-pinned",
+     "default": True},
 )
 
 def _resolve_path(payload, path):
@@ -12814,10 +12817,29 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
         else:
             print("Lean already. Ship.")
         return 0
+    # r355: the header now names the projections that shaped the
+    # findings below it — --at has had its clause since r161 and
+    # --baseline its "Baselined: N" line since r162, but --tag and the
+    # window printed under a bare header while the JSON face disclosed
+    # both (tags / history_window). Live before-fix, `audit --tag
+    # next-stall` answered "Grade: B (1 fresh item)" under "── mindseam
+    # ─ audit" while the unfiltered audit answered D — the projection
+    # was invisible and the grade read as the whole story. The window
+    # clauses reuse the history face's r324 wording (last N s / older
+    # than N s); r161's exact "(at seam N of M)" is preserved and the
+    # tag clause joins after it. --at and the window are mutually
+    # exclusive (r188), so at most one of the three locators appears.
+    bits = []
     if at_row is not None:
-        header = "── mindseam ─ audit (at seam %d of %d)" % (at_row, rows_in)
-    else:
-        header = "── mindseam ─ audit"
+        bits.append("at seam %d of %d" % (at_row, rows_in))
+    if chosen:
+        bits.append("tags: %s" % ", ".join(chosen))
+    if since_seconds is not None:
+        bits.append("last %d s" % since_seconds)
+    if until_seconds is not None:
+        bits.append("older than %d s" % until_seconds)
+    header = ("── mindseam ─ audit"
+              + (" (%s)" % ", ".join(bits) if bits else ""))
     print(header)
     print("Grade: %s (%d fresh item%s)" % (grade, net,
                                             "" if net == 1 else "s"))
