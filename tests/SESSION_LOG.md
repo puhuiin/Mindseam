@@ -12786,3 +12786,42 @@ in SKILL.md and both READMEs.
 
 Measured churn: the JSON face's info_payload grew 6 to 15 paths; the
 text face renders them through the same loop it always has.
+
+── r363 ── an all-empty --tag was not "no tag", it was silence
+
+audit --tag parses comma-separated names with a strip-and-filter
+comprehension, so a value of ',' or ',,' or ' , ' filtered down to an
+empty chosen list — and the empty list fell through the `if chosen:`
+projection branch as if no tag had been given at all. Live
+before-fix, on a ledger with five findings: `audit --json --tag ,`
+answered byte-identically to a bare audit at exit 0 — the flag was
+given, the projection silently dropped, and the JSON tags key even
+answered with the FULL nine-tag list, so no face could tell a dropped
+flag from a full audit. The caller asked for a PROJECTION and got the
+whole picture. The r310 principle applies directly: an empty needle
+is not the absence of a needle (`--grep ''` was refused on the
+history face for the same reason).
+
+Fix: a value that names nothing is refused with exit 2, naming the
+tags the caller meant to choose from (rendered from AUDIT_TAGS, the
+list the unknown-tag refusal already renders). Mixed values keep
+working — `--tag " shrink ,,"` still projects to shrink, because a
+whitespace segment between commas is separator noise, not a needle;
+only a value whose every segment is empty is refused. The --explain
+face needs no change: it takes its own value and an empty name is
+simply not a tag there (its static-face refusal fires first — probed).
+
+New tests: test_r363_empty_tag_projection_refused.py — 13 tests, 3
+classes (EmptyTagProjection, NeighbouringGuards, CatalogPin). The
+r159 unknown-tag refusal, r349's rendered tag help, r328's repetition
+refusal and r310's empty-needle refusal are all re-pinned.
+
+Pins: r175 recent-count 183 -> 184; r200 empty-window bracket
+r363/r363 -> r364/r364.
+
+Catalog entry empty-tag-projection-refused (since r363):
+import-verified catalog len 214, module loads. Docs: SKILL.md's --tag
+line, both READMEs' r349 --tag rows.
+
+Measured churn: one refusal; no projection semantics changed for any
+value that names at least one tag.

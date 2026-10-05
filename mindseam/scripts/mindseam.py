@@ -10471,6 +10471,9 @@ _FEATURE_CATALOG = (
     {"id": "payload-paths-render-live", "since": "r362",
      "summary": "r361 rendered the schema's history_row section and left info_payload for this round, and the same r349 shape held one layer up: the hand copy listed SIX paths (ledger, history_count, last_seam.t, last_seam.gap_seconds, last_seam.long_gap, warnings) while the live info --json payload carries ELEVEN top-level keys. Seven blocks were never named — audit_summary, lock_state, meta_keys, risk, skillbook_entries, untrusted and features — and every one is addressable by info --format right now: `info --format audit_summary.net` printed 5 at exit 0 while the introspection face stayed silent about the block. A host that built a --format consumer off the face whose docstring promises to describe what info will produce would not know those paths exist. The guard shape had to differ from r361's because the payload key set is PARTLY dynamic (r189 computes audit_summary lazily; --content-hash/--changed/--health/--manifest/--mtime/--workspace-id add their blocks only when asked): INFO_PAYLOAD_DOCS describes the ALWAYS-PRESENT payload, and the test pins its first segments against the top-level keys of a REAL invocation in both directions — no orphan path, no live block without a path — with the scoping itself pinned (content_hash must NOT be in the table, because a no-flag invocation never carries it, so naming it would break the two-directional pin the table exists to enforce). Every top-level path is rendered live in the test, the six original paths survive, and r361's history_row guard is re-pinned. Measured churn: the JSON face's info_payload grew 6 to 15 paths; the text face renders them the same way both faces always have",
      "default": True},
+    {"id": "empty-tag-projection-refused", "since": "r363",
+     "summary": "audit --tag parses comma-separated names with a strip-and-filter comprehension, so a value of ',' or ',,' or ' , ' filtered down to an empty chosen list — and the empty list fell through the projection branch as if no tag had been given at all. Live before-fix, on a ledger with five findings: audit --json --tag , answered byte-identically to a bare audit at exit 0 — the flag was given, the projection silently dropped, and the JSON tags key even answered with the FULL nine-tag list, so no face could tell a dropped flag from a full audit. The caller asked for a PROJECTION and got the whole picture; the r310 principle applies directly (an empty needle is not the absence of a needle — --grep '' was refused on the history face for the same reason). The fix refuses a value that names nothing with exit 2, naming the tags the caller meant to choose from (rendered from AUDIT_TAGS, the list the unknown-tag refusal already renders). Mixed values keep working — `--tag \" shrink ,,\"` still projects to shrink, because a whitespace segment between commas is separator noise, not a needle; only a value whose every segment is empty is refused. The --explain face needs no change: it takes its own value and an empty name is simply not a tag there (its static-face refusal fires first). Measured churn: one refusal; the r159 unknown-tag refusal, r349's rendered tag help, r328's repetition refusal and r310's empty-needle refusal are all re-pinned",
+     "default": True},
 )
 
 def _resolve_path(payload, path):
@@ -12717,6 +12720,21 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
         return 2
     if tags:
         chosen = [t.strip() for t in tags.split(",") if t.strip()]
+        # r363: an all-empty --tag is not "no tag". Live before-fix,
+        # `audit --tag ,` answered byte-identically to a bare audit —
+        # the flag was given, the projection silently dropped, and the
+        # JSON tags key even answered with the FULL tag list, so no
+        # face could tell a dropped flag from a full audit. The r310
+        # principle: an empty needle is not the absence of a needle.
+        # Mixed values keep working (`--tag " shrink ,,"` still
+        # projects to shrink) — only a value that names NOTHING is
+        # refused, naming the tags the caller meant to choose from.
+        if not chosen:
+            print("CANNOT: --tag %r names no tag." % tags,
+                  file=sys.stderr)
+            print("  known tags: %s" % ", ".join(AUDIT_TAGS),
+                  file=sys.stderr)
+            return 2
         unknown = [t for t in chosen if t not in AUDIT_TAGS]
         if unknown:
             print("CANNOT: --tag %s is not a recognised audit tag."

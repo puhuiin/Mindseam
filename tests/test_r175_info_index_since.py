@@ -257,10 +257,11 @@ class IndexSinceContractTests(unittest.TestCase):
         # r358's (narrowing-disclosure-complete) the 179th,
         # r359's (baseline-write-disclosed) the 180th,
         # r360's (intensity-ladder-copies-rendered) the 181st,
-        # r361's (list-fields-renders-row-fields) the 182nd and
-        # r362's (payload-paths-render-live) the 183rd, which is
-        # what moved this pin off 182.
-        self.assertEqual(len(recent), 183)
+        # r361's (list-fields-renders-row-fields) the 182nd,
+        # r362's (payload-paths-render-live) the 183rd and
+        # r363's (empty-tag-projection-refused) the 184th, which is
+        # what moved this pin off 183.
+        self.assertEqual(len(recent), 184)
         for line in recent:
             self.assertIn(line, full)
 
