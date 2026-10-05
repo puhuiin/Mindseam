@@ -12645,3 +12645,55 @@ Measured churn: one JSON key + one confirmation line on two paths;
 r201 window refusal, the r162 chained write+baseline gate, the
 finding-list file shape and the r156/r356 clean literals all
 re-pinned green.
+
+── r360 ── the intensity ladder's doc copies predated lite
+
+Two recorded candidates probed away first: MINDSEAM_INTENSITY's
+invalid-value refusal already renders INTENSITY_LEVELS from the
+constant (bogus -> CANNOT rc 2 naming "off, lite, full"; uppercase
+"LITE" normalises), and --strict composing with --tag is design
+adequately disclosed by r355/r356 (the clean line names the chosen
+tag, the header names it on the findings path). The probe that
+reframed the round: the refusal's own line prints "valid levels: off,
+lite, full" while SKILL.md's --intensity line said "(full/off; ...)"
+— and that line IS the command `audit --intensity lite`.
+
+The defect: INTENSITY_LEVELS = ("off", "lite", "full") is the runtime
+truth — the argparse help names all three ("lite caps the report at 3
+findings, full prints all (default), off refuses to run"), the
+invalid-value refusal renders the whole tuple, and every level works
+live. r349 cited --intensity's help as the CONTROL case proving the
+module does not loosely describe its sets, but that round enumerated
+the TAG vocabulary's surfaces, not the ladder's. The ladder's three
+doc copies stayed at a two-rung snapshot: SKILL.md 333, README.md 187
+and README.zh-CN.md 184 all omitted lite. A host reading any of the
+three could conclude the ladder had two rungs; the CLI would never
+correct it. The same family, one layer down: the off refusal's
+"set --intensity lite|full" was a hand-typed slice of the set.
+
+Fix: all three doc lines state the off/lite/full ladder; the doc test
+derives its needles from mindseam.INTENSITY_LEVELS (r352's
+discipline); and the off refusal now RENDERS its runnable rungs from
+INTENSITY_LEVELS minus off, so a fourth rung cannot go missing there
+the way lite went missing in the docs.
+
+Test lessons (both self-inflicted, both caught at file-run): the
+r352 needle discipline needs LINE SCOPING when the round's own prose
+describes the old state — a full-text assertNotIn("full/off") collided
+with the SKILL line's "this line used to say full/off" and the README
+replacement's "the default, `off` refuses"; and the whitespace-free
+help comparison must match the exact inflection ("offrefusestorun",
+not "offrefusetorun") — argparse's mid-token wrap is not the only
+trap, the needle itself has to be the real string.
+
+New tests: test_r360_intensity_ladder_copies.py — 13 tests, 4 classes
+(RuntimeLadder, DocsCopy, CatalogPin; help control case re-pinned).
+
+Pins: r175 recent-count 180 -> 181; r200 empty-window bracket
+r360/r360 -> r361/r361.
+
+Catalog entry intensity-ladder-copies-rendered (since r360):
+import-verified catalog len 211, module loads.
+
+Measured churn: three doc lines + one refusal message now derived;
+zero runtime semantics changed on this host's three-rung ladder.

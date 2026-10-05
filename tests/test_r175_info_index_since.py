@@ -254,10 +254,11 @@ class IndexSinceContractTests(unittest.TestCase):
         # r355's (audit-header-names-projections) the 176th,
         # r356's (audit-clean-window-disclosed) the 177th,
         # r357's (subprojector-faces-disclosed) the 178th,
-        # r358's (narrowing-disclosure-complete) the 179th and
-        # r359's (baseline-write-disclosed) the 180th, which is
-        # what moved this pin off 179.
-        self.assertEqual(len(recent), 180)
+        # r358's (narrowing-disclosure-complete) the 179th,
+        # r359's (baseline-write-disclosed) the 180th and
+        # r360's (intensity-ladder-copies-rendered) the 181st, which is
+        # what moved this pin off 180.
+        self.assertEqual(len(recent), 181)
         for line in recent:
             self.assertIn(line, full)
 

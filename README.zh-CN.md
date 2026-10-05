@@ -181,7 +181,7 @@ loop 三种 pass，以及可选控制器负责记录长任务状态而不负责�
 | `audit --json` 评级 | r180：每条 finding 带稳定 run 内 id（`[D1]`/`[S1]`/`[Y1]`/`[K1]`/`[G1]`/`[N1]`/`[C1]`，借鉴 tokenhabit），payload 附 fresh 计数的字母评级 A-F（切点 0/1/2/5/8）；id 在 `--tag` 投影之前分配，投影不重编号 |
 | `audit --json` 决策出处 | r241：payload 带 `model` 块，注明产出该评级的版本化决策输入——id、控制器 rev、评级切点、健康分档位表、具名阈值。借鉴 Jev 的校准规则（*当阈值依赖模型行为时固定版本化 model ID，并记录响应里返回的版本而非别名*）：宿主看到此前的 `grade: C` 能分辨是尺度变了还是账本变了。`seam --json` 与 `resume --json` 带同一块 |
 | `audit --strict` | 有发现时以非零码退出（CI 门禁） |
-| `audit --intensity lite` | 打印的发现最多三条（默认 `full`，`off` 拒绝执行；`MINDSEAM_INTENSITY` 可设默认档位） |
+| `audit --intensity lite` | 打印的发现最多三条。r360：阶梯是 `off` / `lite` / `full`——`full` 是默认，`off` 拒绝运行，`MINDSEAM_INTENSITY` 可设默认档位。本行早于 lite 的加入、此前只名另外两级，而解析器帮助与拒绝消息都已点名全部三级 |
 | `audit --tag core-drift,next-stall` | 仅列出指定标签；未知标签拒绝执行并退出码为 2（类似 `gh pr list --label`）。标签集合：`delete`、`stdlib`、`yagni`、`shrink`、`goal-stale`、`next-stall`、`core-drift`。evidence 字段随投影保留 |
 | `audit --since 3600` | 仅取最近一小时的历史喂给 facet 标签（`goal-stale` / `next-stall` / `shrink`）；ledger 表面标签仍然扫描整本 book（类似 `journalctl --since`） |
 | `audit --since 30m` / `--since 7d` / `--since 2026-09-01` | r173：`--since` / `--until` 现在支持时长跨度（`30s`/`45m`/`12h`/`7d`/`2w`）、ISO-8601 日期（`2026-09-01`、`2026-09-01T10:30:00`；末尾 `Z` 锁定 UTC），或纯秒数（`3600`）。无法解析的取值与未来日期一律以 exit 2 拒绝（类似 `git log --since` / `docker logs --since`） |

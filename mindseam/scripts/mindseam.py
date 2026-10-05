@@ -10409,6 +10409,9 @@ _FEATURE_CATALOG = (
     {"id": "baseline-write-disclosed", "since": "r359",
      "summary": "audit --baseline-write is destructive — it creates or OVERWRITES the baseline file every later audit gates against — yet its success was invisible: the stdout was byte-identical to a plain audit (no line named the file, the write, or the findings it committed), the JSON payload carried no key, and an overwrite was silent too — the --keep hole r354 closed on history, one command over. The sharper edge was the tagged run: the write records the UNPROJECTED finding list by design (a baseline is a commitment about the ledger state, not about this run's projection), so under --tag next-stall the display answered 'Grade: B (1 fresh item)' while the file silently recorded all five findings — a host reading the tagged run would believe it had committed one finding, and a later full audit would report the other four as [baselined]: acknowledged debt the host never acknowledged. The fix closes it on both faces: the payload gains a baseline_write key (null when not writing; {path, recorded, overwritten, previous_count} when it ran, key set 12 and stable), and both the findings path and the r356 clean path print a confirmation line — 'Baseline written: P (N findings recorded).' or 'Baseline overwritten: P (N findings recorded; was M).' — with the tagged run appending that the write records the full ledger state and --tag shaped the display above only. The write-vs-display split itself is NOT changed: writing the full state is the r162 design and the safe direction (an under-recording write is what r201 refuses windows for); what changed is that the split is now named where it happens. Measured churn: one JSON key; r201 window refusal, r162 chained write+baseline gate, the finding-list file shape and the r156/r356 clean literals all re-pinned",
      "default": True},
+    {"id": "intensity-ladder-copies-rendered", "since": "r360",
+     "summary": "r349 cited --intensity's help as the CONTROL case proving the module does not loosely describe its sets — the help names all three rungs of INTENSITY_LEVELS — but that round enumerated the TAG vocabulary's surfaces, not the ladder's, and the ladder's three doc copies were left at a snapshot from before lite arrived: SKILL.md's --intensity line said '(full/off; MINDSEAM_INTENSITY sets the default)' while being the command `audit --intensity lite`, and both READMEs' rows named only `full` and `off`. The line demonstrated a level its own parenthetical denied existed; a host reading any of the three could conclude the ladder had two rungs and the CLI would never correct it, because every level works live. Probed away first: MINDSEAM_INTENSITY's invalid-value refusal already renders the tuple from INTENSITY_LEVELS (r349's render), uppercase env values normalise, and --strict composing with --tag is design adequately disclosed by r355/r356. The fix: all three doc lines state the off/lite/full ladder with needles DERIVED from mindseam.INTENSITY_LEVELS in the test (r352's discipline, line-scoped so this round's own prose about the old state cannot collide with the assertion — a lesson learned the hard way twice), and the one refusal that still hand-typed a slice of the set — the off refusal's 'set --intensity lite|full' — now renders its runnable rungs from INTENSITY_LEVELS minus off, so a fourth rung cannot go missing there the way lite went missing in the docs. Measured churn: zero runtime semantics changed; the off refusal's message content is unchanged on this host's three-rung ladder",
+     "default": True},
 )
 
 def _resolve_path(payload, path):
@@ -12647,7 +12650,12 @@ def mode_audit(book, json_flag=False, strict=False, intensity=None,
         return 2
     if level == "off":
         print("CANNOT: audit intensity is off.", file=sys.stderr)
-        print("  set --intensity lite|full (or MINDSEAM_INTENSITY) to run the audit",
+        # r360: the runnable levels render from INTENSITY_LEVELS rather
+        # than a hand copy, so a fourth rung cannot go missing here the
+        # way lite went missing from all three doc copies.
+        print("  set --intensity %s (or %s) to run the audit"
+              % ("|".join(lv for lv in INTENSITY_LEVELS if lv != "off"),
+                 INTENSITY_ENV),
               file=sys.stderr)
         return 2
     if tags:
