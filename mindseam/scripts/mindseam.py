@@ -8309,6 +8309,31 @@ def refuse_repeated_single_use(args, specs):
     return None
 
 
+def _history_narrowing_payload(args, since_seconds, until_seconds,
+                               grep_text, exclude_text, keep_n):
+    """The r324/r354 disclosure keys, shared by every history face
+    that ships rows (the general --json face since r324/r354; the
+    --csv, --dedup and --empty machine faces since r357). Before
+    r357 those three sub-faces narrowed silently: ``history --csv
+    --json --head 2`` answered two rows under {columns, rows,
+    untrusted} with no key naming the truncation — the same lie the
+    general face told before r324. One helper, four faces, nothing to
+    drift: null when unset, the limit key reports the EFFECTIVE
+    newest-N bound (--tail fills it, per r354), and the key names are
+    the general face's."""
+    return {
+        "head": getattr(args, "head", None),
+        "limit": (args.limit if args.limit is not None
+                  else getattr(args, "tail", None)),
+        "since": since_seconds,
+        "until": until_seconds,
+        "grep": grep_text,
+        "exclude": exclude_text,
+        "keep": keep_n,
+        "reverse": bool(getattr(args, "reverse", False)),
+    }
+
+
 def mode_history(args):
     """Print the recent seam history.
 
@@ -8878,8 +8903,17 @@ def mode_history(args):
             for row in hist:
                 rows_out.append(
                     [_history_cell(f, row.get(f), "") for f in cols])
+            # r357: the machine face of --csv ships narrowed rows with
+            # the same disclosure keys the general --json face has
+            # carried since r324/r354 — `history --csv --json --head 2`
+            # used to answer two rows under {columns, rows, untrusted}
+            # with no key naming the truncation, the pre-r324 lie on a
+            # face r324's own round scoped out.
             print(json.dumps({
                 "columns": cols,
+                **_history_narrowing_payload(args, since_seconds,
+                                             until_seconds, grep_text,
+                                             exclude_text, keep_n),
                 "rows": rows_out,
                 "untrusted": history_untrusted_map(hist),
             }, ensure_ascii=False, indent=2))
@@ -9070,10 +9104,18 @@ def mode_history(args):
             seen.add(key)
             deduped.append(row)
         if args.json:
+            # r357: the shared disclosure keys — `history --dedup
+            # --json --head 2` used to answer two rows under
+            # {history_count, unique_count, by, rows, untrusted} with
+            # no key naming the truncation, the pre-r324 lie on a face
+            # r324's own round scoped out.
             payload = {
                 "history_count": len(hist),
                 "unique_count": len(deduped),
                 "by": "msg" if use_msg else "next",
+                **_history_narrowing_payload(args, since_seconds,
+                                             until_seconds, grep_text,
+                                             exclude_text, keep_n),
                 "rows": deduped,
             }
             # r277: this machine face ships the deduped rows verbatim, so a
@@ -9127,8 +9169,14 @@ def mode_history(args):
         # truncation r275 relocated), so ``hist`` already holds only the
         # empty-next rows and this renderer owns only the output.
         if args.json:
+            # r357: the shared disclosure keys — the --empty machine
+            # face narrowed silently too: `history --empty --json
+            # --since 3600` answered with no key naming the window.
             payload = {
                 "history_count": len(hist),
+                **_history_narrowing_payload(args, since_seconds,
+                                             until_seconds, grep_text,
+                                             exclude_text, keep_n),
                 "rows": hist,
             }
             # r277: the same r245 gap as the --dedup machine face. An empty
@@ -9156,29 +9204,13 @@ def mode_history(args):
             print("  %3d  %s" % (row_no.get(id(row), index), when))
         return 0
     if args.json:
-        # r354: --head, --tail and --keep all narrow the rows this call
-        # ships — the --row-id refusal list already counts every one of
-        # them as "changes which rows exist" — but none had a disclosure
-        # key: `history --head 2 --json` returned two rows with limit
-        # null, indistinguishable from a history that simply holds two
-        # rows, and --keep silently rotated the FILE on disk as well.
-        # The r324 doctrine extended from the four text/time filters to
-        # the truncation selectors: a head key, a keep key, and the
-        # limit key now reports the EFFECTIVE newest-N bound — --tail
-        # is r272's alias of --limit (one dest at runtime, the merge
-        # expression below), so the alias fills the same key instead of
-        # answering null. Null when unset, so the key set is stable.
+        # r357: the disclosure keys come from the shared helper now —
+        # same keys, same values, same order as r354 left them.
         payload = {
             "history_count": len(hist),
-            "head": getattr(args, "head", None),
-            "limit": (args.limit if args.limit is not None
-                      else getattr(args, "tail", None)),
-            "since": since_seconds,
-            "until": until_seconds,
-            "grep": grep_text,
-            "exclude": exclude_text,
-            "keep": keep_n,
-            "reverse": bool(getattr(args, "reverse", False)),
+            **_history_narrowing_payload(args, since_seconds,
+                                         until_seconds, grep_text,
+                                         exclude_text, keep_n),
             "rows": list(hist),
         }
         # r245: the machine face of the same boundary. The text table
@@ -10357,6 +10389,9 @@ _FEATURE_CATALOG = (
      "default": True},
     {"id": "audit-clean-window-disclosed", "since": "r356",
      "summary": "r355 named the projections on the audit findings header, but the clean branch has no header — it answers in a single line — and the window was unnamed there. Live before-fix, on a ledger whose full audit answered Grade: B (goal-stale over 12 seams, none re-anchoring the goal): audit --since 3600 answered 'Lean already. Ship.' — byte-identical to the clean answer an EMPTY history gives with no flags at all. The window that just made a finding disappear was indistinguishable from a ledger that never had one, on the only face a clean call answers with; the JSON history_window was always there, so the clean line was the lying half. The tagged clean line was equally blind: audit --tag next-stall --since 3600 answered 'Lean on next-stall. Ship.' with the window unnamed. The fix appends the window to the clean line's own parenthesis on r355's principle that the same narrowing says the same thing everywhere — the r324 history wording again: the tagged branch reads 'Lean on X (last N s). Ship.', the bare branch 'Lean already (last N s). Ship.' / '(older than N s)'. --at already names its slice (r161) and cannot compose with the window (r188), so its r161 literal keeps standing alone byte-identically, and the r156 bare clean literal is unchanged whenever no window was asked for — the narrowing is named only when a narrowing happened. Fixture lesson from this round's own first draft: a --since flag IS a window even when it keeps every row (--until 7200 keeps 2023-era rows), so 'unchanged' pins must use genuinely windowless calls — the r355 clean-on-chosen pin moved to the windowed spelling with a note, because its fixture used --since 604800. Measured churn: one r355 pin advanced; zero JSON keys changed; r156/r161/r188 clean literals and refusals re-pinned",
+     "default": True},
+    {"id": "subprojector-faces-disclosed", "since": "r357",
+     "summary": "two rounds of deliberate scoping (r324 fixed the general --json face; r354 extended it to the truncation selectors and scoped the sub-projectors out again, citing r324's own scoping) left three row-shipping machine faces with NO disclosure at all: `history --csv --json --head 2` answered two rows under {columns, rows, untrusted}, `history --dedup --json --head 2` answered two rows under {history_count, unique_count, by, rows, untrusted}, and `history --empty --json --since 3600` named no window — the exact pre-r324 lie (a host cannot tell a head-truncated window from a two-row history) surviving on the faces the pre-r324 round itself had set aside. The fix extracts the disclosure keys into one helper (_history_narrowing_payload) that every row-shipping face spreads into its payload — the r254/r259 single-source discipline applied to the disclosure surface itself: the general face keeps r354's exact key order and semantics (the --tail alias still fills the limit key through the same merge expression), and the three sub-faces gain the same eight keys, null when unset, so each face's key set is stable and the same narrowing says the same thing on every face. Scoped out and recorded: --span and --domains are aggregate reflections, not row shipments, and --row-id refuses narrowing outright (r276/r320), so it has nothing to disclose. Measured churn: the general face's payload construction now reads through the helper (byte-identical output — the r354 key set and values are re-pinned through it); the --csv TEXT face stays pure data with no keys riding into the cells",
      "default": True},
 )
 

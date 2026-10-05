@@ -12494,3 +12494,57 @@ audit --since line, both READMEs' `audit --at 5` rows.
 
 Measured churn: one r355 pin advanced; zero JSON keys changed; the
 r156/r161/r188 clean literals and refusals re-pinned green.
+
+── r357 ── the sub-projector machine faces narrowed silently
+
+Probed first: r356's recorded carrier (the lite "N more" line) turned
+out to be ALREADY closed — `audit --intensity lite` prints
+"+2 more findings — rerun with --intensity full to see them.", the
+r226 shape the note assumed was missing. Dropped without touching
+anything; probe-first saved the round from a no-op.
+
+The real defect, on the record since r324 scoped it out and r354
+scoped it out again: the three row-shipping sub-projector machine
+faces carry no disclosure keys at all. Live before-fix, on a
+five-row history, all at exit 0: `history --csv --json --head 2`
+answered two rows under {columns, rows, untrusted};
+`history --dedup --json --head 2` answered two rows under
+{history_count, unique_count, by, rows, untrusted};
+`history --empty --json --since 3600` named no window. The exact
+pre-r324 lie — a host cannot tell a head-truncated window from a
+history that simply holds two rows — surviving on the faces the
+pre-r324 round itself had set aside.
+
+Fix: ONE helper (`_history_narrowing_payload`) that every
+row-shipping face spreads into its payload — the r254/r259
+single-source discipline applied to the disclosure surface itself.
+The general face reads through it now (same keys, same values, same
+order r354 left: the --tail alias still fills the limit key) and the
+three sub-faces gain the same eight keys, null when unset, each
+face's key set stable. Scoped out and recorded: --span/--domains are
+aggregate reflections, not row shipments; --row-id refuses narrowing
+outright (r276/r320), so it has nothing to disclose.
+
+Test lessons from the round's own first draft (caught at file-run,
+not by the suite): `history_untrusted_map` is keyed by row INDEX and
+holds only flagged rows, so a clean fixture yields {} — the r299/r277
+contract is the map's SHAPE, never its length against rows; and a
+Namespace fixture feeding the helper must pass ints, because the
+limit merge passes the value through unvalidated (argparse type=int
+does the validating on the CLI side).
+
+New tests: test_r357_subprojector_disclosure.py — 22 tests, 5 classes
+(CsvFace, DedupFace, EmptyFace, GeneralFaceRegression, Neighbouring,
+CatalogPin).
+
+Pins: r175 recent-count 177 -> 178; r200 empty-window bracket
+r357/r357 -> r358/r358. No existing key-set or header pins moved (the
+general face renders byte-identically through the helper; the
+disclosure-family files r324/r325/r326/r354 all green).
+
+Catalog entry subprojector-faces-disclosed (since r357):
+import-verified catalog len 208, module loads. Docs: SKILL.md's
+--csv/--dedup/--empty lines, both READMEs' r324 disclosure rows.
+
+Measured churn: one helper, four call sites; the --csv TEXT face
+stays pure data with no keys riding into the cells.

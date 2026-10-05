@@ -251,10 +251,11 @@ class IndexSinceContractTests(unittest.TestCase):
         # r352's (face-set-copies-rendered) the 173rd,
         # r353's (invisible-class-tracks-unicode) the 174th,
         # r354's (truncation-selectors-disclosed) the 175th,
-        # r355's (audit-header-names-projections) the 176th and
-        # r356's (audit-clean-window-disclosed) the 177th, which is
-        # what moved this pin off 176.
-        self.assertEqual(len(recent), 177)
+        # r355's (audit-header-names-projections) the 176th,
+        # r356's (audit-clean-window-disclosed) the 177th and
+        # r357's (subprojector-faces-disclosed) the 178th, which is
+        # what moved this pin off 177.
+        self.assertEqual(len(recent), 178)
         for line in recent:
             self.assertIn(line, full)
 
