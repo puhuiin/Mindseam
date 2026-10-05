@@ -12741,3 +12741,48 @@ Measured churn: the JSON face's history_row grew 5 to 12 keys in
 append order; the text face renders 12 rows; the --filter refusal
 that renders HISTORY_ROW_FIELDS was already correct and is re-pinned
 as the control case.
+
+── r362 ── the payload-path schema never named most of the payload
+
+r361's own recorded carrier, and the same r349 shape one layer up:
+the schema's info_payload section hand-listed SIX paths (ledger,
+history_count, last_seam.t, last_seam.gap_seconds, last_seam.long_gap,
+warnings) while the live info --json payload carries ELEVEN top-level
+keys. Seven blocks were never named — audit_summary, lock_state,
+meta_keys, risk, skillbook_entries, untrusted, features — and every
+one is addressable by info --format right now: live before-fix,
+`info --format audit_summary.net` printed 5 at exit 0 while the
+introspection face stayed silent about the block. A host building a
+--format consumer off the face whose docstring promises to describe
+"what info will produce" would not know those paths exist.
+
+The guard shape differs from r361's because the payload key set is
+PARTLY dynamic (r189 computes audit_summary lazily; --content-hash,
+--changed, --health, --manifest, --mtime and --workspace-id add
+blocks only when asked). INFO_PAYLOAD_DOCS describes the
+ALWAYS-PRESENT payload, and the test pins its first segments against
+the top-level keys of a REAL invocation in both directions — no
+orphan path, no live block without a path. The scoping is itself
+pinned: content_hash must NOT be in the table, because naming it
+would break the two-directional pin on a no-flag call (the exact
+drift the table exists to prevent). Every top-level path is rendered
+live in the test; the six original paths survive; r361's history_row
+guard is re-pinned.
+
+Probed: `--format bogus.path` answers rc 0 with empty output (the
+r170 lenient rendering), so the live-call guard asserts rc 0 rather
+than output equality; `--check --json` rc 2 is the check face's own
+payload shape, not corruption.
+
+New tests: test_r362_payload_paths_render_live.py — 14 tests, 3
+classes (PayloadPathCompleteness, Scoping, CatalogPin).
+
+Pins: r175 recent-count 182 -> 183; r200 empty-window bracket
+r362/r362 -> r363/r363.
+
+Catalog entry payload-paths-render-live (since r362): import-verified
+catalog len 213, module loads. Docs: the --list-fields command lines
+in SKILL.md and both READMEs.
+
+Measured churn: the JSON face's info_payload grew 6 to 15 paths; the
+text face renders them through the same loop it always has.

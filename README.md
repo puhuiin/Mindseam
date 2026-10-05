@@ -255,7 +255,7 @@ the task workspace as the current directory.
 <python-command> <skill-root>/scripts/mindseam.py info --human
 <python-command> <skill-root>/scripts/mindseam.py info --check
 <python-command> <skill-root>/scripts/mindseam.py info --memory                        # report workspace disk size in human units (like free -m / du -h); r285: the size word and its raw byte parenthetical read `1 byte` (singular) for a one-byte workspace, plural otherwise; r286: each KB/MB/GB rung is chosen by the rounded value the reader sees (`float("%.1f" % value) < 1024.0`), so a size in a rung's top sliver (1048540 bytes) reads "1.0 MB" the way `ls -lh` promotes it, never "1024.0 KB"
-<python-command> <skill-root>/scripts/mindseam.py info --list-fields  # r361: the schema's history_row section renders from HISTORY_ROW_FIELDS (12 fields) — the hand-typed five-field copy left the r4 detector fields undocumented while --filter/--fields accepted them live
+<python-command> <skill-root>/scripts/mindseam.py info --list-fields  # r361: the schema's history_row section renders from HISTORY_ROW_FIELDS (12 fields) — the hand-typed five-field copy left the r4 detector fields undocumented while --filter/--fields accepted them live  # r362: the schema's info_payload section renders from INFO_PAYLOAD_DOCS against the LIVE payload — the hand copy listed 6 of 11 top-level blocks; the two-directional pin holds against a real invocation
 <python-command> <skill-root>/scripts/mindseam.py history
 <python-command> <skill-root>/scripts/mindseam.py history --head 5
 <python-command> <skill-root>/scripts/mindseam.py history --tail 5

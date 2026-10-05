@@ -124,6 +124,36 @@ HISTORY_ROW_FIELD_DOCS = {
     "extra_steps": "count of unplanned extra steps taken",
 }
 
+# r362: the prose ``info --list-fields`` renders for the payload paths
+# ``info --format`` can address on the ALWAYS-PRESENT payload (the
+# flag-conditional blocks --content-hash/--changed/--health/--manifest/
+# --mtime/--workspace-id are documented by their own flags and are
+# deliberately not listed here). The first segment of every path must
+# name a live top-level payload key, and every live top-level key must
+# have a path here — pinned in both directions by test_r362 against a
+# real invocation. Before r362 the hand copy listed six paths and
+# never named audit_summary, lock_state, meta_keys, risk,
+# skillbook_entries, untrusted or features, all of which --format
+# addresses (``--format audit_summary.net`` printed 5 while the
+# schema stayed silent about the block).
+INFO_PAYLOAD_DOCS = {
+    "ledger": "the ledger section above",
+    "history_count": "number of rows in history.json",
+    "last_seam": "the most recent seam row",
+    "last_seam.t": "epoch seconds of the most recent seam",
+    "last_seam.gap_seconds": "seconds since that seam, or null",
+    "last_seam.long_gap": "true if gap > RESUME_GAP",
+    "warnings": "list of human-meaningful alert lines",
+    "audit_summary": "the audit roll-up over the same ledger and history",
+    "audit_summary.net": "how many findings that audit found",
+    "lock_state": "the r179 write-lock state (owner_alive, age, stale)",
+    "meta_keys": "keys present in the ledger's meta block",
+    "risk": "the declared risk of the latest seam",
+    "skillbook_entries": "entries the skillbook reflection extracted",
+    "untrusted": "the r250 map of ledger sections carrying a directive",
+    "features": "the r167 feature catalog (always populated)",
+}
+
 # The closed domain of the ``risk`` row field, ordered worst-last so the
 # ordered comparison in _fuse_run can read it as a ladder. Unlike marker,
 # confidence, verifier and error, risk is not free text: the health score
@@ -10438,6 +10468,9 @@ _FEATURE_CATALOG = (
     {"id": "list-fields-renders-row-fields", "since": "r361",
      "summary": "info --list-fields exists so a host can introspect what info/history/seam will produce without reading the source, and its own docstring promises the text and JSON faces expose the same vocabulary — but the schema's history_row section was a HAND-TYPED copy of the row schema that stopped at the five original fields while HISTORY_ROW_FIELDS carries twelve. The seven r4-era detector fields (marker, confidence, verifier, risk, error, outcome, extra_steps) were invisible on the one face whose whole job is self-description, and the CLI contradicted itself live: info --list-fields --json answered five history_row keys while history --filter confidence=0 and history --fields confidence,verifier both exited 0 accepting the undocumented fields. A host that built a consumer off the schema would believe confidence or risk could not be filtered on — the r349 shape, where the closed set is owned by the validators and the reporting face was a hand copy that predated the detector layer. The fix renders the schema's key set from HISTORY_ROW_FIELDS itself, in append order; the prose stays hand-written in HISTORY_ROW_FIELD_DOCS, pinned against HISTORY_ROW_FIELDS in BOTH directions (no missing doc, no orphan doc — r351's discipline for prose that cannot be derived), the ledger section gets the same two-directional guard against SECTIONS, and a live call per field proves --filter accepts everything the schema now describes. The risk doc names its closed domain (RISK_LEVELS — the one row field that is not free text, per the repair boundary). Measured churn: the JSON face's history_row grew 5 to 12 keys in append order; the text face renders 12 rows; the refusal message that renders HISTORY_ROW_FIELDS was already correct and is re-pinned as the control case",
      "default": True},
+    {"id": "payload-paths-render-live", "since": "r362",
+     "summary": "r361 rendered the schema's history_row section and left info_payload for this round, and the same r349 shape held one layer up: the hand copy listed SIX paths (ledger, history_count, last_seam.t, last_seam.gap_seconds, last_seam.long_gap, warnings) while the live info --json payload carries ELEVEN top-level keys. Seven blocks were never named — audit_summary, lock_state, meta_keys, risk, skillbook_entries, untrusted and features — and every one is addressable by info --format right now: `info --format audit_summary.net` printed 5 at exit 0 while the introspection face stayed silent about the block. A host that built a --format consumer off the face whose docstring promises to describe what info will produce would not know those paths exist. The guard shape had to differ from r361's because the payload key set is PARTLY dynamic (r189 computes audit_summary lazily; --content-hash/--changed/--health/--manifest/--mtime/--workspace-id add their blocks only when asked): INFO_PAYLOAD_DOCS describes the ALWAYS-PRESENT payload, and the test pins its first segments against the top-level keys of a REAL invocation in both directions — no orphan path, no live block without a path — with the scoping itself pinned (content_hash must NOT be in the table, because a no-flag invocation never carries it, so naming it would break the two-directional pin the table exists to enforce). Every top-level path is rendered live in the test, the six original paths survive, and r361's history_row guard is re-pinned. Measured churn: the JSON face's info_payload grew 6 to 15 paths; the text face renders them the same way both faces always have",
+     "default": True},
 )
 
 def _resolve_path(payload, path):
@@ -11159,14 +11192,13 @@ def mode_info(book, json_flag=False, warnings_only=False,
             # both accept live.
             "history_row": {name: HISTORY_ROW_FIELD_DOCS[name]
                             for name in HISTORY_ROW_FIELDS},
-            "info_payload": {
-                "ledger": "the ledger section above",
-                "history_count": "number of rows in history.json",
-                "last_seam.t": "epoch seconds of the most recent seam",
-                "last_seam.gap_seconds": "seconds since that seam, or null",
-                "last_seam.long_gap": "true if gap > RESUME_GAP",
-                "warnings": "list of human-meaningful alert lines",
-            },
+            # r362: the paths render from INFO_PAYLOAD_DOCS, whose key
+            # set the test pins against the LIVE info --json payload in
+            # both directions — the hand copy listed only six paths and
+            # never named audit_summary, lock_state, meta_keys, risk,
+            # skillbook_entries, untrusted or features, all of which
+            # --format addresses live.
+            "info_payload": dict(INFO_PAYLOAD_DOCS),
         }
         if json_flag and not text_only:
             print(json.dumps(schema, indent=2, ensure_ascii=False))
